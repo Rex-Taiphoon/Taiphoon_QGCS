@@ -1,177 +1,153 @@
 /**
  * @file test_agent_lifecycle_module.cpp
- * @brief AgentLifecycleModule 單元測試 — 單機限制與 shutdown service 橋接
+ * @brief AgentLifecycleModule：單機限制、service 未就緒、回應比對與逾時
  * @author Taiphoon GCS Team
- * @date 2026-08-06
+ * @date 2026-10-12
  */
-#include "core/event_bus.hpp"
+#include "fakes/fake_agent_link.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
-#include <gtest/gtest.h>
-#include <nlohmann/json.hpp>
-#include <rclcpp/rclcpp.hpp>
-#include <std_srvs/srv/set_bool.hpp>
-#include <any>
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
-#include <memory>
-#include <mutex>
-#include <string>
-#include <thread>
 
-using json = nlohmann::json;
+#include <QSignalSpy>
+
+#include <gtest/gtest.h>
+
+using namespace gcs;
 using namespace std::chrono_literals;
+using gcs::test::FakeAgentLink;
 
 namespace
 {
 
-std::string makeShutdownRequest(const std::string& agent)
+const QString AGENT_3 = QStringLiteral("uav_3_agent");
+
+/// 測試用的回應逾時（毫秒），避免每個案例等待 5 秒
+constexpr auto TEST_TIMEOUT = 50ms;
+/// QSignalSpy::wait 的上限（毫秒）
+constexpr int WAIT_LIMIT_MS = 2000;
+
+/**
+ * @class AgentLifecycleModuleTest
+ * @brief 以 FakeAgentLink 驅動的生命週期模組
+ */
+class AgentLifecycleModuleTest : public ::testing::Test
 {
-    json request;
-    request["type"] = "agent_shutdown_request";
-    request["agent"] = agent;
-    return request.dump();
+protected:
+    void SetUp() override
+    {
+        lifecycle_.set_response_timeout(TEST_TIMEOUT);
+        ASSERT_TRUE(lifecycle_.init());
+    }
+
+    FakeAgentLink link_;
+    AgentLifecycleModule lifecycle_{&link_};
+};
+
+/**
+ * @brief 取出最後一筆回報
+ * @param spy command_acked 的 QSignalSpy
+ * @return 回報
+ */
+CommandAck last_ack(QSignalSpy& spy)
+{
+    return spy.isEmpty() ? CommandAck{} : spy.takeLast().at(0).value<CommandAck>();
 }
 
 }  // namespace
 
-class AgentLifecycleModuleTest : public ::testing::Test
-{
-protected:
-    static void SetUpTestSuite()
-    {
-        const int argc = 1;
-        const char* argv[] = {"test_agent_lifecycle_module"};
-        rclcpp::init(argc, argv);
-    }
-
-    static void TearDownTestSuite()
-    {
-        rclcpp::shutdown();
-    }
-};
-
 TEST_F(AgentLifecycleModuleTest, RejectsAllAgentShutdownRequest)
 {
-    EventBus bus;
-    AgentLifecycleModule lifecycle;
-    ASSERT_TRUE(lifecycle.init(bus));
+    QSignalSpy acked(&lifecycle_, &AgentLifecycleModule::command_acked);
+    lifecycle_.request_shutdown(ALL_AGENTS_TARGET);
 
-    std::string acknowledgement;
-    bus.subscribe("cmd_ack", [&acknowledgement](const std::string&, const std::any& data)
-    {
-        acknowledgement = std::any_cast<std::string>(data);
-    });
-
-    bus.publish("agent_shutdown_request", makeShutdownRequest("all"));
-
-    ASSERT_FALSE(acknowledgement.empty());
-    const json parsed = json::parse(acknowledgement);
-    EXPECT_EQ(parsed["command"], "AGENT_SHUTDOWN");
-    EXPECT_EQ(parsed["status"], "error");
-    EXPECT_NE(parsed["message"].get<std::string>().find("單一"), std::string::npos);
-    lifecycle.shutdown();
+    const CommandAck ack = last_ack(acked);
+    EXPECT_FALSE(ack.is_ok);
+    EXPECT_EQ(ack.command, AgentLifecycleModule::SHUTDOWN_COMMAND);
+    EXPECT_TRUE(ack.message.contains(QStringLiteral("單一")));
+    EXPECT_TRUE(link_.shutdown_requests.empty());
 }
 
 TEST_F(AgentLifecycleModuleTest, RejectsShutdownWhenServiceUnavailable)
 {
-    EventBus bus;
-    AgentLifecycleModule lifecycle;
-    ASSERT_TRUE(lifecycle.init(bus));
+    link_.is_shutdown_service_ready = false;
+    QSignalSpy acked(&lifecycle_, &AgentLifecycleModule::command_acked);
+    QSignalSpy accepted(&lifecycle_, &AgentLifecycleModule::shutdown_accepted);
+    lifecycle_.request_shutdown(AGENT_3);
 
-    std::string acknowledgement;
-    std::string acceptedAgent;
-    bus.subscribe("agent_shutdown_accepted", [&acceptedAgent](const std::string&, const std::any& data)
-    {
-        acceptedAgent = std::any_cast<std::string>(data);
-    });
-    bus.subscribe("cmd_ack", [&acknowledgement](const std::string&, const std::any& data)
-    {
-        acknowledgement = std::any_cast<std::string>(data);
-    });
-
-    // 使用不存在的 Agent namespace，避免與執行中的模擬器服務互相干擾
-    bus.publish("agent_shutdown_request", makeShutdownRequest("uav_99_agent"));
-
-    ASSERT_FALSE(acknowledgement.empty());
-    const json parsed = json::parse(acknowledgement);
-    EXPECT_EQ(parsed["status"], "error");
-    EXPECT_NE(parsed["message"].get<std::string>().find("shutdown service"), std::string::npos);
-    EXPECT_TRUE(acceptedAgent.empty());
-    lifecycle.shutdown();
+    const CommandAck ack = last_ack(acked);
+    EXPECT_FALSE(ack.is_ok);
+    EXPECT_TRUE(ack.message.contains(QStringLiteral("shutdown service")));
+    EXPECT_TRUE(accepted.isEmpty());
 }
 
-TEST_F(AgentLifecycleModuleTest, SingleAgentRequestCallsShutdownService)
+TEST_F(AgentLifecycleModuleTest, SuccessfulReplyIsolatesAgentThenAcks)
 {
-    EventBus bus;
-    AgentLifecycleModule lifecycle;
-    ASSERT_TRUE(lifecycle.init(bus));
+    QSignalSpy acked(&lifecycle_, &AgentLifecycleModule::command_acked);
+    QSignalSpy accepted(&lifecycle_, &AgentLifecycleModule::shutdown_accepted);
+    lifecycle_.request_shutdown(AGENT_3);
+    ASSERT_EQ(link_.shutdown_requests.size(), 1U);
+    EXPECT_TRUE(acked.isEmpty());
 
-    auto serviceNode = std::make_shared<rclcpp::Node>("test_agent_supervisor_node");
-    std::atomic_bool receivedShutdownRequest{false};
-    auto service = serviceNode->create_service<std_srvs::srv::SetBool>(
-        "/uav_3_agent/shutdown",
-        [&receivedShutdownRequest](const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
-                                   std::shared_ptr<std_srvs::srv::SetBool::Response> response)
-        {
-            if (request == nullptr || response == nullptr)
-            {
-                return;
-            }
-            receivedShutdownRequest.store(request->data);
-            response->success = true;
-            response->message = "測試服務已接受關閉請求";
-        });
+    const quint64 request_id = link_.shutdown_requests[0].request_id;
+    emit link_.shutdown_replied(AGENT_3, request_id, true, QStringLiteral("關閉請求已接受"));
 
-    rclcpp::executors::MultiThreadedExecutor executor;
-    executor.add_node(lifecycle.getNode());
-    executor.add_node(serviceNode);
-    std::thread spinThread([&executor]()
-    {
-        executor.spin();
-    });
+    ASSERT_EQ(accepted.size(), 1);
+    EXPECT_EQ(accepted.takeFirst().at(0).toString(), AGENT_3);
+    const CommandAck ack = last_ack(acked);
+    EXPECT_TRUE(ack.is_ok);
+    EXPECT_EQ(ack.agent, AGENT_3);
+}
 
-    std::mutex acknowledgementMutex;
-    std::condition_variable acknowledgementCv;
-    std::string acknowledgement;
-    std::string shutdownAcceptedAgent;
-    bus.subscribe("agent_shutdown_accepted", [&shutdownAcceptedAgent](const std::string&, const std::any& data)
-    {
-        shutdownAcceptedAgent = std::any_cast<std::string>(data);
-    });
-    bus.subscribe("cmd_ack", [&acknowledgement, &acknowledgementCv, &acknowledgementMutex](
-        const std::string&, const std::any& data)
-    {
-        {
-            std::lock_guard<std::mutex> lock(acknowledgementMutex);
-            acknowledgement = std::any_cast<std::string>(data);
-        }
-        acknowledgementCv.notify_one();
-    });
+TEST_F(AgentLifecycleModuleTest, FailedReplyForwardsAgentMessage)
+{
+    QSignalSpy acked(&lifecycle_, &AgentLifecycleModule::command_acked);
+    QSignalSpy accepted(&lifecycle_, &AgentLifecycleModule::shutdown_accepted);
+    lifecycle_.request_shutdown(AGENT_3);
+    emit link_.shutdown_replied(AGENT_3, link_.shutdown_requests[0].request_id, false,
+                                QStringLiteral("data 必須為 true"));
 
-    bus.publish("agent_shutdown_request", makeShutdownRequest("uav_3_agent"));
+    const CommandAck ack = last_ack(acked);
+    EXPECT_FALSE(ack.is_ok);
+    EXPECT_EQ(ack.message, QStringLiteral("data 必須為 true"));
+    EXPECT_TRUE(accepted.isEmpty());
+}
 
-    bool receivedAcknowledgement = false;
-    {
-        std::unique_lock<std::mutex> lock(acknowledgementMutex);
-        receivedAcknowledgement = acknowledgementCv.wait_for(lock, 3s, [&acknowledgement]()
-        {
-            return !acknowledgement.empty();
-        });
-    }
+TEST_F(AgentLifecycleModuleTest, DuplicateRequestRejectedWhilePending)
+{
+    QSignalSpy acked(&lifecycle_, &AgentLifecycleModule::command_acked);
+    lifecycle_.request_shutdown(AGENT_3);
+    lifecycle_.request_shutdown(AGENT_3);
 
-    executor.cancel();
-    spinThread.join();
-    service.reset();
-    serviceNode.reset();
-    lifecycle.shutdown();
+    EXPECT_EQ(link_.shutdown_requests.size(), 1U);
+    EXPECT_TRUE(last_ack(acked).message.contains(QStringLiteral("等待回應")));
+}
 
-    ASSERT_TRUE(receivedAcknowledgement);
+TEST_F(AgentLifecycleModuleTest, TimeoutReportsErrorAndIgnoresLateReply)
+{
+    QSignalSpy acked(&lifecycle_, &AgentLifecycleModule::command_acked);
+    QSignalSpy accepted(&lifecycle_, &AgentLifecycleModule::shutdown_accepted);
+    lifecycle_.request_shutdown(AGENT_3);
+    const quint64 request_id = link_.shutdown_requests[0].request_id;
 
-    const json parsed = json::parse(acknowledgement);
-    EXPECT_EQ(parsed["agent"], "uav_3_agent");
-    EXPECT_EQ(parsed["command"], "AGENT_SHUTDOWN");
-    EXPECT_EQ(parsed["status"], "ok");
-    EXPECT_TRUE(receivedShutdownRequest.load());
-    EXPECT_EQ(shutdownAcceptedAgent, "uav_3_agent");
+    ASSERT_TRUE(acked.wait(WAIT_LIMIT_MS));
+    const CommandAck ack = last_ack(acked);
+    EXPECT_FALSE(ack.is_ok);
+    EXPECT_TRUE(ack.message.contains(QStringLiteral("逾時")));
+
+    // 逾時後才到的回應不得再隔離 Agent 或產生第二筆回報
+    emit link_.shutdown_replied(AGENT_3, request_id, true, QStringLiteral("遲到的回應"));
+    EXPECT_TRUE(accepted.isEmpty());
+    EXPECT_TRUE(acked.isEmpty());
+}
+
+TEST_F(AgentLifecycleModuleTest, IgnoresReplyForOtherRequest)
+{
+    QSignalSpy acked(&lifecycle_, &AgentLifecycleModule::command_acked);
+    lifecycle_.request_shutdown(AGENT_3);
+    const quint64 request_id = link_.shutdown_requests[0].request_id;
+
+    emit link_.shutdown_replied(AGENT_3, request_id + 1, true, QStringLiteral("其他請求"));
+    EXPECT_TRUE(acked.isEmpty());
+
+    emit link_.shutdown_replied(AGENT_3, request_id, true, QStringLiteral("本次請求"));
+    EXPECT_TRUE(last_ack(acked).is_ok);
 }

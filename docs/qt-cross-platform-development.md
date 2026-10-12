@@ -222,7 +222,7 @@ M1 是決定方案是否可行的關卡；M2 不需要網路，可與 M1 同時�
 |---|---|---|
 | **M0 治理與骨架** ✅ | ADR、AGENTS／CONTEXT／CODE_CONSTRAINT 修訂；移除舊元件；本機 `git init`；`CMakePresets.json` 與空白 QML 視窗 | 文件經開發者確認；`cmake --preset windows-debug` 可建置執行 |
 | **M1 DDS 相容 PoC** ✅ | 固定 CycloneDDS 0.10.5；`msg2idl`；`tools/dds_probe` 驗證 ADR-0014 的 5 個項目 | 對 Humble Agent（SITL）全部通過；任一項失敗則重新評估 |
-| **M2 核心移植**（與 M1 同時） | `gcs_core`、核心型別、`IAgentLink`、`FakeAgentLink`、模組改為 `QObject`、組裝根、測試改寫 | Guard 全組合測試與其他既有測試案例全部通過；組裝測試證明無法繞過 Guard |
+| **M2 核心移植** ✅ | `gcs_core`、核心型別、`IAgentLink`、`FakeAgentLink`、模組改為 `QObject`、組裝根、測試改寫 | Guard 全組合測試與其他既有測試案例全部通過；組裝測試證明無法繞過 Guard |
 | **M3 Link 層與無介面整合** | `CycloneAgentLink`、QoS 表測試、CDR 往返測試、服務請求標頭測試；以日誌驗證完整流程 | SITL 上發現 → 遙測 → 命令 → 回報 → shutdown 端到端通過 |
 | **M4 QML 主介面** | `UiBridge`、models；F-01～F-07、F-09、F-10、F-12 | 逐項對照網頁版行為 |
 | **M5 地圖** | `MapView.qml`、航向箭頭、軌跡、自動跟隨 | F-08 對等 |
@@ -259,6 +259,23 @@ M1 是決定方案是否可行的關卡；M2 不需要網路，可與 M1 同時�
   Peer 為 `localhost` 與 `192.168.65.254:7510`（`host.docker.internal` 與 GCS 的 participant index 50）。
 - dds_probe：`--interface <主機區網 IP> --external-address 192.168.65.254 --no-multicast --peer <主機區網 IP>
   --participant-index 50`。容器回送封包經 Docker Desktop 轉送至主機 loopback，因此不受防火牆影響。
+
+### 6.2 M2 核心移植結果（2026-10-12）
+
+- `gcs_core`（QtCore）：核心型別、`IAgentLink`、`command_protocol`、五個模組；`gcs_wiring`：組裝根。
+- 轉移表移至 `modules/guard/guard_rules.cpp`，規則逐字沿用網頁版；GuardModule 只負責狀態追蹤與錯誤訊息。
+- 測試 82 項全數通過，包含：轉移表 `FlightState` × `CmdType` 全組合（規則層與模組層各一套）、
+  網頁版所有 Guard 情境、組裝根整合測試（被 Guard 拒絕的命令一律不會到達 `IAgentLink`）。
+- 移除：EventBus、WebSocket、`ws_protocol`、MapModule、DebugTerminalModule、舊主程式與對應測試。
+
+與網頁版的行為差異（皆為刻意調整）：
+
+| 項目 | 網頁版 | Qt 版 |
+|---|---|---|
+| 命令發布失敗 | 首次對某 Agent 發命令時才建立 publisher，尚未配對即發布，命令可能遺失但仍回報成功 | `IAgentLink::publish_command` 失敗（例如尚無訂閱者）時回報錯誤；M3 的 link 實作需在 Agent 上線時預先建立 writer |
+| 離線後的殘留資料 | 取消訂閱後不再收到 | 佇列中殘留的資料也會被 TelemetryModule 丟棄，不會讓已離線 Agent 重新出現 |
+| Fleet 名稱過濾 | 依 topic 正規表示式 | link 回報的名稱再經 `is_single_agent` 過濾，`fmu1_agent`、`uav_0_agent` 等一律忽略 |
+| shutdown 逾時後的回應 | 依計時器清除 | 以請求識別碼比對，逾時後或屬於其他請求的回應一律忽略 |
 
 ## 7. 測試策略
 

@@ -1,253 +1,197 @@
 /**
  * @file fleet_module.cpp
  * @brief 機隊管理模組實作
- *
- * 定期掃描 ROS2 網路中的 Agent state topic，
- * 偵測 Agent 上下線並通知 TelemetryModule 建立/取消訂閱。
+ * @author Taiphoon GCS Team
+ * @date 2026-10-12
  */
 #include "modules/fleet/fleet_module.hpp"
-#include "modules/telemetry/telemetry_module.hpp"
-#include <nlohmann/json.hpp>
-#include <iostream>
-#include <regex>
 
-using json = nlohmann::json;
+#include "core/command_protocol.hpp"
+#include "core/i_agent_link.hpp"
 
-// ============================================================================
-// 建構
-// ============================================================================
-FleetModule::FleetModule() = default;
+#include <QLoggingCategory>
 
-// ============================================================================
-// 初始化
-// ============================================================================
-bool FleetModule::init(EventBus& bus) {
-  bus_ = &bus;
+#include <algorithm>
+#include <iterator>
 
-  // 建立 ROS2 節點（使用與 TelemetryModule 不同的節點名稱）
-  node_ = std::make_shared<rclcpp::Node>("gcs_fleet_node");
+namespace
+{
+Q_LOGGING_CATEGORY(lc_fleet, "gcs.fleet")
 
-  // 以實際資料流更新最後可見時間，作為 DDS 發現快取的補充驗證
-  bus_->subscribe("state_update", [this](const std::string&, const std::any& data) {
-    onStateUpdate(data);
-  });
-  bus_->subscribe("agent_shutdown_accepted", [this](const std::string&, const std::any& data) {
-    onAgentShutdownAccepted(data);
-  });
-
-  // 啟動定時掃描
-  scanTimer_ = node_->create_wall_timer(
-    std::chrono::duration<double>(SCAN_INTERVAL_S),
-    std::bind(&FleetModule::scanTimerCallback, this));
-
-  initialized_ = true;
-  std::cout << "[FleetModule] 初始化完成，掃描週期: " << SCAN_INTERVAL_S << " 秒" << std::endl;
-  return true;
+/**
+ * @brief 排序後轉為 QStringList，讓 UI 顯示順序穩定
+ * @param agents Agent 集合
+ * @return 排序後的清單
+ */
+QStringList sorted_list(const QSet<QString>& agents)
+{
+    QStringList list(agents.cbegin(), agents.cend());
+    std::sort(list.begin(), list.end());
+    return list;
 }
 
-// ============================================================================
-// 關閉
-// ============================================================================
-void FleetModule::shutdown() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  initialized_ = false;
-  onlineAgents_.clear();
-  lastSeen_.clear();
-  shutdownSuppressedAgents_.clear();
-  scanTimer_.reset();
-  node_.reset();
-  std::cout << "[FleetModule] 已關閉" << std::endl;
+}  // namespace
+
+namespace gcs
+{
+
+FleetModule::FleetModule(IAgentLink* link, QObject* parent) : GcsModule(parent), link_(link), scan_timer_(this)
+{
 }
 
-// ============================================================================
-// 健康檢查
-// ============================================================================
-bool FleetModule::healthCheck() {
-  return initialized_ && node_ != nullptr;
-}
-
-// ============================================================================
-// 取得線上 Agent 清單
-// ============================================================================
-std::set<std::string> FleetModule::getOnlineAgents() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  return onlineAgents_;
-}
-
-// ============================================================================
-// 從 topic 名稱提取 agent namespace
-// ============================================================================
-std::string FleetModule::extractAgentNs(const std::string& topicName) {
-  // 格式：/uav_{N}_agent/state → 提取 "uav_{N}_agent"。
-  // N 依介面規格採用 1-based 索引，且只辨識完整的 state topic。
-  std::regex re("^/?(uav_[1-9][0-9]*_agent)/state$");
-  std::smatch match;
-  if (std::regex_search(topicName, match, re)) {
-    return match[1].str();
-  }
-  return "";
-}
-
-// ============================================================================
-// 定時掃描回呼
-// ============================================================================
-void FleetModule::scanTimerCallback() {
-  if (!node_) return;
-
-  // 取得 ROS2 網路上所有 topic
-  auto topicMap = node_->get_topic_names_and_types();
-
-  // 過濾出 Agent state topic
-  std::set<std::string> currentAgents;
-  for (const auto& [topicName, types] : topicMap) {
-    std::string agentNs = extractAgentNs(topicName);
-    if (!agentNs.empty()) {
-      currentAgents.insert(agentNs);
-    }
-  }
-
-  std::set<std::string> added;
-  std::set<std::string> removed;
-  std::set<std::string> verifiedOnline;
-  std::set<std::string> staleAgents;
-  const auto now = std::chrono::steady_clock::now();
-
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-
-    // Shutdown 成功後，DDS graph 可能在短時間內仍保留舊 topic；
-    // 直到 topic 消失前，避免將已關閉的 Agent 重新加入機隊。
-    for (auto it = shutdownSuppressedAgents_.begin(); it != shutdownSuppressedAgents_.end();) {
-      if (currentAgents.find(*it) == currentAgents.end()) {
-        it = shutdownSuppressedAgents_.erase(it);
-      } else {
-        ++it;
-      }
-    }
-
-    // 找出新增的 Agent（topic 首次被 DDS 發現）
-    for (const auto& agent : currentAgents) {
-      if (shutdownSuppressedAgents_.find(agent) == shutdownSuppressedAgents_.end()
-          && onlineAgents_.find(agent) == onlineAgents_.end()) {
-        added.insert(agent);
-      }
-    }
-
-    // 找出 topic 已從 DDS 網路消失的 Agent
-    for (const auto& agent : onlineAgents_) {
-      if (currentAgents.find(agent) == currentAgents.end()) {
-        removed.insert(agent);
-      }
-    }
-
-    // 更新訂閱清單：新增者以發現時間作為寬限期起點
-    for (const auto& agent : added) {
-      onlineAgents_.insert(agent);
-      lastSeen_[agent] = now;
-    }
-    for (const auto& agent : removed) {
-      onlineAgents_.erase(agent);
-      lastSeen_.erase(agent);
-    }
-
-    // 顯示清單以實際資料流為準：超過 STALE_TIMEOUT 未收到狀態即不顯示
-    for (const auto& agent : onlineAgents_) {
-      const auto seen = lastSeen_.find(agent);
-      if (seen != lastSeen_.end() && now - seen->second <= STALE_TIMEOUT) {
-        verifiedOnline.insert(agent);
-      } else {
-        staleAgents.insert(agent);
-      }
-    }
-  }
-
-  // 發布上線事件（通知 TelemetryModule 建立訂閱）
-  for (const auto& agent : added) {
-    std::cout << "[FleetModule] Agent 上線: " << agent << std::endl;
-    bus_->publish("agent_online", agent);
-  }
-
-  // 發布離線事件（topic 已消失才通知取消訂閱，資料短暫停滯保留訂閱以利復原）
-  for (const auto& agent : removed) {
-    std::cout << "[FleetModule] Agent 離線: " << agent << std::endl;
-    bus_->publish("agent_offline", agent);
-  }
-
-  // 發布機隊狀態更新（給前端）；online 只含仍有資料流的 Agent，
-  // offline 含資料停滯與 topic 消失的 Agent，前端據此清除殘留顯示
-  json fleetUpdate;
-  fleetUpdate["type"] = "fleet_update";
-  fleetUpdate["online"] = json::array();
-  fleetUpdate["offline"] = json::array();
-  for (const auto& a : verifiedOnline) {
-    fleetUpdate["online"].push_back(a);
-  }
-  for (const auto& a : staleAgents) {
-    fleetUpdate["offline"].push_back(a);
-  }
-  for (const auto& a : removed) {
-    fleetUpdate["offline"].push_back(a);
-  }
-  bus_->publish("fleet_update", fleetUpdate.dump());
-}
-
-// ============================================================================
-// 狀態資料流追蹤
-// ============================================================================
-void FleetModule::onStateUpdate(const std::any& data) {
-  try {
-    const auto rawJson = std::any_cast<std::string>(data);
-    const json parsed = json::parse(rawJson);
-    const std::string agent = parsed.value("agent", "");
-    if (agent.empty()) {
-      return;
-    }
-    std::lock_guard<std::mutex> lock(mutex_);
-    lastSeen_[agent] = std::chrono::steady_clock::now();
-  } catch (const std::exception& e) {
-    std::cerr << "[FleetModule] state_update 解析失敗: " << e.what() << std::endl;
-  }
-}
-
-void FleetModule::onAgentShutdownAccepted(const std::any& data) {
-  try {
-    const std::string agent = std::any_cast<std::string>(data);
-    bool wasOnline = false;
+bool FleetModule::init()
+{
+    if (link_ == nullptr)
     {
-      std::lock_guard<std::mutex> lock(mutex_);
-      shutdownSuppressedAgents_.insert(agent);
-      wasOnline = onlineAgents_.erase(agent) > 0;
-      lastSeen_.erase(agent);
+        qCCritical(lc_fleet) << "未提供 Agent 通訊介面";
+        return false;
     }
+    scan_timer_.setInterval(SCAN_INTERVAL);
+    connect(&scan_timer_, &QTimer::timeout, this, &FleetModule::scan_now);
+    scan_timer_.start();
+    is_initialized_ = true;
+    qCInfo(lc_fleet) << "初始化完成，掃描週期" << SCAN_INTERVAL.count() << "毫秒";
+    return true;
+}
 
-    // 即使 Fleet 下一次掃描尚未執行，也要立即讓其他模組停止使用目標 Agent。
-    if (bus_ != nullptr) {
-      bus_->publish("agent_offline", agent);
+void FleetModule::shutdown()
+{
+    scan_timer_.stop();
+    is_initialized_ = false;
+    online_agents_.clear();
+    last_seen_.clear();
+    shutdown_suppressed_agents_.clear();
+}
 
-      json fleetUpdate;
-      fleetUpdate["type"] = "fleet_update";
-      fleetUpdate["online"] = json::array();
-      fleetUpdate["offline"] = json::array();
-      fleetUpdate["offline"].push_back(agent);
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
-        for (const auto& onlineAgent : onlineAgents_) {
-          fleetUpdate["online"].push_back(onlineAgent);
+bool FleetModule::health_check() const
+{
+    return is_initialized_ && link_ != nullptr;
+}
+
+QSet<QString> FleetModule::online_agents() const
+{
+    return online_agents_;
+}
+
+void FleetModule::scan_now()
+{
+    scan_at(Clock::now());
+}
+
+void FleetModule::scan_at(Clock::time_point now)
+{
+    if (link_ == nullptr)
+    {
+        return;
+    }
+    // 只接受介面規格的 uav_{N}_agent；舊式或格式錯誤的名稱不得成為命令目標。
+    QSet<QString> current;
+    for (const QString& agent : link_->discovered_state_agents())
+    {
+        if (command_protocol::is_single_agent(agent))
+        {
+            current.insert(agent);
         }
-      }
-      bus_->publish("fleet_update", fleetUpdate.dump());
     }
 
-    std::cout << "[FleetModule] Shutdown Agent 已隔離: " << agent
-              << (wasOnline ? "（原為線上）" : "（原本不在線上）") << std::endl;
-  } catch (const std::exception& e) {
-    std::cerr << "[FleetModule] agent_shutdown_accepted 處理失敗: " << e.what() << std::endl;
-  }
+    // Shutdown 成功後，DDS 探索可能短時間仍保留舊 topic；topic 消失後才解除抑制。
+    for (auto it = shutdown_suppressed_agents_.begin(); it != shutdown_suppressed_agents_.end();)
+    {
+        it = current.contains(*it) ? std::next(it) : shutdown_suppressed_agents_.erase(it);
+    }
+
+    QSet<QString> added;
+    for (const QString& agent : current)
+    {
+        if (!shutdown_suppressed_agents_.contains(agent) && !online_agents_.contains(agent))
+        {
+            added.insert(agent);
+        }
+    }
+    QSet<QString> removed;
+    for (const QString& agent : online_agents_)
+    {
+        if (!current.contains(agent))
+        {
+            removed.insert(agent);
+        }
+    }
+
+    // 新增者以發現時間作為寬限期起點
+    for (const QString& agent : added)
+    {
+        online_agents_.insert(agent);
+        last_seen_.insert(agent, now);
+    }
+    for (const QString& agent : removed)
+    {
+        online_agents_.remove(agent);
+        last_seen_.remove(agent);
+    }
+
+    // 顯示清單以實際資料流為準：超過 STALE_TIMEOUT 未收到狀態即列為離線
+    FleetSnapshot snapshot;
+    QSet<QString> verified_online;
+    QSet<QString> offline = removed;
+    for (const QString& agent : online_agents_)
+    {
+        const auto seen = last_seen_.constFind(agent);
+        if (seen != last_seen_.cend() && now - *seen <= STALE_TIMEOUT)
+        {
+            verified_online.insert(agent);
+        }
+        else
+        {
+            offline.insert(agent);
+        }
+    }
+    snapshot.online = sorted_list(verified_online);
+    snapshot.offline = sorted_list(offline);
+
+    for (const QString& agent : sorted_list(added))
+    {
+        qCInfo(lc_fleet) << "Agent 上線：" << agent;
+        emit agent_online(agent);
+    }
+    // topic 消失才通知離線；資料短暫停滯時保留訂閱以利復原
+    for (const QString& agent : sorted_list(removed))
+    {
+        qCInfo(lc_fleet) << "Agent 離線：" << agent;
+        emit agent_offline(agent);
+    }
+    emit fleet_changed(snapshot);
 }
 
-// ============================================================================
-// 手動觸發掃描
-// ============================================================================
-void FleetModule::scanNow() {
-  scanTimerCallback();
+void FleetModule::record_state_at(const QString& agent_ns, Clock::time_point now)
+{
+    if (agent_ns.isEmpty())
+    {
+        return;
+    }
+    last_seen_.insert(agent_ns, now);
 }
+
+void FleetModule::on_state_updated(const QString& agent_ns, const AgentStateData& state)
+{
+    Q_UNUSED(state)
+    record_state_at(agent_ns, Clock::now());
+}
+
+void FleetModule::on_shutdown_accepted(const QString& agent_ns)
+{
+    shutdown_suppressed_agents_.insert(agent_ns);
+    const bool was_online = online_agents_.remove(agent_ns);
+    last_seen_.remove(agent_ns);
+
+    // 不等下一次掃描，立即讓其他模組停止使用目標 Agent。
+    emit agent_offline(agent_ns);
+
+    FleetSnapshot snapshot;
+    snapshot.online = sorted_list(online_agents_);
+    snapshot.offline = QStringList{agent_ns};
+    emit fleet_changed(snapshot);
+
+    qCInfo(lc_fleet) << "Shutdown Agent 已隔離：" << agent_ns << (was_online ? "（原為線上）" : "（原本不在線上）");
+}
+
+}  // namespace gcs

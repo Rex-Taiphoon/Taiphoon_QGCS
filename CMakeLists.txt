@@ -4,8 +4,8 @@
 # @author Taiphoon GCS Team
 # @date 2026-10-12
 #
-# 目前只建置 Qt 版的新程式碼；src/core、src/modules 等網頁版遺留程式碼
-# 於 M2 移植後才加入建置（見 docs/qt-cross-platform-development.md）。
+# 目標：gcs_core（核心與模組，只依賴 QtCore）、gcs_link（CycloneDDS 相容層）、
+# gcs_wiring（組裝根）、taiphoon_qgcs（桌面程式）；架構見 docs/qt-cross-platform-development.md。
 # =============================================================================
 cmake_minimum_required(VERSION 3.25)
 
@@ -48,11 +48,9 @@ include(Dependencies)
 
 add_subdirectory(idl)
 
+add_subdirectory(src/core)
 add_subdirectory(src/link)
-
-if(GCS_BUILD_APP)
-    add_subdirectory(src/app)
-endif()
+add_subdirectory(src/app)
 
 if(GCS_BUILD_TOOLS)
     add_subdirectory(tools/dds_probe)

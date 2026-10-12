@@ -3,7 +3,8 @@
 搭配 Taiphoon_Agent 使用的桌面地面控制站，是 [Taiphoon_GCS](../Taiphoon_GCS)（網頁版）的 Qt 原生版本。
 目標是維持網頁版所有功能與 Agent 介面，並讓使用者**直接安裝即可執行**，不需安裝 Docker、ROS2 或處理 DDS 環境。
 
-> **目前狀態：開發中（M0、M1 完成；已驗證與 ROS2 Humble Agent 的 DDS 互通）。** 目前只有空白主視窗與 DDS 驗證工具；
+> **目前狀態：開發中（M0～M2 完成）。** 已驗證與 ROS2 Humble Agent 的 DDS 互通，核心模組已移植為
+> Qt signal／slot 並通過全部單元測試；尚未接上實際 DDS 與畫面（M3、M4）。
 > 需求、架構與開發路線見 [開發規劃](docs/qt-cross-platform-development.md)。
 
 ## 平台與發布格式（規劃）

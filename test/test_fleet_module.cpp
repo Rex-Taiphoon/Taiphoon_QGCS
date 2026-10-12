@@ -1,102 +1,133 @@
 /**
  * @file test_fleet_module.cpp
- * @brief FleetModule shutdown 隔離與 DDS topic 暫存測試
+ * @brief FleetModule：上線、離線、資料停滯與 shutdown 隔離
  * @author Taiphoon GCS Team
- * @date 2026-08-20
+ * @date 2026-10-12
  */
+#include "fakes/fake_agent_link.hpp"
 #include "modules/fleet/fleet_module.hpp"
+
+#include <QSignalSpy>
+
 #include <gtest/gtest.h>
-#include <rclcpp/rclcpp.hpp>
-#include <taiphoon_agent/msg/agent_state.hpp>
-#include <any>
-#include <chrono>
-#include <memory>
-#include <string>
-#include <thread>
 
+using namespace gcs;
 using namespace std::chrono_literals;
+using gcs::test::FakeAgentLink;
 
+namespace
+{
+
+const QString AGENT_1 = QStringLiteral("uav_1_agent");
+const QString AGENT_2 = QStringLiteral("uav_2_agent");
+
+/**
+ * @class FleetModuleTest
+ * @brief 以注入時間驅動的 FleetModule
+ */
 class FleetModuleTest : public ::testing::Test
 {
 protected:
-  // 每個案例使用獨立 ROS2 context，避免上一案例的 DDS graph 快取殘留。
-  void SetUp() override
-  {
-    const int argc = 1;
-    const char* argv[] = {"test_fleet_module"};
-    rclcpp::init(argc, argv);
-  }
+    void SetUp() override
+    {
+        ASSERT_TRUE(fleet_.init());
+    }
 
-  void TearDown() override
-  {
-    rclcpp::shutdown();
-  }
+    /**
+     * @brief 執行掃描並回傳機隊快照
+     * @param now 掃描時間
+     * @return 快照
+     */
+    FleetSnapshot scan(FleetModule::Clock::time_point now)
+    {
+        QSignalSpy changed(&fleet_, &FleetModule::fleet_changed);
+        fleet_.scan_at(now);
+        EXPECT_EQ(changed.size(), 1);
+        return changed.isEmpty() ? FleetSnapshot{} : changed.takeFirst().at(0).value<FleetSnapshot>();
+    }
+
+    FakeAgentLink link_;
+    FleetModule fleet_{&link_};
+    const FleetModule::Clock::time_point start_ = FleetModule::Clock::now();
 };
+
+}  // namespace
+
+TEST_F(FleetModuleTest, DiscoveredAgentGoesOnlineOnce)
+{
+    link_.discovered_agents = {AGENT_1};
+    QSignalSpy online(&fleet_, &FleetModule::agent_online);
+
+    const FleetSnapshot snapshot = scan(start_);
+    ASSERT_EQ(online.size(), 1);
+    EXPECT_EQ(online.takeFirst().at(0).toString(), AGENT_1);
+    EXPECT_EQ(snapshot.online, QStringList{AGENT_1});
+
+    scan(start_ + 1s);
+    EXPECT_TRUE(online.isEmpty());
+}
+
+TEST_F(FleetModuleTest, StaleAgentHiddenButKeptSubscribed)
+{
+    link_.discovered_agents = {AGENT_1};
+    QSignalSpy offline(&fleet_, &FleetModule::agent_offline);
+    scan(start_);
+
+    // 超過 5 秒沒有狀態資料：顯示為離線，但 topic 仍在，不發出 agent_offline
+    const FleetSnapshot stale = scan(start_ + FleetModule::STALE_TIMEOUT + 1s);
+    EXPECT_TRUE(stale.online.isEmpty());
+    EXPECT_EQ(stale.offline, QStringList{AGENT_1});
+    EXPECT_TRUE(offline.isEmpty());
+
+    // 資料流恢復後重新顯示為線上
+    fleet_.record_state_at(AGENT_1, start_ + 7s);
+    const FleetSnapshot recovered = scan(start_ + 8s);
+    EXPECT_EQ(recovered.online, QStringList{AGENT_1});
+}
+
+TEST_F(FleetModuleTest, VanishedTopicGoesOffline)
+{
+    link_.discovered_agents = {AGENT_1, AGENT_2};
+    scan(start_);
+
+    QSignalSpy offline(&fleet_, &FleetModule::agent_offline);
+    link_.discovered_agents = {AGENT_2};
+    const FleetSnapshot snapshot = scan(start_ + 1s);
+    ASSERT_EQ(offline.size(), 1);
+    EXPECT_EQ(offline.takeFirst().at(0).toString(), AGENT_1);
+    EXPECT_EQ(snapshot.online, QStringList{AGENT_2});
+    EXPECT_EQ(snapshot.offline, QStringList{AGENT_1});
+}
 
 TEST_F(FleetModuleTest, ShutdownAcceptedImmediatelyRemovesAndSuppressesAgent)
 {
-  EventBus bus;
-  FleetModule fleet;
-  ASSERT_TRUE(fleet.init(bus));
+    link_.discovered_agents = {AGENT_1};
+    scan(start_);
+    ASSERT_TRUE(fleet_.online_agents().contains(AGENT_1));
 
-  auto publisherNode = std::make_shared<rclcpp::Node>("fleet_test_agent_node");
-  auto publisher = publisherNode->create_publisher<taiphoon_agent::msg::AgentState>(
-    "/uav_1_agent/state", 10);
-  rclcpp::executors::SingleThreadedExecutor executor;
-  executor.add_node(fleet.getNode());
-  executor.add_node(publisherNode);
+    QSignalSpy offline(&fleet_, &FleetModule::agent_offline);
+    fleet_.on_shutdown_accepted(AGENT_1);
+    ASSERT_EQ(offline.size(), 1);
+    EXPECT_TRUE(fleet_.online_agents().isEmpty());
 
-  // 等待 ROS2 graph 發現模擬 Agent 的 state topic。
-  for (int index = 0; index < 10; ++index)
-  {
-    executor.spin_some();
-    std::this_thread::sleep_for(50ms);
-  }
-  fleet.scanNow();
-  ASSERT_TRUE(fleet.getOnlineAgents().find("uav_1_agent") != fleet.getOnlineAgents().end());
+    // topic 尚未從 DDS 探索消失時，下一次掃描也不可重新加入
+    QSignalSpy online(&fleet_, &FleetModule::agent_online);
+    scan(start_ + 3s);
+    EXPECT_TRUE(online.isEmpty());
 
-  std::string offlineAgent;
-  bus.subscribe("agent_offline", [&offlineAgent](const std::string&, const std::any& data)
-  {
-    offlineAgent = std::any_cast<std::string>(data);
-  });
-
-  bus.publish("agent_shutdown_accepted", std::string("uav_1_agent"));
-  EXPECT_EQ(offlineAgent, "uav_1_agent");
-  EXPECT_TRUE(fleet.getOnlineAgents().empty());
-
-  // topic 尚未從 DDS graph 消失時，下一次掃描也不可重新加入。
-  fleet.scanNow();
-  EXPECT_TRUE(fleet.getOnlineAgents().empty());
-
-  publisher.reset();
-  publisherNode.reset();
-  fleet.shutdown();
+    // topic 消失後解除抑制，Agent 重新啟動即可再次上線
+    link_.discovered_agents.clear();
+    scan(start_ + 6s);
+    link_.discovered_agents = {AGENT_1};
+    scan(start_ + 9s);
+    EXPECT_EQ(online.size(), 1);
 }
 
-TEST_F(FleetModuleTest, IgnoresLegacyFmuAgentStateTopic)
+TEST_F(FleetModuleTest, IgnoresNonInterfaceNamespaces)
 {
-  EventBus bus;
-  FleetModule fleet;
-  ASSERT_TRUE(fleet.init(bus));
-
-  auto publisherNode = std::make_shared<rclcpp::Node>("fleet_legacy_test_agent_node");
-  auto publisher = publisherNode->create_publisher<taiphoon_agent::msg::AgentState>(
-    "/fmu1_agent/state", 10);
-  rclcpp::executors::SingleThreadedExecutor executor;
-  executor.add_node(fleet.getNode());
-  executor.add_node(publisherNode);
-
-  for (int index = 0; index < 10; ++index)
-  {
-    executor.spin_some();
-    std::this_thread::sleep_for(50ms);
-  }
-
-  fleet.scanNow();
-  EXPECT_TRUE(fleet.getOnlineAgents().empty());
-
-  publisher.reset();
-  publisherNode.reset();
-  fleet.shutdown();
+    link_.discovered_agents = {QStringLiteral("fmu1_agent"), QStringLiteral("uav_0_agent"), QStringLiteral("all")};
+    QSignalSpy online(&fleet_, &FleetModule::agent_online);
+    const FleetSnapshot snapshot = scan(start_);
+    EXPECT_TRUE(online.isEmpty());
+    EXPECT_TRUE(snapshot.online.isEmpty());
 }

@@ -1,57 +1,57 @@
 /**
  * @file command_module.hpp
- * @brief 命令模組 — 將驗證通過的命令發布至 ROS2 topic
- *
- * 訂閱 EventBus 的 cmd_validated 事件，依目標 Agent 路由至：
- * - /{agent_namespace}/command（單機）
- * - /uav_all_agent/command（全體）
+ * @brief 命令模組 — 將 Guard 驗證通過的命令發布至 Agent
  * @author Taiphoon GCS Team
- * @date 2026-08-05
+ * @date 2026-10-12
+ *
+ * 依目標路由至 /{agent_namespace}/command 或 /uav_all_agent/command。
+ * publish_validated 只能由組裝根連到 GuardModule::command_validated（AGENTS.md）。
  */
 #pragma once
 
+#include "core/agent_types.hpp"
 #include "core/gcs_module.hpp"
-#include "core/event_bus.hpp"
-#include <rclcpp/rclcpp.hpp>
-#include <std_msgs/msg/string.hpp>
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <mutex>
 
-class CommandModule : public GcsModule {
+namespace gcs
+{
+
+class IAgentLink;
+
+/**
+ * @class CommandModule
+ * @brief 命令轉發
+ */
+class CommandModule : public GcsModule
+{
+    Q_OBJECT
+
 public:
-  CommandModule();
+    /**
+     * @brief 建立命令模組
+     * @param link Agent 通訊介面，生命週期需長於本模組
+     * @param parent 父物件
+     */
+    explicit CommandModule(IAgentLink* link, QObject* parent = nullptr);
 
-  bool init(EventBus& bus) override;
-  void shutdown() override;
-  bool healthCheck() override;
-  std::string getName() const override { return "CommandModule"; }
+    bool init() override;
+    void shutdown() override;
+    bool health_check() const override;
+    QString module_name() const override { return QStringLiteral("CommandModule"); }
 
-  std::shared_ptr<rclcpp::Node> getNode() const { return node_; }
+public slots:
+    /**
+     * @brief 發布已通過 Guard 驗證的命令
+     * @param request 命令請求
+     */
+    void publish_validated(const gcs::CommandRequest& request);
 
-  /// 查詢指定 Agent 是否已有單機 publisher
-  bool hasPublisherFor(const std::string& agentNs) const;
+signals:
+    /** @brief 命令發布結果 */
+    void command_acked(const gcs::CommandAck& ack);
 
 private:
-  /// 確保指定 Agent 的 publisher 存在
-  /// 呼叫端必須持有 mutex_
-  void ensurePublisher(const std::string& agentNs);
-
-  /// 處理 Agent 離線事件，清理單機 publisher
-  void onAgentOffline(const std::any& data);
-
-  /// 處理 cmd_validated 事件
-  void onCmdValidated(const std::any& data);
-
-  EventBus* bus_ = nullptr;
-  std::shared_ptr<rclcpp::Node> node_;
-  mutable std::mutex mutex_;
-  bool initialized_ = false;
-
-  /// Agent namespace → publisher
-  std::unordered_map<std::string, rclcpp::Publisher<std_msgs::msg::String>::SharedPtr> publishers_;
-
-  /// 全體廣播 publisher
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr allPub_;
+    IAgentLink* link_ = nullptr;
+    bool is_initialized_ = false;
 };
+
+}  // namespace gcs

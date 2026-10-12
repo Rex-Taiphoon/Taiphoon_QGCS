@@ -1,9 +1,21 @@
 # =============================================================================
 # @file src/app/CMakeLists.txt
-# @brief Qt 桌面程式
+# @brief 組裝根函式庫與 Qt 桌面程式
 # @author Taiphoon GCS Team
 # @date 2026-10-12
 # =============================================================================
+
+# 組裝根獨立成函式庫，單元測試才能驗證「命令無法繞過 Guard」。
+add_library(gcs_wiring STATIC
+    gcs_wiring.hpp
+    gcs_wiring.cpp
+)
+target_link_libraries(gcs_wiring PUBLIC gcs_core)
+
+if(NOT GCS_BUILD_APP)
+    return()
+endif()
+
 find_package(Qt6 ${GCS_QT_VERSION} EXACT REQUIRED COMPONENTS Gui Qml Quick QuickControls2)
 
 qt_add_executable(taiphoon_qgcs WIN32 MACOSX_BUNDLE
@@ -26,6 +38,7 @@ qt_add_qml_module(taiphoon_qgcs
 target_compile_definitions(taiphoon_qgcs PRIVATE GCS_VERSION_FULL="${GCS_VERSION_FULL}")
 
 target_link_libraries(taiphoon_qgcs PRIVATE
+    gcs_wiring
     Qt6::Gui
     Qt6::Qml
     Qt6::Quick

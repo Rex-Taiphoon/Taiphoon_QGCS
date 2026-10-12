@@ -1,60 +1,79 @@
 /**
  * @file telemetry_module.hpp
- * @brief 遙測模組 — 訂閱所有 Agent 對外 topic，聚合後透過 EventBus 推送
+ * @brief 遙測模組 — 依機隊上下線管理 Agent 訂閱，並轉發帶型別的遙測資料
+ * @author Taiphoon GCS Team
+ * @date 2026-10-12
  */
 #pragma once
 
+#include "core/agent_types.hpp"
 #include "core/gcs_module.hpp"
-#include "core/event_bus.hpp"
-#include <rclcpp/rclcpp.hpp>
-#include <taiphoon_agent/msg/agent_state.hpp>
-#include <taiphoon_agent/msg/agent_attitude.hpp>
-#include <taiphoon_agent/msg/agent_trajectory.hpp>
-#include <taiphoon_agent/msg/ned_target.hpp>
-#include <taiphoon_agent/msg/waypoint_sequence.hpp>
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <mutex>
-#include <nlohmann/json.hpp>
 
-class TelemetryModule : public GcsModule {
+#include <QSet>
+
+namespace gcs
+{
+
+class IAgentLink;
+
+/**
+ * @class TelemetryModule
+ * @brief 狀態聚合：只轉發已訂閱（線上）Agent 的資料
+ */
+class TelemetryModule : public GcsModule
+{
+    Q_OBJECT
+
 public:
     /**
-     * @brief 保留 WGS84 雙精度座標並將非有限值轉為 null
-     * @param msg Agent 狀態
-     * @param agentNs Agent 命名空間
-     * @return WebSocket 狀態訊息
+     * @brief 建立遙測模組
+     * @param link Agent 通訊介面，生命週期需長於本模組
+     * @param parent 父物件
      */
-    static nlohmann::json serialize_state(
-        const taiphoon_agent::msg::AgentState& msg, const std::string& agentNs);
+    explicit TelemetryModule(IAgentLink* link, QObject* parent = nullptr);
 
-  TelemetryModule();
+    bool init() override;
+    void shutdown() override;
+    bool health_check() const override;
+    QString module_name() const override { return QStringLiteral("TelemetryModule"); }
 
-  bool init(EventBus& bus) override;
-  void shutdown() override;
-  bool healthCheck() override;
-  std::string getName() const override { return "TelemetryModule"; }
+    /**
+     * @brief 查詢是否已訂閱指定 Agent
+     * @param agent_ns Agent namespace
+     * @return 是否已訂閱
+     */
+    bool is_subscribed(const QString& agent_ns) const;
 
-  void subscribeAgent(const std::string& agentNs);
-  void unsubscribeAgent(const std::string& agentNs);
+public slots:
+    /** @brief Agent 上線：建立訂閱 @param agent_ns Agent namespace */
+    void on_agent_online(const QString& agent_ns);
 
-  std::shared_ptr<rclcpp::Node> getNode() const { return node_; }
+    /** @brief Agent 離線：取消訂閱 @param agent_ns Agent namespace */
+    void on_agent_offline(const QString& agent_ns);
+
+signals:
+    /** @brief AgentState 更新 */
+    void state_updated(const QString& agent_ns, const gcs::AgentStateData& state);
+    /** @brief AgentAttitude 更新 */
+    void attitude_updated(const QString& agent_ns, const gcs::AgentAttitudeData& attitude);
+    /** @brief NedTarget 更新 */
+    void ned_target_updated(const QString& agent_ns, const gcs::NedTargetData& target);
+    /** @brief WaypointSequence 更新 */
+    void waypoints_updated(const QString& agent_ns, const gcs::WaypointSequenceData& waypoints);
+    /** @brief EGO-Swarm 軌跡更新 */
+    void trajectory_updated(const QString& agent_ns, const gcs::AgentTrajectoryData& trajectory);
+
+private slots:
+    void on_state_received(const QString& agent_ns, const gcs::AgentStateData& state);
+    void on_attitude_received(const QString& agent_ns, const gcs::AgentAttitudeData& attitude);
+    void on_ned_target_received(const QString& agent_ns, const gcs::NedTargetData& target);
+    void on_waypoints_received(const QString& agent_ns, const gcs::WaypointSequenceData& waypoints);
+    void on_trajectory_received(const QString& agent_ns, const gcs::AgentTrajectoryData& trajectory);
 
 private:
-  void ensureNode();
-
-  struct AgentSubscriptions {
-    rclcpp::Subscription<taiphoon_agent::msg::AgentState>::SharedPtr stateSub;
-    rclcpp::Subscription<taiphoon_agent::msg::AgentAttitude>::SharedPtr attitudeSub;
-    rclcpp::Subscription<taiphoon_agent::msg::NedTarget>::SharedPtr nedTargetSub;
-    rclcpp::Subscription<taiphoon_agent::msg::WaypointSequence>::SharedPtr waypointsSub;
-    rclcpp::Subscription<taiphoon_agent::msg::AgentTrajectory>::SharedPtr trajectorySub;
-  };
-
-  EventBus* bus_ = nullptr;
-  std::shared_ptr<rclcpp::Node> node_;
-  std::unordered_map<std::string, AgentSubscriptions> subscriptions_;
-  std::mutex mutex_;
-  bool initialized_ = false;
+    IAgentLink* link_ = nullptr;
+    bool is_initialized_ = false;
+    QSet<QString> subscribed_agents_;
 };
+
+}  // namespace gcs
