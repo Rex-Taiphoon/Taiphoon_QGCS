@@ -367,9 +367,9 @@ ctest --test-dir build --output-on-failure
 - [x] 正式發布使用的圖磚來源：先使用 OSM 官方圖磚（2026-10-12 決定），用量增加時再評估。
 - [x] 端到端飛行命令測試：已完成（第 6.3 節）。
 - [ ] 安裝 NSIS 後產生並驗證 Windows 安裝程式（含安裝、升級、移除與防火牆規則）。
-- [ ] 安裝程式自動建立防火牆入站規則的行為確認（`cmake/Packaging.cmake`）。
+- [x] 安裝程式自動建立防火牆入站規則：限本程式、UDP、只允許同一子網路來源（2026-10-12 決定）。
 - [ ] macOS 實機建置、Local Network 權限與簽章公證。
-- [ ] 設定 Git 遠端後實際執行 CI。
+- [ ] 實際執行 CI（目前僅能手動觸發，預設只建置 Windows）。
 - [ ] Wi-Fi 位址切換時自動重建 DDS 的實機驗證。
 - [ ] Apple Developer 帳號與 Windows 程式碼簽章憑證。
 - [ ] Linux 發布格式。

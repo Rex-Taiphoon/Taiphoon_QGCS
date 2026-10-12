@@ -107,9 +107,10 @@ if(WIN32)
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
     set(CPACK_NSIS_EXECUTABLES_DIRECTORY "${CMAKE_INSTALL_BINDIR}")
     set(CPACK_NSIS_MUI_FINISHPAGE_RUN "taiphoon_qgcs.exe")
-    # DDS 需要接收 Agent 的 UDP 封包；安裝時建立只針對本程式的入站允許規則，移除時一併刪除
+    # DDS 需要接收 Agent 的 UDP 封包；安裝時建立只針對本程式、只允許同一子網路來源的入站規則，
+    # 移除時一併刪除。Agent 需經路由器或 VPN 連線時，須由使用者自行放寬來源範圍。
     set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS
-        "nsExec::ExecToLog 'netsh advfirewall firewall add rule name=\\\"Taiphoon_QGCS DDS\\\" dir=in action=allow protocol=UDP program=\\\"$INSTDIR\\\\bin\\\\taiphoon_qgcs.exe\\\" enable=yes'")
+        "nsExec::ExecToLog 'netsh advfirewall firewall add rule name=\\\"Taiphoon_QGCS DDS\\\" dir=in action=allow protocol=UDP remoteip=localsubnet program=\\\"$INSTDIR\\\\bin\\\\taiphoon_qgcs.exe\\\" enable=yes'")
     set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS
         "nsExec::ExecToLog 'netsh advfirewall firewall delete rule name=\\\"Taiphoon_QGCS DDS\\\"'")
 elseif(APPLE)
