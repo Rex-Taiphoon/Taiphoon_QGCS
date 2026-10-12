@@ -1,6 +1,6 @@
 # =============================================================================
 # @file src/app/CMakeLists.txt
-# @brief 組裝根函式庫與 Qt 桌面程式
+# @brief 組裝根、核心執行環境與 Qt 桌面程式
 # @author Taiphoon GCS Team
 # @date 2026-10-12
 # =============================================================================
@@ -11,6 +11,13 @@ add_library(gcs_wiring STATIC
     gcs_wiring.cpp
 )
 target_link_libraries(gcs_wiring PUBLIC gcs_core)
+
+# 核心執行環境：桌面程式與無介面工具共用
+add_library(gcs_runtime STATIC
+    core_runtime.hpp
+    core_runtime.cpp
+)
+target_link_libraries(gcs_runtime PUBLIC gcs_wiring gcs_link)
 
 if(NOT GCS_BUILD_APP)
     return()
@@ -38,7 +45,7 @@ qt_add_qml_module(taiphoon_qgcs
 target_compile_definitions(taiphoon_qgcs PRIVATE GCS_VERSION_FULL="${GCS_VERSION_FULL}")
 
 target_link_libraries(taiphoon_qgcs PRIVATE
-    gcs_wiring
+    gcs_runtime
     Qt6::Gui
     Qt6::Qml
     Qt6::Quick

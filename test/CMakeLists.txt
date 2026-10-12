@@ -53,6 +53,22 @@ foreach(test_name IN LISTS GCS_LINK_TESTS)
     gtest_discover_tests(${test_name} DISCOVERY_MODE PRE_TEST)
 endforeach()
 
+# M3：通訊層（需要 QCoreApplication 的測試使用共用主程式）
+set(GCS_LINK_QT_TESTS
+    test_message_conversion
+    test_cyclone_agent_link
+)
+
+foreach(test_name IN LISTS GCS_LINK_QT_TESTS)
+    add_executable(${test_name} ${test_name}.cpp)
+    target_link_libraries(${test_name} PRIVATE gcs_test_support gcs_link)
+    gtest_discover_tests(${test_name} DISCOVERY_MODE PRE_TEST)
+endforeach()
+
+add_executable(test_core_runtime test_core_runtime.cpp)
+target_link_libraries(test_core_runtime PRIVATE gcs_test_support gcs_runtime)
+gtest_discover_tests(test_core_runtime DISCOVERY_MODE PRE_TEST)
+
 # 取出 writer 序列化結果需要 ddsi_serdata.h；安裝版 CycloneDDS 會公開此標頭，
 # 以原始碼建置時 ddsc 未將其加入 include 路徑。
 target_include_directories(test_cdr_wire_format PRIVATE "${cyclonedds_SOURCE_DIR}/src/core/ddsi/include")

@@ -46,6 +46,12 @@ qt_standard_project_setup(REQUIRES ${GCS_QT_VERSION})
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(Dependencies)
 
+# 放在第三方相依之後，只影響本專案目標：windows.h 的 ERROR、min、max 巨集
+# 會與介面規格的 FlightState::ERROR 及標準函式庫衝突。
+if(WIN32)
+    add_compile_definitions(NOMINMAX NOGDI WIN32_LEAN_AND_MEAN)
+endif()
+
 add_subdirectory(idl)
 
 add_subdirectory(src/core)
@@ -54,6 +60,7 @@ add_subdirectory(src/app)
 
 if(GCS_BUILD_TOOLS)
     add_subdirectory(tools/dds_probe)
+    add_subdirectory(tools/gcs_headless)
 endif()
 
 if(GCS_BUILD_TESTS)
