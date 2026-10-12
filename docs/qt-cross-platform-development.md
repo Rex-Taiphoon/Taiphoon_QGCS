@@ -223,13 +223,13 @@ M1 是決定方案是否可行的關卡；M2 不需要網路，可與 M1 同時�
 | **M0 治理與骨架** ✅ | ADR、AGENTS／CONTEXT／CODE_CONSTRAINT 修訂；移除舊元件；本機 `git init`；`CMakePresets.json` 與空白 QML 視窗 | 文件經開發者確認；`cmake --preset windows-debug` 可建置執行 |
 | **M1 DDS 相容 PoC** ✅ | 固定 CycloneDDS 0.10.5；`msg2idl`；`tools/dds_probe` 驗證 ADR-0014 的 5 個項目 | 對 Humble Agent（SITL）全部通過；任一項失敗則重新評估 |
 | **M2 核心移植** ✅ | `gcs_core`、核心型別、`IAgentLink`、`FakeAgentLink`、模組改為 `QObject`、組裝根、測試改寫 | Guard 全組合測試與其他既有測試案例全部通過；組裝測試證明無法繞過 Guard |
-| **M3 Link 層與無介面整合** | `CycloneAgentLink`、QoS 表測試、CDR 往返測試、服務請求標頭測試；以日誌驗證完整流程 | SITL 上發現 → 遙測 → 命令 → 回報 → shutdown 端到端通過 |
-| **M4 QML 主介面** | `UiBridge`、models；F-01～F-07、F-09、F-10、F-12 | 逐項對照網頁版行為 |
-| **M5 地圖** | `MapView.qml`、航向箭頭、軌跡、自動跟隨 | F-08 對等 |
-| **M6 網路設定與除錯工具** | 首次設定精靈、Wi-Fi 位址變化處理、`DebugInspector` | F-11、F-13；乾淨 Windows 不編輯檔案即可連上現場 Agent |
-| **M7 Windows 安裝程式（MVP）** | CPack NSIS、windeployqt、MSVC runtime、防火牆說明 | 乾淨 Windows 安裝後可直接連線 Agent，可開始現場試用 |
-| **M8 macOS** | Universal Binary、`NSLocalNetworkUsageDescription`、簽章與公證 | 乾淨 macOS 可連線 |
-| **M9 CI／Release** | windows、macos、linux workflow；Release 附件 | tag 後自動產生安裝檔 |
+| **M3 Link 層與無介面整合** ✅ | `CycloneAgentLink`、QoS 表測試、CDR 往返測試、服務請求標頭測試；以日誌驗證完整流程 | SITL 上發現 → 遙測 → 命令 → 回報 → shutdown 端到端通過 |
+| **M4 QML 主介面** ✅ | `UiBridge`、models；F-01～F-07、F-09、F-10、F-12 | 逐項對照網頁版行為 |
+| **M5 地圖** ✅ | `MapView.qml`、航向箭頭、軌跡、自動跟隨 | F-08 對等 |
+| **M6 網路設定與除錯工具** ✅（Wi-Fi 位址切換待實機） | 首次設定精靈、Wi-Fi 位址變化處理、`DebugInspector` | F-11、F-13；乾淨 Windows 不編輯檔案即可連上現場 Agent |
+| **M7 Windows 安裝程式（MVP）** 🟡 ZIP 完成，NSIS 待安裝工具 | CPack NSIS、windeployqt、MSVC runtime、防火牆說明 | 乾淨 Windows 安裝後可直接連線 Agent，可開始現場試用 |
+| **M8 macOS** 🟡 設定完成，待 Mac 建置與簽章 | Universal Binary、`NSLocalNetworkUsageDescription`、簽章與公證 | 乾淨 macOS 可連線 |
+| **M9 CI／Release** 🟡 workflow 完成，待遠端儲存庫 | windows、macos、linux workflow；Release 附件 | tag 後自動產生安裝檔 |
 
 ### 6.1 M1 互通驗證結果（2026-10-12，全部通過）
 
@@ -277,6 +277,54 @@ M1 是決定方案是否可行的關卡；M2 不需要網路，可與 M1 同時�
 | Fleet 名稱過濾 | 依 topic 正規表示式 | link 回報的名稱再經 `is_single_agent` 過濾，`fmu1_agent`、`uav_0_agent` 等一律忽略 |
 | shutdown 逾時後的回應 | 依計時器清除 | 以請求識別碼比對，逾時後或屬於其他請求的回應一律忽略 |
 
+### 6.3 M3～M9 結果（2026-10-12）
+
+**M3 通訊層**
+- `CycloneAgentLink`：DCPSPublication 探索、Agent 上線時預先建立命令 writer 與 shutdown 端點、
+  發布前確認已有訂閱者、service 回應以 client 識別碼與序號比對、網路重建時保留已訂閱 Agent。
+- `CoreRuntime`：核心執行緒、link 與模組的建立、重建與釋放（釋放前先把物件移回主執行緒）。
+- `tools/gcs_headless`：對 Mac 上的兩台 Agent（方案 A）驗證探索、約 10 Hz 遙測，以及 Guard 依真實狀態
+  拒絕 TAKEOFF（未解鎖）、MODE_RTL（閒置）、全體 ARM（非 Offboard）與單機編隊。
+- 端到端飛行測試（方案 A：Windows GCS ↔ Mac 上的 SITL，`uav_2_agent`，2026-10-12，開發者同意後執行）：
+
+  | 步驟 | 結果 |
+  |---|---|
+  | MODE_OFFBOARD | 成功；PX4 `nav_state` 4 → 14 |
+  | ARM | 成功；任務階段 IDLE → ARMED |
+  | TAKEOFF 3（間隔 22 秒後） | Guard 拒絕：PX4 已自動上鎖，「PX4 原生狀態不允許此命令」，未送出 |
+  | ARM → 3 秒後 TAKEOFF 3 | 成功；TAKEOFF → HOVER，穩定於 3.00 m |
+  | MODE_LAND | 成功；LAND → 落地 → 自動上鎖 → IDLE |
+
+  過程中 Guard 依 Agent 實際狀態放行與拒絕，未發生錯誤放行。PX4 解鎖後若未及時起飛會自動上鎖，
+  操作上 ARM 與 TAKEOFF 應連續執行。
+
+**M4 介面、M5 地圖、M6 網路與除錯**
+- `UiBridge`（只發出命令與關閉兩種請求）、`FleetModel`、`ToastModel`、`AppSettings`（QSettings）、
+  `NetworkController`（站點設定、每 5 秒檢查本機位址並重建 DDS）、`DiagnosticsController`（唯讀）。
+- QML：狀態列、飛行控制四分頁與 L1／L2、機群視窗、姿態儀、提示訊息、進階設定、網路設定（首次啟動精靈）、
+  除錯工具、地圖（OSM、航向箭頭、名稱、軌跡、自動跟隨、縮放與朝北、來源標示）。
+- 以無畫面模式連線 Mac 上的 Agent 截圖確認版面與資料。
+
+**M7～M9 打包與 CI**
+- `cmake/Packaging.cmake`：Qt 部署（windeployqt／macdeployqt）、CycloneDDS、MSVC 執行階段（app-local）、
+  第三方授權聲明；CPack 產生 Windows ZIP（有 NSIS 時另產生安裝程式，並建立／移除防火牆規則）、
+  macOS DMG、Linux TGZ。
+- 已在乾淨 PATH 下執行安裝後的程式（煙霧測試通過）；ZIP 約 45 MB，展開約 116 MB。
+- `.github/workflows/qgcs-build.yml`：三平台建置、測試、打包；`v*` 標籤建立草稿 Release。
+
+單元測試共 116 項全數通過。
+
+**與網頁版的差異（刻意調整）**
+
+| 項目 | 網頁版 | Qt 版 |
+|---|---|---|
+| 全體模式按鈕可用狀態 | 只檢查每台 PX4 狀態有效 | 與 Guard 相同：每台都必須允許該命令 |
+| L2 滑桿 | 點擊軌道任意位置即可開始拖曳 | 必須從滑塊開始拖曳，避免點近終點時誤觸 |
+| 除錯終端機 | 在容器執行 `ros2` CLI | 內建唯讀指令（topic list／echo、agents、events），拒絕 pub 與 call |
+| 結束 GCS | 停止容器並通知所有網頁 | 一般程式結束，不發送任何 Agent 命令 |
+| 連線燈號 | WebSocket 連線狀態 | DDS 是否啟動，提示文字顯示網路設定 |
+| 網路設定 | Go 啟動器的設定頁 | 程式內首次設定精靈與「網路設定」，保存後立即重建 DDS |
+
 ## 7. 測試策略
 
 - 單元測試集中於根目錄 `test/`，使用 Google Test + QtTest（`QSignalSpy`），以 CTest 註冊。
@@ -316,11 +364,17 @@ ctest --test-dir build --output-on-failure
 
 ## 10. 待決事項
 
-- [ ] 正式發布使用的圖磚來源（OSM 官方圖磚不適合大量使用）。
+- [x] 正式發布使用的圖磚來源：先使用 OSM 官方圖磚（2026-10-12 決定），用量增加時再評估。
+- [x] 端到端飛行命令測試：已完成（第 6.3 節）。
+- [ ] 安裝 NSIS 後產生並驗證 Windows 安裝程式（含安裝、升級、移除與防火牆規則）。
+- [ ] 安裝程式自動建立防火牆入站規則的行為確認（`cmake/Packaging.cmake`）。
+- [ ] macOS 實機建置、Local Network 權限與簽章公證。
+- [ ] 設定 Git 遠端後實際執行 CI。
+- [ ] Wi-Fi 位址切換時自動重建 DDS 的實機驗證。
 - [ ] Apple Developer 帳號與 Windows 程式碼簽章憑證。
 - [ ] Linux 發布格式。
-- [ ] Git 遠端位置（目前不推送；日後以 Taiphoon_QGCS 專案管理）。
-- [ ] 版本號起點（`VERSION` 目前沿用網頁版的 `1.0.1-dev.1`）。
+- [x] Git 遠端：https://github.com/Rex-Taiphoon/Taiphoon_QGCS.git（尚未推送）。
+- [x] 版本號起點：v1.0.0。
 - [ ] 版本標籤、分支與 Release 標準（原 Taiphoon_GCS 標準已移除，M9 前重新制定）。
 
 ## 11. 參考資料

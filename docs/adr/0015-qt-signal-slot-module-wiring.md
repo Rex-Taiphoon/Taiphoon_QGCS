@@ -14,8 +14,9 @@ Qt 原生版沒有瀏覽器端，Qt 內建的 signal／slot 已提供型別安�
 - **移除 EventBus 與 JSON 事件格式**。模組繼承 `QObject` 與 `GcsModule`，以帶型別的 signal／slot 溝通。
 - 事件資料改為 `src/core/` 下的 C++ 結構（例如 `AgentStateData`、`CommandRequest`、`CommandAck`、
   `FleetSnapshot`），以 `Q_DECLARE_METATYPE` 註冊，可跨執行緒以 queued connection 傳遞。
-- **模組間仍禁止互相 include**。模組只依賴 `core/` 的型別與介面；所有 `connect()` 集中在單一
-  組裝根（`src/app/gcs_wiring.cpp`），該檔是唯一同時 include 多個模組標頭的地方。
+- **模組間仍禁止互相 include**。模組只依賴 `core/` 的型別與介面；跨模組與 UI ↔ 模組的 `connect()`
+  集中在組裝根：`src/app/gcs_wiring.cpp`（模組之間）與 `src/app/ui_wiring.cpp`（UiBridge、除錯工具與模組之間）。
+  模組可在 `init()` 內連接自己被注入的 `IAgentLink`，因為那不是跨模組連線。
 - **執行緒模型**：
   - 所有功能模組位於同一個「核心執行緒」（`QThread`），模組之間的連線一律指定 `Qt::DirectConnection`。
   - DDS 回呼位於 CycloneDDS 執行緒，由 `IAgentLink` 發出 signal，以 queued connection 進入核心執行緒。
@@ -37,6 +38,9 @@ Qt 原生版沒有瀏覽器端，Qt 內建的 signal／slot 已提供型別安�
   | `cmd_request` → `cmd_validated` → `cmd_ack` | `GuardModule::request_command` → `command_validated` → `CommandModule` → `command_acked` |
   | `agent_shutdown_request`／`agent_shutdown_accepted` | `AgentLifecycleModule::request_shutdown` → `shutdown_accepted` |
   | `gcs_shutdown_request` | 一般程式結束流程，不發送任何 Agent 命令 |
+
+- 除錯工具（`DiagnosticsController`）位於 app 層而非模組：它需要讀取 link 的 DDS 探索清單，
+  且只接收事件、不送出任何請求。
 
 ## 替代方案
 

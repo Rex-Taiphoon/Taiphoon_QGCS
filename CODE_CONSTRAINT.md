@@ -106,7 +106,8 @@
   以符合 QML 慣例；其餘 C++ 名稱依 L2-20 使用 snake_case
 - L2-22：使用者設定以 `QSettings` 讀取並指定預設值；站點設定與使用者設定分開保存
 - L2-23：計時器使用 `QTimer`，必須有父物件或以成員持有，並位於擁有者的執行緒
-- L2-24：跨模組 `connect()` 只能出現在組裝根 `src/app/gcs_wiring.cpp`，並明確指定連線型別
+- L2-24：跨模組與 UI ↔ 模組的 `connect()` 只能出現在組裝根 `src/app/gcs_wiring.cpp`、`src/app/ui_wiring.cpp`；
+  模組之間的連線必須明確指定 `Qt::DirectConnection`
 - L2-25：使用帶函式指標的新式 `connect()` 語法，禁止 `SIGNAL()` / `SLOT()` 字串巨集
 
 ---

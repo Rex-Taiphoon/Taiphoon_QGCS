@@ -78,7 +78,8 @@ Taiphoon_QGCS/
 - 所有功能模組繼承 `QObject` 與 `GcsModule`，位於 `src/modules/<模組名>/`，新模組需在 CMake 註冊。
 - 模組之間**禁止直接 include** 其他模組標頭；跨模組通訊一律使用 Qt signal／slot（ADR-0015），
   共用資料型別與介面放在 `src/core/`。
-- 所有 `connect()` 集中在組裝根 `src/app/gcs_wiring.cpp`；其他檔案不得建立跨模組連線。
+- 跨模組與 UI ↔ 模組的 `connect()` 集中在組裝根：`src/app/gcs_wiring.cpp`（模組之間）與
+  `src/app/ui_wiring.cpp`（UiBridge、除錯工具與模組之間）；其他檔案不得建立這類連線。
 - 執行緒：模組位於核心執行緒，模組間使用 `Qt::DirectConnection`；DDS 執行緒與 UI 主執行緒進出核心一律使用 queued connection。
   禁止在 DDS 執行緒操作 QML 或其他執行緒的 `QObject`。
 - `GuardModule` 是命令發布前的唯一安全閘門：`UiBridge` 只能連到 Guard 的命令請求 slot，
@@ -140,7 +141,7 @@ Taiphoon_QGCS/
 - 禁止自行提交 Git；未經使用者明確同意不得執行 commit / push。
 - 禁止在任何指令中使用 `--force` / `--hard` 等強制或破壞性指令。
 - 嘗試繞過平台的安全機制或人工審核流程；遇到需要確認的操作時，一律交給人類開發者決定。
-- 模組間直接 include，或在組裝根以外建立跨模組連線。
+- 模組間直接 include，或在組裝根（`gcs_wiring.cpp`、`ui_wiring.cpp`）以外建立跨模組連線。
 - 在 CommandModule（經 GuardModule 驗證）以外的地方發布 Agent command topic。
 - QML 或 `UiBridge` 直接呼叫 `IAgentLink` 或發布 DDS 資料。
 - 連結 rclcpp 或其他 ROS2 執行期函式庫。
@@ -168,7 +169,19 @@ ctest --preset windows-debug
 ```
 
 其他 preset：`windows-release`、`macos-debug`、`macos-release`、`linux-debug`（需先設定 `QT_ROOT_DIR`）。
+
+打包（Release）：
+
+```powershell
+cmake --preset windows-release
+cmake --build --preset windows-release
+cmake --install build\windows-release --component gcs --prefix <目錄>   # 部署測試
+cd build\windows-release; cpack -C Release                              # ZIP；有 NSIS 時另產生安裝程式
+```
 無畫面環境驗證主視窗可載入：設定 `QT_QPA_PLATFORM=offscreen` 後執行 `taiphoon_qgcs --smoke-test`。
+
+`tools/gcs_headless` 以與桌面程式相同的核心連線 Agent 並輸出日誌（M3 驗證），命令一律經 Guard，
+且必須加 `--allow-commands`。
 
 `tools/dds_probe` 是 M1 互通驗證工具，不隨產品發布。它只能送出 Agent 無法解析的命令 `GCS_PROBE_NOOP`，
 shutdown 必須加上 `--confirm`；正式命令一律經 GuardModule。

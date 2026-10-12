@@ -3,17 +3,28 @@
 搭配 Taiphoon_Agent 使用的桌面地面控制站，是 [Taiphoon_GCS](../Taiphoon_GCS)（網頁版）的 Qt 原生版本。
 目標是維持網頁版所有功能與 Agent 介面，並讓使用者**直接安裝即可執行**，不需安裝 Docker、ROS2 或處理 DDS 環境。
 
-> **目前狀態：開發中（M0～M2 完成）。** 已驗證與 ROS2 Humble Agent 的 DDS 互通，核心模組已移植為
-> Qt signal／slot 並通過全部單元測試；尚未接上實際 DDS 與畫面（M3、M4）。
+> **目前狀態：功能開發完成，待現場驗收。** 介面、地圖、網路設定與除錯工具均已完成，
+> 並已連線 ROS2 Humble Agent 驗證；Windows 可攜式 ZIP 可用，NSIS 安裝程式、macOS 與 CI 尚待驗證。
 > 需求、架構與開發路線見 [開發規劃](docs/qt-cross-platform-development.md)。
 
-## 平台與發布格式（規劃）
+## 平台與發布格式
 
-| 平台 | 格式 | 備註 |
+| 平台 | 格式 | 狀態 |
 |------|------|------|
-| Windows 10／11 x64 | NSIS 安裝程式 | 首次執行需允許防火牆 |
-| macOS | DMG（Universal Binary） | 首次執行需允許區域網路存取 |
-| Linux | 開發與 CI 驗證 | 發布格式待定 |
+| Windows 10／11 x64 | 可攜式 ZIP；NSIS 安裝程式 | ZIP 可用；安裝程式需建置環境安裝 NSIS |
+| macOS | DMG（Universal Binary） | 設定完成，待 Mac 建置與簽章 |
+| Linux | TGZ | 開發與 CI 驗證用 |
+
+## 使用方式
+
+1. 解壓縮 ZIP（或執行安裝程式），開啟 `bin/taiphoon_qgcs.exe`。
+2. 首次啟動會出現「網路設定」：填入 Agent 所在電腦的區網 IP（多台以換行分隔）。
+   同一台電腦或允許 multicast 的區網模擬時可留空。之後可在「進階設定 → 網路設定」修改，保存後立即重新連線。
+3. Windows 首次執行會詢問防火牆，需允許；未允許時收不到 Agent 資料（使用安裝程式會自動建立規則）。
+4. 右上機群視窗選取單機或「機群數量」（全體）後，以左上紙飛機按鈕開啟飛行控制。
+   按鈕是否可用與 GCS 的防呆規則一致；Arm 需拖曳滑桿，Takeoff、RTL、Land、Disarm 與編隊需確認。
+5. 「進階設定」可調整自動跟隨與命令逾時、關閉單一 Agent、開啟唯讀除錯工具或結束 GCS。
+   結束 GCS 不會對無人機發送任何命令。
 
 ## 與 Agent 的相容性
 
@@ -31,7 +42,7 @@
                        │ Qt signal／slot（queued）
 ┌──────────────────────▼───────────────────────┐
 │ Fleet｜Telemetry｜Guard｜Command｜Lifecycle   │  核心執行緒
-│ 模組間連線集中於組裝根 gcs_wiring             │
+│ 連線集中於組裝根 gcs_wiring／ui_wiring        │
 └──────────────────────┬───────────────────────┘
                        │ IAgentLink
 ┌──────────────────────▼───────────────────────┐
@@ -52,7 +63,7 @@
 | GuardModule | 資料驅動狀態轉移表，命令發布前的唯一安全閘門 |
 | CommandModule | 將驗證通過的命令發布至 Agent command topic |
 | AgentLifecycleModule | 呼叫單機 Agent shutdown service，成功後通知機隊隔離 |
-| InspectorModule | 唯讀除錯工具：DDS topic 清單、即時資料、事件紀錄 |
+| DiagnosticsController（app） | 唯讀除錯工具：DDS topic 清單、最新資料、事件紀錄；不提供發布 |
 
 ## Agent 遠端關閉
 
@@ -73,7 +84,10 @@ cmake --build --preset windows-debug
 ctest --preset windows-debug
 ```
 
-詳見 [AGENTS.md](AGENTS.md#建置與驗證)。
+打包：`cmake --preset windows-release`、`cmake --build --preset windows-release` 後，於 `build/windows-release`
+執行 `cpack -C Release`。詳見 [AGENTS.md](AGENTS.md#建置與驗證)。
+
+開發用工具（不隨產品發布）：`tools/dds_probe`（DDS 互通驗證）、`tools/gcs_headless`（無介面整合驗證）。
 
 ## 文件
 
