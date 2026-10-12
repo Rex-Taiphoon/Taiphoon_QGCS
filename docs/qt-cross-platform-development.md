@@ -221,7 +221,7 @@ M1 是決定方案是否可行的關卡；M2 不需要網路，可與 M1 同時�
 | 階段 | 內容 | 完成條件 |
 |---|---|---|
 | **M0 治理與骨架** ✅ | ADR、AGENTS／CONTEXT／CODE_CONSTRAINT 修訂；移除舊元件；本機 `git init`；`CMakePresets.json` 與空白 QML 視窗 | 文件經開發者確認；`cmake --preset windows-debug` 可建置執行 |
-| **M1 DDS 相容 PoC** ⛔ 進行中 | 固定 CycloneDDS 0.10.5；`msg2idl`；`tools/dds_probe` 驗證 ADR-0014 的 5 個項目 | 對 Humble Agent（SITL）全部通過；任一項失敗則重新評估 |
+| **M1 DDS 相容 PoC** ✅ | 固定 CycloneDDS 0.10.5；`msg2idl`；`tools/dds_probe` 驗證 ADR-0014 的 5 個項目 | 對 Humble Agent（SITL）全部通過；任一項失敗則重新評估 |
 | **M2 核心移植**（與 M1 同時） | `gcs_core`、核心型別、`IAgentLink`、`FakeAgentLink`、模組改為 `QObject`、組裝根、測試改寫 | Guard 全組合測試與其他既有測試案例全部通過；組裝測試證明無法繞過 Guard |
 | **M3 Link 層與無介面整合** | `CycloneAgentLink`、QoS 表測試、CDR 往返測試、服務請求標頭測試；以日誌驗證完整流程 | SITL 上發現 → 遙測 → 命令 → 回報 → shutdown 端到端通過 |
 | **M4 QML 主介面** | `UiBridge`、models；F-01～F-07、F-09、F-10、F-12 | 逐項對照網頁版行為 |
@@ -231,18 +231,34 @@ M1 是決定方案是否可行的關卡；M2 不需要網路，可與 M1 同時�
 | **M8 macOS** | Universal Binary、`NSLocalNetworkUsageDescription`、簽章與公證 | 乾淨 macOS 可連線 |
 | **M9 CI／Release** | windows、macos、linux workflow；Release 附件 | tag 後自動產生安裝檔 |
 
-### 6.1 M1 進度（2026-10-12）
+### 6.1 M1 互通驗證結果（2026-10-12，全部通過）
 
-| ADR-0014 項目 | 本機自我測試（dds_probe ↔ fake-agent） | 對 Humble Agent |
+**環境**：Windows 11 原生 `dds_probe`（CycloneDDS 0.10.5）↔ Docker Desktop 容器
+`taiphoon-agent:v1.3.0-rc.4-runtime-amd64`（ROS2 Humble、`rmw_cyclonedds_cpp`）+ `px4io/px4-sitl:latest`（SIH，
+與 Agent 共用網路命名空間）。
+
+| ADR-0014 項目 | 結果 | 證據 |
 |---|---|---|
-| CDR 網路格式 | ✅ 單元測試確認 XCDR1 對齊與 service 請求標頭位置 | 待驗證 |
-| 1. 訂閱與解碼 | ✅ `echo` 約 9.2 Hz | 待驗證 |
-| 2. 命令發布 | ✅ `noop-command` | 待驗證（看 Agent 日誌） |
-| 3. DCPSPublication 發現與消失 | ✅ `list`；shutdown 後 topic 消失 | 待驗證 |
-| 4. shutdown service | ✅ 請求標頭與回應比對 | 待驗證 |
-| 5. 型別資訊配對 | 以 `NO_TYPE_INFO` 產生型別，與 rmw_cyclonedds 一樣只以型別名稱配對 | 待驗證 |
+| CDR 網路格式 | ✅ | 單元測試確認 XCDR1 對齊與 service 請求標頭位置；容器內 `ros2 topic echo` 正確解碼 dds_probe 發布的 `AgentState`，全部欄位與送出值一致 |
+| 1. 訂閱與解碼 | ✅ | `echo`：state、attitude 各 9.9 Hz；GPS 等於 PX4 home、`px4_state_valid=1`、四元數已正規化 |
+| 2. 命令發布 | ✅ | 單機與全體 `GCS_PROBE_NOOP` 各配對 2 個訂閱者；Agent 日誌記錄 `Received ... command` 與 `Unknown command received`，無任何動作 |
+| 3. DCPSPublication 發現與消失 | ✅ | 列出 Agent 全部 writer 與正確型別名稱；shutdown 後 `rt/uav_1_agent/state` 等 topic 消失 |
+| 4. shutdown service | ✅ | Agent 回應 `success=1`、`關閉請求已接受；已排程終止容器`，以 client_guid 與序號比對成功；容器隨後結束 |
+| 5. 型別資訊配對 | ✅ | `NO_TYPE_INFO` 型別與 rmw_cyclonedds 端點正常配對；Agent 端顯示 GCS reader 為 `_CREATED_BY_BARE_DDS_APP_`，QoS 與介面文件一致 |
 
-本機自我測試只證明實作前後一致；是否與 rmw_cyclonedds 互通，必須對實際 Agent 驗證。
+**驗證中發現的事實**（M3 之後的實作需納入）：
+
+- Agent 在收到 PX4 odometry 前**不發布** `/{ns}/state`；只有 Agent 容器、沒有飛控時，GCS 能發現 topic 但收不到狀態。
+  機隊判斷「線上」不能只看 topic 是否存在（網頁版 FleetModule 以 5 秒 stale 判斷，需保留）。
+- Windows 防火牆預設阻擋 GCS 程式的入站 UDP。M7 安裝程式需處理防火牆規則或引導使用者允許。
+- 原生程式與 Docker Desktop 內的 Agent 互通需要特別設定（見下方），一般現場部署（Agent 在其他主機）不需要。
+
+**Docker Desktop 測試環境設定**（Windows 防火牆不需修改）：
+
+- Agent 容器：CycloneDDS 單播，`ExternalNetworkAddress` 設為主機區網 IP，發布 UDP 7410–7421，
+  Peer 為 `localhost` 與 `192.168.65.254:7510`（`host.docker.internal` 與 GCS 的 participant index 50）。
+- dds_probe：`--interface <主機區網 IP> --external-address 192.168.65.254 --no-multicast --peer <主機區網 IP>
+  --participant-index 50`。容器回送封包經 Docker Desktop 轉送至主機 loopback，因此不受防火牆影響。
 
 ## 7. 測試策略
 

@@ -85,6 +85,8 @@ struct ProbeOptions
     DdsNetworkConfig network;
     double duration_s = 10.0;
     bool is_confirmed = false;
+    /// 非空時將 CycloneDDS 詳細追蹤寫入此檔，用於排除網路問題
+    std::string trace_file;
 };
 
 /** @brief 印出用法 */
@@ -102,10 +104,12 @@ void print_usage()
            "  --domain <id>              ROS_DOMAIN_ID（預設 0）\n"
            "  --interface <名稱或 IPv4>  指定網卡\n"
            "  --peer <位址>              單播探索入口，可重複\n"
+           "  --external-address <IPv4>  對外公告的位址（位於 NAT 之後時使用）\n"
            "  --no-multicast             關閉 multicast（需搭配 --peer）\n"
            "  --participant-index <n>    固定 participant index\n"
            "  --duration <秒>            執行時間（預設 10）\n"
-           "  --confirm                  確認執行 shutdown\n";
+           "  --confirm                  確認執行 shutdown\n"
+           "  --trace <檔案>             將 CycloneDDS 詳細追蹤寫入檔案\n";
 }
 
 /**
@@ -141,6 +145,10 @@ std::optional<ProbeOptions> parse_options(int argc, char* argv[])
             {
                 options.network.peers.emplace_back(argv[++i]);
             }
+            else if (arg == "--external-address" && has_value)
+            {
+                options.network.external_address = argv[++i];
+            }
             else if (arg == "--no-multicast")
             {
                 options.network.is_multicast_allowed = false;
@@ -152,6 +160,10 @@ std::optional<ProbeOptions> parse_options(int argc, char* argv[])
             else if (arg == "--duration" && has_value)
             {
                 options.duration_s = std::stod(argv[++i]);
+            }
+            else if (arg == "--trace" && has_value)
+            {
+                options.trace_file = argv[++i];
             }
             else if (arg == "--confirm")
             {
@@ -309,6 +321,39 @@ int take_valid(dds_entity_t reader, Handler handler)
     }
     dds_return_loan(reader, samples, count);
     return valid_count;
+}
+
+/**
+ * @brief 建立開啟詳細追蹤的 participant（只供排除網路問題）
+ * @param network 網路設定
+ * @param trace_file 追蹤輸出檔
+ * @param error 失敗時的錯誤訊息
+ * @return participant 實體；失敗時為負值
+ */
+dds_entity_t create_traced_participant(const DdsNetworkConfig& network, const std::string& trace_file,
+                                       std::string* error)
+{
+    auto xml = build_cyclonedds_xml(network, error);
+    if (!xml.has_value())
+    {
+        return DDS_RETCODE_BAD_PARAMETER;
+    }
+    const std::string default_tracing = "<Verbosity>warning</Verbosity><OutputFile>stderr</OutputFile>";
+    const auto position = xml->find(default_tracing);
+    if (position == std::string::npos)
+    {
+        *error = "找不到預設追蹤設定";
+        return DDS_RETCODE_ERROR;
+    }
+    xml->replace(position, default_tracing.size(),
+                 "<Verbosity>finest</Verbosity><OutputFile>" + trace_file + "</OutputFile>");
+    const dds_entity_t domain = dds_create_domain(network.domain_id, xml->c_str());
+    if (domain < 0)
+    {
+        *error = std::string("建立 DDS domain 失敗：") + dds_strretcode(domain);
+        return domain;
+    }
+    return dds_create_participant(network.domain_id, nullptr, nullptr);
 }
 
 /** @brief 目前時間轉為 ROS builtin_interfaces/Time */
@@ -707,7 +752,15 @@ int main(int argc, char* argv[])
     }
 
     std::string error;
-    const dds_entity_t participant = create_participant(options->network, &error);
+    dds_entity_t participant = 0;
+    if (options->trace_file.empty())
+    {
+        participant = create_participant(options->network, &error);
+    }
+    else
+    {
+        participant = create_traced_participant(options->network, options->trace_file, &error);
+    }
     if (participant < 0)
     {
         std::cerr << error << "\n";
