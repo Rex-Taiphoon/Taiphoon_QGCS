@@ -105,4 +105,7 @@ set_target_properties(taiphoon_qgcs PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER tw.com.taiphoon.qgcs
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_INFO_PLIST "${PROJECT_SOURCE_DIR}/packaging/macos/Info.plist.in"
 )
+
+include(Packaging)

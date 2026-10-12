@@ -1,0 +1,156 @@
+# =============================================================================
+# @file qgcs-build.yml
+# @brief Taiphoon_QGCS 三平台建置、單元測試與打包；v* 標籤建立草稿 Release（M9）
+# @author Taiphoon GCS Team
+# @date 2026-10-12
+#
+# Qt 與相依版本固定（ADR-0013）；版本、分支與 Release 命名標準於正式發布前另行制定，
+# 因此 Release 一律建立為草稿，由人員確認後才公開。
+# =============================================================================
+name: QGCS Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  QT_VERSION: "6.11.2"
+  QT_MODULES: "qtlocation qtpositioning"
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安裝 Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          modules: ${{ env.QT_MODULES }}
+          cache: true
+
+      - name: 載入 MSVC 環境
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: 安裝 Ninja
+        run: choco install ninja --no-progress -y
+
+      - name: Configure
+        run: cmake --preset windows-release
+
+      - name: Build
+        run: cmake --build --preset windows-release
+
+      - name: Unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --preset windows-release
+
+      - name: 打包（ZIP，NSIS 存在時另產生安裝程式）
+        working-directory: build/windows-release
+        run: cpack -C Release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qgcs-windows
+          path: |
+            build/windows-release/Taiphoon_QGCS-*.zip
+            build/windows-release/Taiphoon_QGCS-*.exe
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安裝 Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: clang_64
+          modules: ${{ env.QT_MODULES }}
+          cache: true
+
+      - name: 安裝 Ninja
+        run: brew install ninja
+
+      - name: Configure（Universal Binary）
+        run: cmake --preset macos-release
+
+      - name: Build
+        run: cmake --build --preset macos-release
+
+      - name: Unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build/macos-release --output-on-failure
+
+      # 簽章與公證待取得 Apple Developer 帳號後加入（packaging/macos/entitlements.plist 已備妥）；
+      # 未簽章的 DMG 在其他 Mac 上會被 Gatekeeper 阻擋，只供內部測試。
+      - name: 打包（DMG，未簽章）
+        working-directory: build/macos-release
+        run: cpack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qgcs-macos
+          path: build/macos-release/Taiphoon_QGCS-*.dmg
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安裝系統相依
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libegl1
+
+      - name: 安裝 Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: linux_gcc_64
+          modules: ${{ env.QT_MODULES }}
+          cache: true
+
+      - name: Configure
+        run: cmake --preset linux-debug
+
+      - name: Build
+        run: cmake --build --preset linux-debug
+
+      - name: Unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --preset linux-debug
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 建立草稿 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: Taiphoon QGCS ${{ github.ref_name }}
+          files: artifacts/**/*

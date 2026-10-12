@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  @file Info.plist.in
+  @brief macOS bundle 設定；由 CMake 代入版本與識別碼
+  @author Taiphoon GCS Team
+  @date 2026-10-12
+
+  NSLocalNetworkUsageDescription：macOS 15 起存取區域網路需使用者授權，否則 DDS 收不到 Agent 資料。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_TW</string>
+    <key>CFBundleExecutable</key>
+    <string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+    <key>CFBundleIdentifier</key>
+    <string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Taiphoon_QGCS</string>
+    <key>CFBundleDisplayName</key>
+    <string>Taiphoon_QGCS</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
+    <key>CFBundleVersion</key>
+    <string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Taiphoon_QGCS 需要存取區域網路，才能與無人機上的 Taiphoon_Agent 交換狀態與命令。</string>
+</dict>
+</plist>

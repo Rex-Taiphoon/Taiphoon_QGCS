@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  @file entitlements.plist
+  @brief macOS 簽章（Hardened Runtime）使用的權限
+  @author Taiphoon GCS Team
+  @date 2026-10-12
+
+  DDS 需要收發 UDP：network.client／network.server。
+  使用 multicast（SITL）另需 com.apple.developer.networking.multicast，該權限須先向 Apple 申請，
+  核准前現場部署請使用單播（ADR-0014）。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+</dict>
+</plist>
