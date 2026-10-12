@@ -1,0 +1,47 @@
+// @file ros_common.idl
+// @brief ROS2 Humble 標準型別的 DDS 定義，網路格式與 rmw_cyclonedds_cpp 相同
+// @author Taiphoon GCS Team
+// @date 2026-10-12
+//
+// 型別名稱必須與 ROS2 相同（<pkg>::<msg|srv>::dds_::<Type>_）；欄位名稱不會在網路上傳送。
+
+module builtin_interfaces {
+module msg {
+module dds_ {
+struct Time_ {
+    long sec;
+    unsigned long nanosec;
+};
+};
+};
+};
+
+module std_msgs {
+module msg {
+module dds_ {
+struct String_ {
+    string data;
+};
+};
+};
+};
+
+module std_srvs {
+module srv {
+module dds_ {
+// rmw_cyclonedds 在 service 樣本最前面附加請求標頭：
+// client 識別碼（uint64）與請求序號（int64），回應時原樣帶回，用於比對請求。
+struct SetBool_Request_ {
+    unsigned long long client_guid;
+    long long sequence_number;
+    boolean data;
+};
+struct SetBool_Response_ {
+    unsigned long long client_guid;
+    long long sequence_number;
+    boolean success;
+    string message;
+};
+};
+};
+};

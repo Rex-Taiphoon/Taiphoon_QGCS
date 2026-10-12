@@ -1,138 +1,64 @@
-cmake_minimum_required(VERSION 3.8)
-project(taiphoon_gcs)
+# =============================================================================
+# @file CMakeLists.txt
+# @brief Taiphoon_QGCS 頂層建置設定
+# @author Taiphoon GCS Team
+# @date 2026-10-12
+#
+# 目前只建置 Qt 版的新程式碼；src/core、src/modules 等網頁版遺留程式碼
+# 於 M2 移植後才加入建置（見 docs/qt-cross-platform-development.md）。
+# =============================================================================
+cmake_minimum_required(VERSION 3.25)
 
-if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 17)
-  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" GCS_VERSION_FULL)
+string(STRIP "${GCS_VERSION_FULL}" GCS_VERSION_FULL)
+string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" GCS_VERSION_NUMBER "${GCS_VERSION_FULL}")
+
+project(TaiphoonQgcs
+    VERSION ${GCS_VERSION_NUMBER}
+    DESCRIPTION "Taiphoon Qt 原生地面控制站"
+    LANGUAGES C CXX
+)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# 執行檔與 DLL 輸出到同一目錄，Windows 上不需額外複製 ddsc.dll 即可執行。
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+
+# 原始碼含繁體中文字串，MSVC 必須明確以 UTF-8 解讀。
+add_compile_options(
+    "$<$<C_COMPILER_ID:MSVC>:/utf-8>"
+    "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>"
+)
+
+option(GCS_BUILD_APP "建置 Qt 桌面程式" ON)
+option(GCS_BUILD_TOOLS "建置開發工具（dds_probe）" ON)
+option(GCS_BUILD_TESTS "建置單元測試" ON)
+
+# Qt 版本固定（ADR-0013）；不同版本一律拒絕，避免開發者與 CI 結果不一致。
+set(GCS_QT_VERSION "6.11.2")
+find_package(Qt6 ${GCS_QT_VERSION} EXACT REQUIRED COMPONENTS Core)
+qt_standard_project_setup(REQUIRES ${GCS_QT_VERSION})
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(Dependencies)
+
+add_subdirectory(idl)
+
+add_subdirectory(src/link)
+
+if(GCS_BUILD_APP)
+    add_subdirectory(src/app)
 endif()
 
-find_package(ament_cmake REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(std_srvs REQUIRED)
-find_package(taiphoon_agent REQUIRED)
-find_package(nlohmann_json REQUIRED)
-find_package(Boost REQUIRED COMPONENTS system thread)
-
-# 收集原始碼
-set(CORE_SOURCES
-  src/core/module_manager.cpp
-  src/core/ws_server.cpp
-  src/core/ws_protocol.cpp
-)
-
-set(MODULE_SOURCES
-  src/modules/telemetry/telemetry_module.cpp
-  src/modules/fleet/fleet_module.cpp
-  src/modules/guard/guard_module.cpp
-  src/modules/command/command_module.cpp
-  src/modules/lifecycle/agent_lifecycle_module.cpp
-  src/modules/map/map_module.cpp
-  src/modules/debug/debug_terminal_module.cpp
-)
-
-add_executable(taiphoon_gcs_node
-  src/main.cpp
-  ${CORE_SOURCES}
-  ${MODULE_SOURCES}
-)
-
-target_include_directories(taiphoon_gcs_node PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
-target_link_libraries(taiphoon_gcs_node
-  rclcpp::rclcpp
-  std_msgs::std_msgs__rosidl_typesupport_cpp
-  ${Boost_LIBRARIES}
-)
-
-ament_target_dependencies(taiphoon_gcs_node
-  rclcpp
-  std_msgs
-  std_srvs
-  taiphoon_agent
-  nlohmann_json
-)
-
-install(TARGETS taiphoon_gcs_node
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-install(DIRECTORY
-  ${CMAKE_CURRENT_SOURCE_DIR}/frontend/dist/
-  DESTINATION share/${PROJECT_NAME}/frontend
-  OPTIONAL
-)
-
-if(BUILD_TESTING)
-  find_package(ament_cmake_gtest REQUIRED)
-
-  ament_add_gtest(test_telemetry_serialization
-    test/test_telemetry_serialization.cpp
-    src/modules/telemetry/telemetry_module.cpp
-  )
-  target_include_directories(test_telemetry_serialization PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-  ament_target_dependencies(test_telemetry_serialization rclcpp taiphoon_agent nlohmann_json)
-
-  ament_add_gtest(test_event_bus test/test_event_bus.cpp)
-  target_include_directories(test_event_bus PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-
-  ament_add_gtest(test_ws_protocol
-    test/test_ws_protocol.cpp
-    src/core/ws_protocol.cpp
-  )
-  target_include_directories(test_ws_protocol PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-  ament_target_dependencies(test_ws_protocol nlohmann_json)
-
-  ament_add_gtest(test_guard_transition
-    test/test_guard_transition.cpp
-    src/core/ws_protocol.cpp
-    src/modules/guard/guard_module.cpp
-  )
-  target_include_directories(test_guard_transition PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-  ament_target_dependencies(test_guard_transition nlohmann_json)
-
-  ament_add_gtest(test_command_module
-    test/test_command_module.cpp
-    src/core/ws_protocol.cpp
-    src/modules/command/command_module.cpp
-  )
-  target_include_directories(test_command_module PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-  target_link_libraries(test_command_module
-    rclcpp::rclcpp
-    std_msgs::std_msgs__rosidl_typesupport_cpp
-  )
-  ament_target_dependencies(test_command_module
-    rclcpp
-    std_msgs
-    taiphoon_agent
-    nlohmann_json
-  )
-
-  ament_add_gtest(test_agent_lifecycle_module
-    test/test_agent_lifecycle_module.cpp
-    src/core/ws_protocol.cpp
-    src/modules/lifecycle/agent_lifecycle_module.cpp
-  )
-  target_include_directories(test_agent_lifecycle_module PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-  target_link_libraries(test_agent_lifecycle_module rclcpp::rclcpp)
-  ament_target_dependencies(test_agent_lifecycle_module
-    rclcpp
-    std_srvs
-    nlohmann_json
-  )
-
-  ament_add_gtest(test_fleet_module
-    test/test_fleet_module.cpp
-    src/modules/fleet/fleet_module.cpp
-  )
-  target_include_directories(test_fleet_module PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-  ament_target_dependencies(test_fleet_module
-    rclcpp
-    taiphoon_agent
-    nlohmann_json
-  )
+if(GCS_BUILD_TOOLS)
+    add_subdirectory(tools/dds_probe)
 endif()
 
-ament_package()
+if(GCS_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(test)
+endif()

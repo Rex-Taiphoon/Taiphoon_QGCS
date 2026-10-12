@@ -3,8 +3,8 @@
 搭配 Taiphoon_Agent 使用的桌面地面控制站，是 [Taiphoon_GCS](../Taiphoon_GCS)（網頁版）的 Qt 原生版本。
 目標是維持網頁版所有功能與 Agent 介面，並讓使用者**直接安裝即可執行**，不需安裝 Docker、ROS2 或處理 DDS 環境。
 
-> **目前狀態：開發中（M0 治理與骨架）。** 尚無可執行程式；需求、架構與開發路線見
-> [開發規劃](docs/qt-cross-platform-development.md)。
+> **目前狀態：開發中（M0 完成，M1 待對實際 Agent 驗證互通）。** 目前只有空白主視窗與 DDS 驗證工具；
+> 需求、架構與開發路線見 [開發規劃](docs/qt-cross-platform-development.md)。
 
 ## 平台與發布格式（規劃）
 
@@ -65,7 +65,14 @@
 - Windows：VS Build Tools（MSVC），CMake + Ninja（Qt 安裝目錄 `Tools` 內附）
 - Python 3（IDL 產生腳本）
 
-建置指令見 [AGENTS.md](AGENTS.md#建置與驗證)，M0 完成後改用 CMake Presets。
+```powershell
+. .\tools\dev-env.ps1
+cmake --preset windows-debug
+cmake --build --preset windows-debug
+ctest --preset windows-debug
+```
+
+詳見 [AGENTS.md](AGENTS.md#建置與驗證)。
 
 ## 文件
 

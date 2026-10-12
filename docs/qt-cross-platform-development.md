@@ -220,8 +220,8 @@ M1 是決定方案是否可行的關卡；M2 不需要網路，可與 M1 同時�
 
 | 階段 | 內容 | 完成條件 |
 |---|---|---|
-| **M0 治理與骨架** | ADR、AGENTS／CONTEXT／CODE_CONSTRAINT 修訂；移除舊元件；本機 `git init`；`CMakePresets.json` 與空白 QML 視窗 | 文件經開發者確認；`cmake --preset windows-debug` 可建置執行 |
-| **M1 DDS 相容 PoC** ⛔ | 固定 CycloneDDS 0.10.x；`msg2idl`；最小程式驗證 ADR-0014 的 5 個項目 | 對 Humble Agent（SITL）全部通過；任一項失敗則重新評估 |
+| **M0 治理與骨架** ✅ | ADR、AGENTS／CONTEXT／CODE_CONSTRAINT 修訂；移除舊元件；本機 `git init`；`CMakePresets.json` 與空白 QML 視窗 | 文件經開發者確認；`cmake --preset windows-debug` 可建置執行 |
+| **M1 DDS 相容 PoC** ⛔ 進行中 | 固定 CycloneDDS 0.10.5；`msg2idl`；`tools/dds_probe` 驗證 ADR-0014 的 5 個項目 | 對 Humble Agent（SITL）全部通過；任一項失敗則重新評估 |
 | **M2 核心移植**（與 M1 同時） | `gcs_core`、核心型別、`IAgentLink`、`FakeAgentLink`、模組改為 `QObject`、組裝根、測試改寫 | Guard 全組合測試與其他既有測試案例全部通過；組裝測試證明無法繞過 Guard |
 | **M3 Link 層與無介面整合** | `CycloneAgentLink`、QoS 表測試、CDR 往返測試、服務請求標頭測試；以日誌驗證完整流程 | SITL 上發現 → 遙測 → 命令 → 回報 → shutdown 端到端通過 |
 | **M4 QML 主介面** | `UiBridge`、models；F-01～F-07、F-09、F-10、F-12 | 逐項對照網頁版行為 |
@@ -230,6 +230,19 @@ M1 是決定方案是否可行的關卡；M2 不需要網路，可與 M1 同時�
 | **M7 Windows 安裝程式（MVP）** | CPack NSIS、windeployqt、MSVC runtime、防火牆說明 | 乾淨 Windows 安裝後可直接連線 Agent，可開始現場試用 |
 | **M8 macOS** | Universal Binary、`NSLocalNetworkUsageDescription`、簽章與公證 | 乾淨 macOS 可連線 |
 | **M9 CI／Release** | windows、macos、linux workflow；Release 附件 | tag 後自動產生安裝檔 |
+
+### 6.1 M1 進度（2026-10-12）
+
+| ADR-0014 項目 | 本機自我測試（dds_probe ↔ fake-agent） | 對 Humble Agent |
+|---|---|---|
+| CDR 網路格式 | ✅ 單元測試確認 XCDR1 對齊與 service 請求標頭位置 | 待驗證 |
+| 1. 訂閱與解碼 | ✅ `echo` 約 9.2 Hz | 待驗證 |
+| 2. 命令發布 | ✅ `noop-command` | 待驗證（看 Agent 日誌） |
+| 3. DCPSPublication 發現與消失 | ✅ `list`；shutdown 後 topic 消失 | 待驗證 |
+| 4. shutdown service | ✅ 請求標頭與回應比對 | 待驗證 |
+| 5. 型別資訊配對 | 以 `NO_TYPE_INFO` 產生型別，與 rmw_cyclonedds 一樣只以型別名稱配對 | 待驗證 |
+
+本機自我測試只證明實作前後一致；是否與 rmw_cyclonedds 互通，必須對實際 Agent 驗證。
 
 ## 7. 測試策略
 

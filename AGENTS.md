@@ -157,17 +157,21 @@ Taiphoon_QGCS/
 
 ## 建置與驗證
 
-Windows 使用 MSVC（Qt `msvc2022_64` kit，本機為 VS 2026 Build Tools）；Qt 固定 6.11.2。
-在 VS 開發者命令提示字元或已載入 MSVC 環境的 PowerShell 中執行：
+Windows 使用 MSVC（Qt `msvc2022_64` kit，本機為 VS 2026 Build Tools）；Qt 固定 6.11.2，
+CMake 會拒絕其他版本。第三方相依（CycloneDDS 0.10.5、GoogleTest v1.15.2）於首次 configure 時下載。
 
 ```powershell
-D:\Qt\6.11.2\msvc2022_64\bin\qt-cmake.bat -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-ctest --test-dir build --output-on-failure
+. .\tools\dev-env.ps1                  # 載入 MSVC 與 Qt；Qt 不在 D:\Qt 時先設定 QT_ROOT_DIR
+cmake --preset windows-debug
+cmake --build --preset windows-debug
+ctest --preset windows-debug
 ```
 
-M0 建立 `CMakePresets.json` 後，改用 `cmake --preset <名稱>`、`cmake --build --preset <名稱>`、
-`ctest --preset <名稱>`，並同步更新本節。
+其他 preset：`windows-release`、`macos-debug`、`macos-release`、`linux-debug`（需先設定 `QT_ROOT_DIR`）。
+無畫面環境驗證主視窗可載入：設定 `QT_QPA_PLATFORM=offscreen` 後執行 `taiphoon_qgcs --smoke-test`。
+
+`tools/dds_probe` 是 M1 互通驗證工具，不隨產品發布。它只能送出 Agent 無法解析的命令 `GCS_PROBE_NOOP`，
+shutdown 必須加上 `--confirm`；正式命令一律經 GuardModule。
 
 ### 單元測試
 
