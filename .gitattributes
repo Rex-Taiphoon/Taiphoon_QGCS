@@ -1,0 +1,23 @@
+# 跨平台原始碼統一使用 LF；Windows 專用腳本保留 CRLF。
+* text=auto
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.h text eol=lf
+*.qml text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.idl text eol=lf
+*.msg text eol=lf
+*.srv text eol=lf
+*.action text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.bat text eol=crlf
+*.nsi text eol=crlf
+*.png binary
+*.ico binary
+*.icns binary

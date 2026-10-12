@@ -1,0 +1,20 @@
+# 建置輸出
+build/
+out/
+install/
+
+# IDE 與使用者設定
+CMakeUserPresets.json
+*.user
+.vs/
+.vscode/
+.idea/
+
+# 暫存工作目錄
+.scratch/
+
+# macOS 系統檔案
+.DS_Store
+
+# Python 快取
+__pycache__/
