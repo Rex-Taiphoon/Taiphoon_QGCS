@@ -133,7 +133,8 @@ Taiphoon_QGCS/
 - 變更與其他模組或 Taiphoon_Agent 的既有介面契約、QoS 或 DDS 命名。
 - 變更 Qt、CycloneDDS 或其他第三方相依的版本。
 - 執行 Git commit 時，必須先確認提交內容，提交訊息使用 `模組: 更改項目` 格式且內容簡短明確；
-  修改提交歷史前也必須取得同意。目前不設定遠端，不執行 push。
+  修改提交歷史前也必須取得同意。遠端為 https://github.com/Rex-Taiphoon/Taiphoon_QGCS.git，
+  push 前須取得使用者同意。
 - 修改安裝程式、簽章、公證或 CI 發布流程時，須先說明影響並取得使用者同意。
 
 **Never：**

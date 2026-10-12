@@ -373,7 +373,7 @@ ctest --test-dir build --output-on-failure
 - [ ] Wi-Fi 位址切換時自動重建 DDS 的實機驗證。
 - [ ] Apple Developer 帳號與 Windows 程式碼簽章憑證。
 - [ ] Linux 發布格式。
-- [x] Git 遠端：https://github.com/Rex-Taiphoon/Taiphoon_QGCS.git（尚未推送）。
+- [x] Git 遠端：https://github.com/Rex-Taiphoon/Taiphoon_QGCS.git（push 前須取得使用者同意）。
 - [x] 版本號起點：v1.0.0。
 - [ ] 版本標籤、分支與 Release 標準（原 Taiphoon_GCS 標準已移除，M9 前重新制定）。
 
