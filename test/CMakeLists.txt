@@ -69,6 +69,21 @@ add_executable(test_core_runtime test_core_runtime.cpp)
 target_link_libraries(test_core_runtime PRIVATE gcs_test_support gcs_runtime)
 gtest_discover_tests(test_core_runtime DISCOVERY_MODE PRE_TEST)
 
+# -----------------------------------------------------------------------------
+# M4～M6：介面橋接、設定、網路設定與除錯工具（不需畫面）
+# -----------------------------------------------------------------------------
+set(GCS_UI_TESTS
+    test_ui_bridge
+    test_app_support
+    test_network_controller
+)
+
+foreach(test_name IN LISTS GCS_UI_TESTS)
+    add_executable(${test_name} ${test_name}.cpp)
+    target_link_libraries(${test_name} PRIVATE gcs_test_support gcs_ui)
+    gtest_discover_tests(${test_name} DISCOVERY_MODE PRE_TEST)
+endforeach()
+
 # 取出 writer 序列化結果需要 ddsi_serdata.h；安裝版 CycloneDDS 會公開此標頭，
 # 以原始碼建置時 ddsc 未將其加入 include 路徑。
 target_include_directories(test_cdr_wire_format PRIVATE "${cyclonedds_SOURCE_DIR}/src/core/ddsi/include")
