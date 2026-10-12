@@ -16,7 +16,7 @@ set(GCS_INSTALL_COMPONENT gcs)
 # -----------------------------------------------------------------------------
 # 程式、CycloneDDS 共享函式庫與 Qt 部署
 # -----------------------------------------------------------------------------
-install(TARGETS taiphoon_qgcs
+install(TARGETS Taiphoon_QGCS
     BUNDLE DESTINATION . COMPONENT ${GCS_INSTALL_COMPONENT}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT ${GCS_INSTALL_COMPONENT}
 )
@@ -26,12 +26,12 @@ if(WIN32)
 elseif(NOT APPLE)
     install(FILES $<TARGET_FILE:ddsc> $<TARGET_SONAME_FILE:ddsc>
         DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ${GCS_INSTALL_COMPONENT})
-    set_target_properties(taiphoon_qgcs PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+    set_target_properties(Taiphoon_QGCS PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
 endif()
 # macOS：macdeployqt 會把 ddsc.dylib 等非系統相依複製進 bundle 的 Frameworks
 
 set(GCS_DEPLOY_ARGS
-    TARGET taiphoon_qgcs
+    TARGET Taiphoon_QGCS
     OUTPUT_SCRIPT GCS_DEPLOY_SCRIPT
     NO_UNSUPPORTED_PLATFORM_ERROR
     DEPLOY_USER_QML_MODULES_ON_UNSUPPORTED_PLATFORM
@@ -65,7 +65,7 @@ endif()
 # -----------------------------------------------------------------------------
 set(GCS_LICENSE_DIR "${CMAKE_INSTALL_DATADIR}/licenses")
 if(APPLE)
-    set(GCS_LICENSE_DIR "taiphoon_qgcs.app/Contents/Resources/licenses")
+    set(GCS_LICENSE_DIR "Taiphoon_QGCS.app/Contents/Resources/licenses")
 endif()
 install(FILES "${PROJECT_SOURCE_DIR}/packaging/licenses/THIRD_PARTY_NOTICES.md"
     DESTINATION ${GCS_LICENSE_DIR} COMPONENT ${GCS_INSTALL_COMPONENT})
@@ -87,10 +87,13 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Taiphoon Qt 原生地面控制站")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_FILE_NAME "Taiphoon_QGCS-v${GCS_VERSION_FULL}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "Taiphoon_QGCS")
-set(CPACK_PACKAGE_EXECUTABLES "taiphoon_qgcs" "Taiphoon_QGCS")
+set(CPACK_PACKAGE_EXECUTABLES "Taiphoon_QGCS" "Taiphoon_QGCS")
 set(CPACK_RESOURCE_FILE_LICENSE "${PROJECT_SOURCE_DIR}/packaging/licenses/THIRD_PARTY_NOTICES.md")
 set(CPACK_COMPONENTS_ALL ${GCS_INSTALL_COMPONENT})
 set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)
+# 單一安裝檔模式不套用 CPACK_COMPONENTS_ALL，需在此指定只安裝 gcs，
+# 否則 CycloneDDS 的標頭、idlc 等開發檔也會被打包
+set(CPACK_INSTALL_CMAKE_PROJECTS "${CMAKE_BINARY_DIR};${PROJECT_NAME};${GCS_INSTALL_COMPONENT};/")
 set(CPACK_STRIP_FILES OFF)
 
 if(WIN32)
@@ -103,14 +106,19 @@ if(WIN32)
     endif()
     set(CPACK_NSIS_DISPLAY_NAME "Taiphoon_QGCS")
     set(CPACK_NSIS_PACKAGE_NAME "Taiphoon_QGCS")
-    set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\\\taiphoon_qgcs.exe")
+    set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\\\Taiphoon_QGCS.exe")
+    # 安裝與移除程式使用相同的 Taiphoon 圖示（NSIS 需要反斜線路徑）
+    file(TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}/packaging/windows/Taiphoon_QGCS.ico" GCS_NSIS_ICON)
+    string(REPLACE "\\" "\\\\" GCS_NSIS_ICON "${GCS_NSIS_ICON}")
+    set(CPACK_NSIS_MUI_ICON "${GCS_NSIS_ICON}")
+    set(CPACK_NSIS_MUI_UNIICON "${GCS_NSIS_ICON}")
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
     set(CPACK_NSIS_EXECUTABLES_DIRECTORY "${CMAKE_INSTALL_BINDIR}")
-    set(CPACK_NSIS_MUI_FINISHPAGE_RUN "taiphoon_qgcs.exe")
+    set(CPACK_NSIS_MUI_FINISHPAGE_RUN "Taiphoon_QGCS.exe")
     # DDS 需要接收 Agent 的 UDP 封包；安裝時建立只針對本程式、只允許同一子網路來源的入站規則，
     # 移除時一併刪除。Agent 需經路由器或 VPN 連線時，須由使用者自行放寬來源範圍。
     set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS
-        "nsExec::ExecToLog 'netsh advfirewall firewall add rule name=\\\"Taiphoon_QGCS DDS\\\" dir=in action=allow protocol=UDP remoteip=localsubnet program=\\\"$INSTDIR\\\\bin\\\\taiphoon_qgcs.exe\\\" enable=yes'")
+        "nsExec::ExecToLog 'netsh advfirewall firewall add rule name=\\\"Taiphoon_QGCS DDS\\\" dir=in action=allow protocol=UDP remoteip=localsubnet program=\\\"$INSTDIR\\\\bin\\\\Taiphoon_QGCS.exe\\\" enable=yes'")
     set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS
         "nsExec::ExecToLog 'netsh advfirewall firewall delete rule name=\\\"Taiphoon_QGCS DDS\\\"'")
 elseif(APPLE)

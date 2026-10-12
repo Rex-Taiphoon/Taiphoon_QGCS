@@ -5,7 +5,7 @@
 # @date 2026-10-12
 #
 # 目標：gcs_core（核心與模組，只依賴 QtCore）、gcs_link（CycloneDDS 相容層）、
-# gcs_wiring（組裝根）、taiphoon_qgcs（桌面程式）；架構見 docs/qt-cross-platform-development.md。
+# gcs_wiring（組裝根）、Taiphoon_QGCS（桌面程式）；架構見 docs/qt-cross-platform-development.md。
 # =============================================================================
 cmake_minimum_required(VERSION 3.25)
 

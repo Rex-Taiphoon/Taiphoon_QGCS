@@ -49,9 +49,18 @@ find_package(Qt6 ${GCS_QT_VERSION} EXACT REQUIRED
     COMPONENTS Gui Qml Quick QuickControls2 Location Positioning
 )
 
-qt_add_executable(taiphoon_qgcs WIN32 MACOSX_BUNDLE
+qt_add_executable(Taiphoon_QGCS WIN32 MACOSX_BUNDLE
     main.cpp
 )
+
+# 程式圖示（tools/make_icons.ps1 產生）：Windows 以資源檔嵌入 exe，macOS 放入 bundle Resources
+if(WIN32)
+    target_sources(Taiphoon_QGCS PRIVATE "${PROJECT_SOURCE_DIR}/packaging/windows/Taiphoon_QGCS.rc")
+elseif(APPLE)
+    set(GCS_MACOS_ICON "${PROJECT_SOURCE_DIR}/packaging/macos/Taiphoon_QGCS.icns")
+    set_source_files_properties("${GCS_MACOS_ICON}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    target_sources(Taiphoon_QGCS PRIVATE "${GCS_MACOS_ICON}")
+endif()
 
 # QML 檔集中放在 src/qml/，以別名放入模組根目錄
 set(GCS_QML_DIR "${PROJECT_SOURCE_DIR}/src/qml")
@@ -81,17 +90,20 @@ set_source_files_properties("${GCS_QML_DIR}/Theme.qml" PROPERTIES QT_QML_SINGLET
 
 set(GCS_LOGO "${PROJECT_SOURCE_DIR}/resources/taiphoon-logo.png")
 set_source_files_properties("${GCS_LOGO}" PROPERTIES QT_RESOURCE_ALIAS "resources/taiphoon-logo.png")
+# 視窗圖示（標題列；Linux 工作列）
+set(GCS_WINDOW_ICON "${PROJECT_SOURCE_DIR}/resources/taiphoon-icon.png")
+set_source_files_properties("${GCS_WINDOW_ICON}" PROPERTIES QT_RESOURCE_ALIAS "resources/taiphoon-icon.png")
 
-qt_add_qml_module(taiphoon_qgcs
+qt_add_qml_module(Taiphoon_QGCS
     URI TaiphoonQgcs
     VERSION 1.0
     QML_FILES ${GCS_QML_FILES}
-    RESOURCES ${GCS_LOGO}
+    RESOURCES ${GCS_LOGO} ${GCS_WINDOW_ICON}
 )
 
-target_compile_definitions(taiphoon_qgcs PRIVATE GCS_VERSION_FULL="${GCS_VERSION_FULL}")
+target_compile_definitions(Taiphoon_QGCS PRIVATE GCS_VERSION_FULL="${GCS_VERSION_FULL}")
 
-target_link_libraries(taiphoon_qgcs PRIVATE
+target_link_libraries(Taiphoon_QGCS PRIVATE
     gcs_ui
     Qt6::Gui
     Qt6::Qml
@@ -101,11 +113,12 @@ target_link_libraries(taiphoon_qgcs PRIVATE
     Qt6::Positioning
 )
 
-set_target_properties(taiphoon_qgcs PROPERTIES
+set_target_properties(Taiphoon_QGCS PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER tw.com.taiphoon.qgcs
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     MACOSX_BUNDLE_INFO_PLIST "${PROJECT_SOURCE_DIR}/packaging/macos/Info.plist.in"
+    MACOSX_BUNDLE_ICON_FILE Taiphoon_QGCS.icns
 )
 
 include(Packaging)

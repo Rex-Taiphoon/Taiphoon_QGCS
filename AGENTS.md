@@ -178,7 +178,7 @@ cmake --build --preset windows-release
 cmake --install build\windows-release --component gcs --prefix <目錄>   # 部署測試
 cd build\windows-release; cpack -C Release                              # ZIP；有 NSIS 時另產生安裝程式
 ```
-無畫面環境驗證主視窗可載入：設定 `QT_QPA_PLATFORM=offscreen` 後執行 `taiphoon_qgcs --smoke-test`。
+無畫面環境驗證主視窗可載入：設定 `QT_QPA_PLATFORM=offscreen` 後執行 `Taiphoon_QGCS --smoke-test`。
 
 `tools/gcs_headless` 以與桌面程式相同的核心連線 Agent 並輸出日誌（M3 驗證），命令一律經 Guard，
 且必須加 `--allow-commands`。

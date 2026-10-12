@@ -17,6 +17,7 @@
 
 #include <QCommandLineParser>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QLoggingCategory>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
@@ -81,6 +82,7 @@ int main(int argc, char* argv[])
     QGuiApplication::setOrganizationDomain(QStringLiteral("taiphoon.com.tw"));
     QGuiApplication::setApplicationName(QStringLiteral("Taiphoon_QGCS"));
     QGuiApplication::setApplicationVersion(QStringLiteral(GCS_VERSION_FULL));
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/qt/qml/TaiphoonQgcs/resources/taiphoon-icon.png")));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Taiphoon Qt 原生地面控制站"));

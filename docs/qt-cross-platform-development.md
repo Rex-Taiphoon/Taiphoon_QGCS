@@ -108,7 +108,7 @@
 |---|---|---|
 | `gcs_core`（靜態函式庫） | QtCore | `core/`、`modules/` |
 | `gcs_link`（靜態函式庫） | QtCore、CycloneDDS、`gcs_core` | `link/`、產生的 IDL 型別 |
-| `taiphoon_qgcs`（執行檔） | QtGui、QtQml、QtQuick、QtLocation、QtPositioning、上述兩者 | `app/`、`qml/` |
+| `Taiphoon_QGCS`（執行檔） | QtGui、QtQml、QtQuick、QtLocation、QtPositioning、上述兩者 | `app/`、`qml/` |
 | `test_*`（Google Test） | QtCore、QtTest、`gcs_core`、`test/fakes` | 不連結 `gcs_link` 即可執行 |
 
 ### 5.3 核心型別與介面（`src/core/`）
