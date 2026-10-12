@@ -124,8 +124,14 @@ Item {
     MouseArea {
         anchors.fill: parent
         enabled: root.enabled && !root.isConfirmed
+        // 滑桿位於可捲動的飛行控制面板內；拖曳稍有上下偏移時，不得被面板搶去捲動而彈回
+        preventStealing: true
 
         function update(mouseX) {
+            // 同一次拖曳在確認後仍會收到移動事件，必須忽略，避免重複觸發
+            if (root.isConfirmed) {
+                return
+            }
             const travel = root.width - root.knobWidth - 4
             const raw = mouseX - root.knobWidth / 2
             root.progress = travel > 0 ? Math.max(0, Math.min(raw, travel)) / travel : 0

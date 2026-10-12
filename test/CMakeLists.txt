@@ -84,6 +84,15 @@ foreach(test_name IN LISTS GCS_UI_TESTS)
     gtest_discover_tests(${test_name} DISCOVERY_MODE PRE_TEST)
 endforeach()
 
+# QML 互動（以真實的 QQuickWindow 事件傳遞驗證安全相關操作）
+if(GCS_BUILD_APP)
+    find_package(Qt6 ${GCS_QT_VERSION} EXACT REQUIRED COMPONENTS Gui Quick)
+    add_executable(test_slide_to_confirm test_slide_to_confirm.cpp)
+    target_compile_definitions(test_slide_to_confirm PRIVATE GCS_QML_SOURCE_DIR="${PROJECT_SOURCE_DIR}/src/qml")
+    target_link_libraries(test_slide_to_confirm PRIVATE Qt6::Gui Qt6::Quick Qt6::Test GTest::gtest)
+    gtest_discover_tests(test_slide_to_confirm DISCOVERY_MODE PRE_TEST)
+endif()
+
 # 取出 writer 序列化結果需要 ddsi_serdata.h；安裝版 CycloneDDS 會公開此標頭，
 # 以原始碼建置時 ddsc 未將其加入 include 路徑。
 target_include_directories(test_cdr_wire_format PRIVATE "${cyclonedds_SOURCE_DIR}/src/core/ddsi/include")
