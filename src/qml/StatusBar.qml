@@ -1,6 +1,6 @@
 /**
  * @file StatusBar.qml
- * @brief 頂部狀態列：品牌、選取目標的遙測儀表格、DDS 連線、UTC 時鐘與設定入口（網頁版 StatusBar）
+ * @brief 頂部狀態列：品牌、選取目標的遙測儀表格（含 PX4 飛行模式）、DDS 連線、UTC 時鐘與設定入口（網頁版 StatusBar）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  *
@@ -48,33 +48,17 @@ Rectangle {
         anchors.bottomMargin: 1
         spacing: 0
 
-        // 品牌：Logo 原圖為白底，以白色方塊承載並縮小
-        RowLayout {
-            spacing: Theme.spaceSm
+        // 品牌：橫式 Logo（白色去背，已含文字）
+        Image {
+            source: "qrc:/qt/qml/TaiphoonQgcs/resources/taiphoon-wordmark.png"
+            fillMode: Image.PreserveAspectFit
+            mipmap: true
+            Layout.preferredHeight: 30
+            Layout.preferredWidth: 30 * sourceSize.width / Math.max(1, sourceSize.height)
             Layout.leftMargin: Theme.spaceLg
             Layout.rightMargin: Theme.spaceLg
-
-            Rectangle {
-                implicitWidth: 30
-                implicitHeight: 30
-                color: Theme.textStrong
-
-                Image {
-                    anchors.fill: parent
-                    anchors.margins: 1
-                    source: "qrc:/qt/qml/TaiphoonQgcs/resources/taiphoon-logo.png"
-                    fillMode: Image.PreserveAspectFit
-                    mipmap: true
-                    Accessible.name: "Taiphoon"
-                }
-            }
-            Label {
-                text: "TAIPHOON"
-                color: Theme.textStrong
-                font.pixelSize: Theme.fontSmall
-                font.bold: true
-                font.letterSpacing: 3
-            }
+            Layout.alignment: Qt.AlignVCenter
+            Accessible.name: "Taiphoon"
         }
         Separator {}
 
@@ -108,16 +92,6 @@ Rectangle {
                     label: "ONLINE"
                     value: qsTr("%1 台").arg(root.bridge.onlineCount)
                 }
-                Cell {
-                    visible: root.bridge.isAllSelected
-                    label: "FORMATION"
-                    // 目前資料鏈尚未轉送 FormationEpoch，與網頁版相同顯示「待回報」
-                    value: root.bridge.onlineCount === 0 ? qsTr("等待回報")
-                                                         : root.bridge.onlineAgents
-                                                               .map(a => a.replace(/^uav_(\d+)_agent$/, "$1"))
-                                                               .join(" ") + " " + qsTr("待回報")
-                    valueColor: Theme.textMuted
-                }
 
                 // 單機
                 Cell {
@@ -145,8 +119,16 @@ Rectangle {
                     visible: root.hasLiveTelemetry
                     label: "BATT"
                     value: root.withUnit(root.summary.batteryText, "%") + " "
-                           + root.withUnit(root.summary.voltageText, "V")
+                           + root.withUnit(root.summary.voltageText, "V") + " "
+                           + root.withUnit(root.summary.currentText, "A")
                     isStyled: true
+                }
+                // PX4 原生飛行模式（nav_state）
+                Cell {
+                    visible: root.hasLiveTelemetry
+                    label: "PX4 MODE"
+                    value: root.summary.px4ModeLabel || ""
+                    valueColor: root.summary.isPx4Valid ? Theme.normal : Theme.caution
                 }
                 Cell {
                     visible: root.hasLiveTelemetry
@@ -174,7 +156,7 @@ Rectangle {
             Accessible.role: Accessible.Indicator
             Accessible.name: tooltip
         }
-        // UTC 時鐘：與飛控日誌、Agent 時間戳對照用
+        // UTC 時鐘：GCS 電腦系統時間換算為 UTC，與飛控日誌、Agent 時間戳對照用
         Cell {
             id: clockCell
 

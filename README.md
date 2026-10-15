@@ -26,8 +26,15 @@
    按鈕是否可用與 GCS 的防呆規則一致；Arm 需拖曳滑桿，Takeoff、RTL、Land、Disarm 與編隊需確認。
    按鈕顏色只表示風險：白色為一般命令、琥珀色需確認、紅色為 Arm／Disarm；面板底部常駐顯示解鎖狀態。
    單機移動的前後左右以機頭方向為準，不是東南西北。
-5. 「進階設定」可調整自動跟隨與命令逾時、關閉單一 Agent、開啟唯讀除錯工具或結束 GCS。
+5. 頂部狀態列顯示選取單機的 Agent 任務階段（MODE）、PX4 飛行模式（PX4 MODE）與電量／電壓／電流；
+   機群表的 MODE 欄上行為 Agent 任務階段、下行為 PX4 飛行模式。右上 UTC 時間取自 GCS 電腦的系統時鐘。
+6. 命令送出、解鎖確認等成功訊息不彈出提示，只寫入日誌檔；Guard 拒絕、未解鎖、逾時等失敗與警告
+   仍會在飛行控制與機群面板之間彈出（同時寫入日誌）。飛控面板需確認的命令會在確認列顯示「是否執行？」，
+   按實心的 EXEC 才送出；編隊點選隊形後在同一列按閃爍的 CONFIRM 暫存。
+7. 「進階設定」可調整自動跟隨、關閉單一 Agent、開啟唯讀除錯工具或結束 GCS。
    結束 GCS 不會對無人機發送任何命令。
+8. 日誌檔位於 `%LOCALAPPDATA%\Taiphoon\Taiphoon_QGCS\logs\Taiphoon_QGCS_yyyyMMdd.log`
+   （macOS 為 `~/Library/Application Support/Taiphoon/Taiphoon_QGCS/logs/`），時間為 UTC，依本地日期分檔、不會自動刪除。
 
 ## 與 Agent 的相容性
 

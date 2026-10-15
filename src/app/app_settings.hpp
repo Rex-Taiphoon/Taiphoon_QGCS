@@ -29,7 +29,6 @@ class AppSettings : public QObject
     Q_OBJECT
     // 介面設定（網頁版 settingsStore）
     Q_PROPERTY(bool autoFollow READ auto_follow WRITE set_auto_follow NOTIFY changed)
-    Q_PROPERTY(int cmdTimeoutMs READ cmd_timeout_ms WRITE set_cmd_timeout_ms NOTIFY changed)
     Q_PROPERTY(bool showAttitude READ show_attitude WRITE set_show_attitude NOTIFY changed)
     // 飛行控制記憶值（網頁版 CommandPanel 的 localStorage）
     Q_PROPERTY(double takeoffHeight READ takeoff_height WRITE set_takeoff_height NOTIFY changed)
@@ -60,8 +59,6 @@ public:
 
     bool auto_follow() const;
     void set_auto_follow(bool is_enabled);
-    int cmd_timeout_ms() const;
-    void set_cmd_timeout_ms(int timeout_ms);
     bool show_attitude() const;
     void set_show_attitude(bool is_enabled);
 

@@ -34,7 +34,7 @@ protected:
         ASSERT_TRUE(dir_.isValid());
         settings_ = std::make_unique<AppSettings>(dir_.filePath(QStringLiteral("n.ini")));
         ASSERT_TRUE(settings_->saveSite(TEST_DOMAIN_ID, QString(), {}, true, -1).isEmpty());
-        bridge_ = std::make_unique<UiBridge>(settings_.get());
+        bridge_ = std::make_unique<UiBridge>();
         network_ = std::make_unique<NetworkController>(settings_.get(), &runtime_, bridge_.get());
     }
 

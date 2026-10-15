@@ -44,6 +44,7 @@ public:
         IsSelectedRole,
         IsWaitingForFlightControllerRole,
         ModeLabelRole,
+        Px4ModeLabelRole,
         BatteryTextRole,
         VoltageTextRole,
         CurrentTextRole,

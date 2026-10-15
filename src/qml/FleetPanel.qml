@@ -1,6 +1,6 @@
 /**
  * @file FleetPanel.qml
- * @brief 機群懸浮視窗：表格列出各機模式、電量、高度，下方固定顯示選取機的姿態儀與電力，可最小化（網頁版 FleetPanel）
+ * @brief 機群懸浮視窗：表格列出各機模式（Agent 任務階段與 PX4 飛行模式）、電量、高度，下方固定顯示選取機的姿態儀與電力，可最小化（網頁版 FleetPanel）
  * @author Taiphoon GCS Team
  * @date 2026-10-15
  *
@@ -23,6 +23,8 @@ Rectangle {
     /// 表格欄寬：模式、電量、高度（其餘給機號）
     readonly property int modeColumnWidth: 112
     readonly property int numberColumnWidth: 58
+    /// 模式欄顯示兩行（Agent 任務階段＋PX4 飛行模式）時的列高
+    readonly property int twoLineRowHeight: 44
     readonly property int headerHeight: 40
 
     readonly property var summary: bridge.selectedSummary
@@ -115,7 +117,7 @@ Rectangle {
             // 欄位標題
             TableRow {
                 implicitHeight: 30
-                cells: ["ID", "MODE", "BATT", "ALT M"]
+                cells: ["ID", "MODE", "BATT", "ALT"]
                 cellColor: Theme.textMuted
                 cellSize: Theme.fontLabel
                 isMono: false
@@ -153,6 +155,7 @@ Rectangle {
                     required property bool isSelected
                     required property bool isWaitingForFlightController
                     required property string modeLabel
+                    required property string px4ModeLabel
                     required property string batteryText
                     required property string altitudeText
 
@@ -160,6 +163,7 @@ Rectangle {
                     readonly property string shortName: agent.replace(/_agent$/, "").toUpperCase()
 
                     isActive: isSelected
+                    implicitHeight: isWaitingForFlightController ? Theme.rowHeight : root.twoLineRowHeight
                     Accessible.name: qsTr("選取 %1").arg(agent)
                     ToolTip.visible: hovered
                     ToolTip.text: agent
@@ -170,7 +174,9 @@ Rectangle {
                         anchors.fill: parent
                         cells: row.isWaitingForFlightController
                                ? [row.shortName, qsTr("等待飛控"), "—", "—"]
-                               : [row.shortName, row.modeLabel, row.batteryText + "%", row.altitudeText]
+                               : [row.shortName, row.modeLabel,
+                                  row.batteryText === "—" ? "—" : row.batteryText + "%", row.altitudeText]
+                        modeDetail: row.isWaitingForFlightController ? "" : row.px4ModeLabel
                         firstColor: Theme.textStrong
                         secondColor: row.isWaitingForFlightController ? Theme.caution : Theme.normal
                         cellColor: row.isWaitingForFlightController ? Theme.textDim : Theme.textValue
@@ -270,9 +276,10 @@ Rectangle {
         }
     }
 
-    /// 四欄表格列：機號、模式、電量、高度（後兩欄靠右）
+    /// 四欄表格列：機號、模式、電量、高度（後兩欄靠右）；modeDetail 非空時於模式下方以暗色顯示第二行
     component TableRow: RowLayout {
         property var cells: ["", "", "", ""]
+        property string modeDetail: ""
         property color cellColor: Theme.textValue
         property color firstColor: cellColor
         property color secondColor: cellColor
@@ -292,14 +299,32 @@ Rectangle {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.spaceLg
         }
-        Label {
-            text: parent.cells[1]
-            color: parent.secondColor
-            font.family: Theme.fontFamily
-            font.pixelSize: parent.cellSize
-            font.letterSpacing: parent.isMono ? 0 : Theme.labelSpacing
-            elide: Text.ElideRight
+        Column {
+            id: modeColumn
+
+            readonly property var tableRow: parent
+
+            spacing: 1
             Layout.preferredWidth: root.modeColumnWidth
+
+            Label {
+                width: parent.width
+                text: modeColumn.tableRow.cells[1]
+                color: modeColumn.tableRow.secondColor
+                font.family: Theme.fontFamily
+                font.pixelSize: modeColumn.tableRow.cellSize
+                font.letterSpacing: modeColumn.tableRow.isMono ? 0 : Theme.labelSpacing
+                elide: Text.ElideRight
+            }
+            Label {
+                visible: modeColumn.tableRow.modeDetail.length > 0
+                width: parent.width
+                text: modeColumn.tableRow.modeDetail
+                color: Theme.textMuted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontLabel
+                elide: Text.ElideRight
+            }
         }
         Label {
             text: parent.cells[2]

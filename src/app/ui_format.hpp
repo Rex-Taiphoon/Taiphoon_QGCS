@@ -39,6 +39,13 @@ QString flight_mode_label(int flight_mode);
 QString px4_status_label(const AgentStateData& state);
 
 /**
+ * @brief PX4 原生飛行模式名稱（VehicleStatus.nav_state，名稱與 QGroundControl 一致）
+ * @param state AgentState
+ * @return 例如「Offboard」「Position」；PX4 狀態無效時為「未確認」，未定義的值為「未知 N」
+ */
+QString px4_mode_label(const AgentStateData& state);
+
+/**
  * @brief 四元數轉北為零度、順時針為正的航向
  * @param q 四元數 (w, x, y, z)
  * @return 0～360 度；四元數無效時回傳 std::nullopt
@@ -67,6 +74,27 @@ QString format_number(double value, int decimals);
  * @return 文字，例如 "+12.4"、"−3.1"
  */
 QString format_signed_number(double value, int decimals);
+
+/**
+ * @brief 剩餘電量百分比（整數），PX4 BatteryStatus.remaining 的無效值 -1 顯示「—」
+ * @param remaining 剩餘電量比例 0.0～1.0
+ * @return 文字，例如 "87"
+ */
+QString format_battery_percent(float remaining);
+
+/**
+ * @brief 電池電壓（一位小數），PX4 BatteryStatus.voltage_v 的無效值 0 顯示「—」
+ * @param voltage_v 電壓（V）
+ * @return 文字，例如 "15.3"
+ */
+QString format_battery_voltage(float voltage_v);
+
+/**
+ * @brief 電池電流（一位小數），PX4 BatteryStatus.current_a 的無效值 -1 顯示「—」（SIH 模擬器即回報 -1）
+ * @param current_a 電流（A）
+ * @return 文字，例如 "12.4"
+ */
+QString format_battery_current(float current_a);
 
 /**
  * @brief WGS84 座標是否可在地圖顯示

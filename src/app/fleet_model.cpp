@@ -13,14 +13,6 @@
 namespace gcs
 {
 
-namespace
-{
-
-/// 電量比例轉百分比
-constexpr double PERCENT = 100.0;
-
-}  // namespace
-
 FleetModel::FleetModel(QObject* parent) : QAbstractListModel(parent)
 {
 }
@@ -38,6 +30,7 @@ QHash<int, QByteArray> FleetModel::roleNames() const
         {IsSelectedRole, "isSelected"},
         {IsWaitingForFlightControllerRole, "isWaitingForFlightController"},
         {ModeLabelRole, "modeLabel"},
+        {Px4ModeLabelRole, "px4ModeLabel"},
         {BatteryTextRole, "batteryText"},
         {VoltageTextRole, "voltageText"},
         {CurrentTextRole, "currentText"},
@@ -81,12 +74,14 @@ QVariant FleetModel::data(const QModelIndex& index, int role) const
         return is_waiting;
     case ModeLabelRole:
         return view.has_state ? ui::flight_mode_label(state.flight_mode) : QStringLiteral("—");
+    case Px4ModeLabelRole:
+        return view.has_state ? ui::px4_mode_label(state) : QStringLiteral("—");
     case BatteryTextRole:
-        return ui::format_number(static_cast<double>(state.battery_remaining) * PERCENT, 0);
+        return ui::format_battery_percent(state.battery_remaining);
     case VoltageTextRole:
-        return ui::format_number(state.battery_voltage_v, 1);
+        return ui::format_battery_voltage(state.battery_voltage_v);
     case CurrentTextRole:
-        return ui::format_number(state.battery_current_a, 1);
+        return ui::format_battery_current(state.battery_current_a);
     case AltitudeTextRole:
         // NED 的 Z 向下為正，取反以顯示向上為正的相對高度
         return ui::format_number(-static_cast<double>(state.position_ned[2]), 1);

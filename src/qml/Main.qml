@@ -70,6 +70,8 @@ ApplicationWindow {
         }
 
         FleetPanel {
+            id: fleetPanel
+
             x: window.isNarrow ? Theme.spaceLg : mainArea.width - width - Theme.spaceLg
             y: window.isNarrow ? commandPanel.y + commandPanel.height + Theme.spaceMd : Theme.spaceLg
             z: 10
@@ -79,12 +81,19 @@ ApplicationWindow {
             settings: window.settings
         }
 
+        // 失敗與警告提示：放在飛行控制與機群面板之間的空白處，不遮住面板；
+        // 空間不足（窄視窗）時改放在底部，避開左下資訊列與右下縮放按鈕
         Toasts {
-            anchors.top: parent.top
-            anchors.right: parent.right
-            anchors.topMargin: 14
-            anchors.rightMargin: 18
-            width: Math.min(460, mainArea.width - 36)
+            id: toasts
+
+            readonly property real leftBound: commandPanel.x + commandPanel.width + Theme.spaceLg
+            readonly property real rightBound: window.isNarrow ? mainArea.width - Theme.spaceLg
+                                                               : fleetPanel.x - Theme.spaceLg
+            readonly property bool hasTopGap: rightBound - leftBound >= 280
+
+            x: hasTopGap ? leftBound + (rightBound - leftBound - width) / 2 : Theme.spaceLg
+            y: hasTopGap ? Theme.spaceLg : mainArea.height - height - 40
+            width: hasTopGap ? Math.min(460, rightBound - leftBound) : mainArea.width - 2 * Theme.spaceLg - 50
             z: 100
             bridge: window.bridge
         }

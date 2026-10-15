@@ -18,7 +18,6 @@ namespace
 
 // 鍵名與網頁版 localStorage 對應，方便對照
 const QString KEY_AUTO_FOLLOW = QStringLiteral("ui/auto_follow");
-const QString KEY_CMD_TIMEOUT = QStringLiteral("ui/cmd_timeout_ms");
 const QString KEY_SHOW_ATTITUDE = QStringLiteral("ui/show_attitude");
 const QString KEY_TAKEOFF_HEIGHT = QStringLiteral("command/takeoff_height");
 const QString KEY_YAW_DEGREES = QStringLiteral("command/yaw_degrees");
@@ -36,9 +35,6 @@ const QString KEY_PARTICIPANT_INDEX = QStringLiteral("site/participant_index");
 
 // 預設值與範圍沿用網頁版
 constexpr bool DEFAULT_AUTO_FOLLOW = true;
-constexpr int DEFAULT_CMD_TIMEOUT_MS = 3000;
-constexpr int MIN_CMD_TIMEOUT_MS = 1000;
-constexpr int MAX_CMD_TIMEOUT_MS = 30000;
 constexpr bool DEFAULT_SHOW_ATTITUDE = true;
 
 /// 數值設定的預設值與合法範圍
@@ -96,23 +92,6 @@ bool AppSettings::auto_follow() const
 void AppSettings::set_auto_follow(bool is_enabled)
 {
     settings_->setValue(KEY_AUTO_FOLLOW, is_enabled);
-    emit changed();
-}
-
-int AppSettings::cmd_timeout_ms() const
-{
-    bool is_number = false;
-    const int value = settings_->value(KEY_CMD_TIMEOUT).toInt(&is_number);
-    return (is_number && value >= MIN_CMD_TIMEOUT_MS && value <= MAX_CMD_TIMEOUT_MS) ? value : DEFAULT_CMD_TIMEOUT_MS;
-}
-
-void AppSettings::set_cmd_timeout_ms(int timeout_ms)
-{
-    if (timeout_ms < MIN_CMD_TIMEOUT_MS || timeout_ms > MAX_CMD_TIMEOUT_MS)
-    {
-        return;
-    }
-    settings_->setValue(KEY_CMD_TIMEOUT, timeout_ms);
     emit changed();
 }
 
@@ -299,7 +278,6 @@ link::DdsNetworkConfig AppSettings::network_config() const
 void AppSettings::resetUiSettings()
 {
     settings_->setValue(KEY_AUTO_FOLLOW, DEFAULT_AUTO_FOLLOW);
-    settings_->setValue(KEY_CMD_TIMEOUT, DEFAULT_CMD_TIMEOUT_MS);
     settings_->setValue(KEY_SHOW_ATTITUDE, DEFAULT_SHOW_ATTITUDE);
     emit changed();
 }

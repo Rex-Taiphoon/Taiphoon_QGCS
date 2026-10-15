@@ -44,7 +44,7 @@
 | F-07 | 防呆層級：L1 兩步驟確認（Takeoff、RTL、Land、Disarm）、L2 滑桿確認（Arm）；按鈕依狀態停用 | `CommandPanel`、ADR-0006 |
 | F-08 | 地圖：依航向旋轉的箭頭與名稱、軌跡折線（選中綠色、其他橘色）、自動跟隨、縮放與朝北按鍵在右下、OSM 來源標示在左下 | `MapView` |
 | F-09 | `px4_state_valid` 尚未為 `true` 時顯示「等待飛控連線中...」；`Alt` 取 `-position_ned[2]`；Volt／Curr／Alt 分行顯示 | README |
-| F-10 | 設定持久化：自動跟隨、命令逾時、起飛高度、移動距離、YAW、編隊參數 | `settingsStore`、`localStorage` |
+| F-10 | 設定持久化：自動跟隨、起飛高度、移動距離、YAW、編隊參數（命令逾時固定 3 秒，不開放設定） | `settingsStore`、`localStorage` |
 | F-11 | 除錯工具：列出 DDS topic、即時檢視 Agent topic、檢視模組事件紀錄；**不得提供發布命令的功能** | `DebugTerminal`（重新設計） |
 | F-12 | 結束 GCS 需確認，且不對 Agent 發送任何命令 | `gcs_shutdown_request` |
 | F-13 | 首次設定：Agent 探索入口、網卡、Domain ID、participant index、SITL multicast；Wi-Fi 位址改變時提示並重建 DDS participant | Go 啟動器設定頁 |

@@ -10,6 +10,7 @@
 #include "app/app_settings.hpp"
 #include "app/core_runtime.hpp"
 #include "app/diagnostics_controller.hpp"
+#include "app/log_file.hpp"
 #include "app/network_controller.hpp"
 #include "app/ui_bridge.hpp"
 #include "app/ui_wiring.hpp"
@@ -24,6 +25,7 @@
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QStandardPaths>
 #include <QTimer>
 
 #include <cstdlib>
@@ -111,6 +113,14 @@ int main(int argc, char* argv[])
     QGuiApplication::setApplicationVersion(QStringLiteral(GCS_VERSION_FULL));
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/qt/qml/TaiphoonQgcs/resources/taiphoon-icon.png")));
 
+    // 日誌檔：命令結果等不再彈出的訊息改記錄於此（使用者資料夾 logs/）
+    const QString log_directory =
+        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + QStringLiteral("/logs");
+    if (!gcs::log_file::install(log_directory))
+    {
+        qCWarning(lc_app) << "無法建立日誌目錄：" << log_directory;
+    }
+
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Taiphoon Qt 原生地面控制站"));
     parser.addHelpOption();
@@ -139,7 +149,7 @@ int main(int argc, char* argv[])
 
     gcs::AppSettings settings;
     gcs::CoreRuntime runtime;
-    gcs::UiBridge bridge(&settings);
+    gcs::UiBridge bridge;
     gcs::DiagnosticsController diagnostics;
     gcs::NetworkController network(&settings, &runtime, &bridge);
 
@@ -239,6 +249,6 @@ int main(int argc, char* argv[])
                            });
     }
 
-    qCInfo(lc_app) << "Taiphoon_QGCS" << GCS_VERSION_FULL << "已啟動";
+    qCInfo(lc_app) << "Taiphoon_QGCS" << GCS_VERSION_FULL << "已啟動，日誌目錄：" << log_directory;
     return QGuiApplication::exec();
 }

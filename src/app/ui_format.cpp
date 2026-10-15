@@ -23,6 +23,25 @@ constexpr double FULL_TURN_DEGREES = 360.0;
 constexpr double QUARTER_TURN_DEGREES = 90.0;
 constexpr double MAX_LATITUDE_DEGREES = 90.0;
 constexpr double MAX_LONGITUDE_DEGREES = 180.0;
+/// 電量比例轉百分比
+constexpr double PERCENT = 100.0;
+/// PX4 BatteryStatus 以 -1 表示 remaining、current_a 無效
+constexpr float PX4_BATTERY_INVALID = -1.0F;
+/// PX4 BatteryStatus 以 0 表示 voltage_v 無效
+constexpr float PX4_VOLTAGE_INVALID = 0.0F;
+/// 判斷無效標記值的容許誤差
+constexpr float INVALID_MARKER_TOLERANCE = 1e-3F;
+
+/**
+ * @brief 是否為 PX4 的無效標記值
+ * @param value 欄位值
+ * @param marker 無效標記值
+ * @return 與標記值相等（含容許誤差）
+ */
+bool is_invalid_marker(float value, float marker)
+{
+    return std::abs(value - marker) < INVALID_MARKER_TOLERANCE;
+}
 
 /// 正規化後的四元數
 struct Quaternion
@@ -86,6 +105,34 @@ QString px4_status_label(const AgentStateData& state)
     return QStringLiteral("已上鎖 · 已落地");
 }
 
+QString px4_mode_label(const AgentStateData& state)
+{
+    if (!state.is_px4_state_valid)
+    {
+        return QStringLiteral("未確認");
+    }
+    // 索引為 px4_msgs VehicleStatus 的 NAVIGATION_STATE_* 值；FREE 保留值為空字串
+    static const QStringList LABELS = {
+        QStringLiteral("Manual"),         QStringLiteral("Altitude"),        QStringLiteral("Position"),
+        QStringLiteral("Mission"),        QStringLiteral("Hold"),            QStringLiteral("Return"),
+        QStringLiteral("Position Slow"),  QStringLiteral("Guided Course"),   QStringLiteral("Altitude Cruise"),
+        QStringLiteral("Manual Parking"), QStringLiteral("Acro"),            QString(),
+        QStringLiteral("Descend"),        QStringLiteral("Termination"),     QStringLiteral("Offboard"),
+        QStringLiteral("Stabilized"),     QString(),                         QStringLiteral("Takeoff"),
+        QStringLiteral("Land"),           QStringLiteral("Follow Me"),       QStringLiteral("Precision Land"),
+        QStringLiteral("Orbit"),          QStringLiteral("VTOL Takeoff"),    QStringLiteral("External 1"),
+        QStringLiteral("External 2"),     QStringLiteral("External 3"),      QStringLiteral("External 4"),
+        QStringLiteral("External 5"),     QStringLiteral("External 6"),      QStringLiteral("External 7"),
+        QStringLiteral("External 8"),
+    };
+    const int nav_state = state.px4_nav_state;
+    if (nav_state < LABELS.size() && !LABELS.at(nav_state).isEmpty())
+    {
+        return LABELS.at(nav_state);
+    }
+    return QStringLiteral("未知 %1").arg(nav_state);
+}
+
 std::optional<double> heading_degrees(const std::array<float, 4>& q)
 {
     const auto n = normalized(q);
@@ -130,6 +177,23 @@ QString format_signed_number(double value, int decimals)
     // 四捨五入後為零時不顯示負號，避免出現「−0.0」
     const bool is_negative = value < 0.0 && magnitude.toDouble() != 0.0;
     return (is_negative ? QStringLiteral("−") : QStringLiteral("+")) + magnitude;
+}
+
+QString format_battery_percent(float remaining)
+{
+    return is_invalid_marker(remaining, PX4_BATTERY_INVALID)
+               ? QStringLiteral("—")
+               : format_number(static_cast<double>(remaining) * PERCENT, 0);
+}
+
+QString format_battery_voltage(float voltage_v)
+{
+    return is_invalid_marker(voltage_v, PX4_VOLTAGE_INVALID) ? QStringLiteral("—") : format_number(voltage_v, 1);
+}
+
+QString format_battery_current(float current_a)
+{
+    return is_invalid_marker(current_a, PX4_BATTERY_INVALID) ? QStringLiteral("—") : format_number(current_a, 1);
 }
 
 bool has_valid_global_position(const std::array<double, 3>& position)

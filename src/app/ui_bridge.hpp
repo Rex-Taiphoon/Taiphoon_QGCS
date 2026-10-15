@@ -25,8 +25,6 @@
 namespace gcs
 {
 
-class AppSettings;
-
 /**
  * @class UiBridge
  * @brief 介面狀態與操作入口
@@ -59,13 +57,15 @@ class UiBridge : public QObject
 public:
     /// 介面刷新週期（毫秒），約 20 Hz
     static constexpr int REFRESH_INTERVAL_MS = 50;
+    /// 命令待回應與 ARM／DISARM 解鎖確認的逾時（毫秒），與網頁版預設值相同
+    static constexpr int DEFAULT_COMMAND_TIMEOUT_MS = 3000;
 
     /**
      * @brief 建立 UiBridge
-     * @param settings 介面設定（命令逾時），生命週期需長於本物件
+     * @param command_timeout_ms 命令待回應與解鎖確認的逾時（毫秒）
      * @param parent 父物件
      */
-    explicit UiBridge(AppSettings* settings, QObject* parent = nullptr);
+    explicit UiBridge(int command_timeout_ms = DEFAULT_COMMAND_TIMEOUT_MS, QObject* parent = nullptr);
 
     QStringList online_agents() const { return online_agents_; }
     int online_count() const { return static_cast<int>(online_agents_.size()); }
@@ -178,6 +178,14 @@ private:
      */
     void resolve_arm_check(const QString& agent_ns, const AgentStateData& state);
 
+    /**
+     * @brief 回報命令結果：成功只寫日誌；失敗與警告寫日誌並彈出提示
+     * @param kind 種類
+     * @param title 標題
+     * @param message 內容
+     */
+    void notify(ToastModel::Kind kind, const QString& title, const QString& message);
+
     /// 等待解鎖狀態確認的項目
     struct ArmCheck
     {
@@ -185,7 +193,7 @@ private:
         bool is_expected_armed = false;
     };
 
-    AppSettings* settings_ = nullptr;
+    int command_timeout_ms_ = DEFAULT_COMMAND_TIMEOUT_MS;
     FleetModel fleet_model_;
     ToastModel toast_model_;
     QTimer refresh_timer_;

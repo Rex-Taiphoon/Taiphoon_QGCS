@@ -6,8 +6,9 @@
  *
  * 每列左側為行選鍵「‹」，右側小字為狀態：可用時標示 CONFIRM（需確認），停用時寫出 Guard 規則摘要。
  * 命令可用狀態一律取自 UiBridge（與 GuardModule 同一份規則），右側停用原因只是說明文字，不參與判斷。
- * L1：Takeoff、RTL、Land、Disarm 與編隊命令先暫存到確認列，按 EXEC 才送出；
+ * L1：Takeoff、RTL、Land、Disarm 與編隊命令先暫存到確認列（顯示「是否執行？」），按 EXEC 才送出；
  *     確認列在選取目標改變、命令不再可用或逾時後自動清除，EXEC 時再核對目標與可用狀態。
+ *     編隊點選隊形後展開參數，同一列右側出現閃爍的 CONFIRM，按下即暫存到確認列。
  * L2：Arm 需滑桿。面板底部常駐顯示解鎖狀態與 DISARM。
  */
 import QtQuick
@@ -508,13 +509,12 @@ Rectangle {
                         title: qsTr("環形編隊")
                         risk: Theme.commandConfirm
                         enabled: root.bridge.canFormation
-                        tag: enabled ? (root.expandedForm === "circle" ? "▴" : "▾") : qsTr("無線上機")
-                        onClicked: root.expandedForm = root.expandedForm === "circle" ? "" : "circle"
-                    }
-                    FormBox {
-                        visible: root.isAll && root.expandedForm === "circle" && root.bridge.canFormation
-                        isValid: circleRadius.isDraftValid && circleHeight.isDraftValid
-                        onStaged: {
+                        isExpanded: root.expandedForm === "circle"
+                        tag: enabled ? "▾" : qsTr("無線上機")
+                        actionText: isExpanded ? "CONFIRM" : ""
+                        isActionEnabled: circleRadius.isDraftValid && circleHeight.isDraftValid
+                        onClicked: root.expandedForm = isExpanded ? "" : "circle"
+                        onActionClicked: {
                             circleRadius.commit()
                             circleHeight.commit()
                             root.stage("FORMATION_CIRCLE",
@@ -522,6 +522,9 @@ Rectangle {
                                        qsTr("環形編隊 R%1 H%2").arg(root.settings.formCircleRadius)
                                                                 .arg(root.settings.formCircleHeight))
                         }
+                    }
+                    FormBox {
+                        visible: root.isAll && root.expandedForm === "circle" && root.bridge.canFormation
 
                         FormField {
                             label: "RADIUS"
@@ -554,13 +557,12 @@ Rectangle {
                         title: qsTr("水平一字")
                         risk: Theme.commandConfirm
                         enabled: root.bridge.canFormation
-                        tag: enabled ? (root.expandedForm === "linear" ? "▴" : "▾") : qsTr("無線上機")
-                        onClicked: root.expandedForm = root.expandedForm === "linear" ? "" : "linear"
-                    }
-                    FormBox {
-                        visible: root.isAll && root.expandedForm === "linear" && root.bridge.canFormation
-                        isValid: linearSpacing.isDraftValid && linearHeight.isDraftValid
-                        onStaged: {
+                        isExpanded: root.expandedForm === "linear"
+                        tag: enabled ? "▾" : qsTr("無線上機")
+                        actionText: isExpanded ? "CONFIRM" : ""
+                        isActionEnabled: linearSpacing.isDraftValid && linearHeight.isDraftValid
+                        onClicked: root.expandedForm = isExpanded ? "" : "linear"
+                        onActionClicked: {
                             linearSpacing.commit()
                             linearHeight.commit()
                             root.stage("FORMATION_HORI_LINEAR",
@@ -568,6 +570,9 @@ Rectangle {
                                        qsTr("水平一字 S%1 H%2").arg(root.settings.formLinearSpacing)
                                                                .arg(root.settings.formLinearHeight))
                         }
+                    }
+                    FormBox {
+                        visible: root.isAll && root.expandedForm === "linear" && root.bridge.canFormation
 
                         FormField {
                             label: "SPACING"
@@ -600,17 +605,19 @@ Rectangle {
                         title: qsTr("垂直一字")
                         risk: Theme.commandConfirm
                         enabled: root.bridge.canFormation
-                        tag: enabled ? (root.expandedForm === "vert" ? "▴" : "▾") : qsTr("無線上機")
-                        onClicked: root.expandedForm = root.expandedForm === "vert" ? "" : "vert"
-                    }
-                    FormBox {
-                        visible: root.isAll && root.expandedForm === "vert" && root.bridge.canFormation
-                        isValid: vertSpacing.isDraftValid
-                        onStaged: {
+                        isExpanded: root.expandedForm === "vert"
+                        tag: enabled ? "▾" : qsTr("無線上機")
+                        actionText: isExpanded ? "CONFIRM" : ""
+                        isActionEnabled: vertSpacing.isDraftValid
+                        onClicked: root.expandedForm = isExpanded ? "" : "vert"
+                        onActionClicked: {
                             vertSpacing.commit()
                             root.stage("FORMATION_VERT_LINEAR", [root.settings.formVertSpacing],
                                        qsTr("垂直一字 S%1").arg(root.settings.formVertSpacing))
                         }
+                    }
+                    FormBox {
+                        visible: root.isAll && root.expandedForm === "vert" && root.bridge.canFormation
 
                         FormField {
                             label: "SPACING"
@@ -653,10 +660,7 @@ Rectangle {
                     spacing: Theme.spaceSm
 
                     Label {
-                        text: root.pending === null ? ""
-                                                    : root.pending.label + " → "
-                                                      + (root.pending.target === "all"
-                                                         ? qsTr("全部") : root.targetLabel) + " ?"
+                        text: qsTr("是否執行？")
                         color: Theme.caution
                         font.family: Theme.fontMono
                         font.pixelSize: Theme.fontSmall
@@ -669,9 +673,12 @@ Rectangle {
                         tooltip: qsTr("取消這個命令")
                         onClicked: root.clearPending()
                     }
+                    // EXEC 以實心琥珀色高亮，與 CLR 明顯區隔
                     ScratchButton {
                         text: "EXEC"
-                        accentColor: Theme.caution
+                        accentColor: Theme.background
+                        isFilled: true
+                        fillColor: Theme.caution
                         enabled: root.isPendingSendable
                         tooltip: qsTr("送出確認列的命令")
                         Accessible.name: root.pending === null ? text : qsTr("執行 %1").arg(root.pending.label)
@@ -746,8 +753,16 @@ Rectangle {
         property string tooltip: ""
         /// 行內欄位（例如起飛高度），放在命令名稱之後
         default property alias fields: fieldSlot.data
+        /// 展開參數區時以內嵌底色與下方參數區連成同一框
+        property bool isExpanded: false
+        /// 右側動作按鈕文字（例如 CONFIRM）；非空時取代狀態小字並閃爍提示
+        property string actionText: ""
+        property bool isActionEnabled: true
 
         readonly property color titleColor: enabled ? risk : Theme.textDim
+
+        /// 按下右側動作按鈕
+        signal actionClicked()
 
         implicitHeight: 40
         Layout.fillWidth: true
@@ -781,12 +796,31 @@ Rectangle {
             }
             Item { Layout.fillWidth: true }
             Text {
-                visible: lsk.tag.length > 0
+                visible: lsk.tag.length > 0 && lsk.actionText.length === 0
                 text: lsk.tag
                 color: !lsk.enabled ? Theme.textDim
                                     : (lsk.risk === Theme.commandNormal ? Theme.textMuted : lsk.risk)
                 font.pixelSize: Theme.fontLabel
                 font.letterSpacing: lsk.tag === "CONFIRM" ? Theme.labelSpacing : 0
+            }
+            ScratchButton {
+                id: actionButton
+
+                visible: lsk.actionText.length > 0
+                text: lsk.actionText
+                accentColor: Theme.caution
+                enabled: lsk.isActionEnabled
+                Accessible.name: qsTr("確認%1").arg(lsk.title)
+                onClicked: lsk.actionClicked()
+
+                // 尚未暫存命令時閃爍，提示需按 CONFIRM；停止時回到完全不透明
+                SequentialAnimation on opacity {
+                    running: actionButton.visible && actionButton.enabled && root.pending === null
+                    loops: Animation.Infinite
+                    alwaysRunToEnd: true
+                    NumberAnimation { to: 0.3; duration: 500; easing.type: Easing.InOutQuad }
+                    NumberAnimation { to: 1.0; duration: 500; easing.type: Easing.InOutQuad }
+                }
             }
         }
         leftPadding: Theme.spaceLg
@@ -794,7 +828,8 @@ Rectangle {
 
         background: Rectangle {
             color: lsk.down ? Theme.controlActive
-                            : ((lsk.hovered && lsk.enabled) || lsk.visualFocus ? Theme.controlHover : "transparent")
+                            : ((lsk.hovered && lsk.enabled) || lsk.visualFocus
+                               ? Theme.controlHover : (lsk.isExpanded ? Theme.inset : "transparent"))
             border.width: lsk.visualFocus ? 1 : 0
             border.color: Theme.accent
 
@@ -908,14 +943,9 @@ Rectangle {
         }
     }
 
-    /// 編隊參數區：參數欄位與「暫存到確認列」列
+    /// 編隊參數區：參數欄位（CONFIRM 位於上方隊形列）
     component FormBox: Rectangle {
-        id: formBox
-
         default property alias content: formColumn.data
-        property bool isValid: true
-
-        signal staged()
 
         color: Theme.inset
         implicitHeight: formColumn.implicitHeight
@@ -926,18 +956,6 @@ Rectangle {
 
             width: parent.width
             spacing: 0
-        }
-        // 放在欄位之後
-        Component.onCompleted: stageRow.parent = formColumn
-
-        LskRow {
-            id: stageRow
-
-            title: qsTr("暫存到確認列")
-            risk: Theme.commandConfirm
-            enabled: formBox.isValid
-            tag: "CONFIRM"
-            onClicked: formBox.staged()
         }
     }
 
@@ -964,6 +982,12 @@ Rectangle {
 
     /// 確認列與安全列的小型外框按鈕（EXEC、CLR、DISARM）
     component ScratchButton: ActionButton {
+        id: scratch
+
+        /// 實心底色（EXEC 高亮）；文字色仍取 accentColor
+        property bool isFilled: false
+        property color fillColor: Theme.caution
+
         textAlignment: Text.AlignHCenter
         implicitHeight: 28
         leftPadding: Theme.spaceMd
@@ -974,9 +998,14 @@ Rectangle {
         font.pixelSize: Theme.fontLabel + 1
         font.letterSpacing: Theme.labelSpacing
         background: Rectangle {
-            color: parent.down ? Theme.controlActive : (parent.hovered ? Theme.controlHover : "transparent")
-            border.width: parent.visualFocus ? 2 : 1
-            border.color: parent.visualFocus ? Theme.accent : parent.accentColor
+            color: scratch.isFilled ? (scratch.down ? Qt.darker(scratch.fillColor, 1.25)
+                                                    : (scratch.hovered ? Qt.lighter(scratch.fillColor, 1.12)
+                                                                       : scratch.fillColor))
+                                    : (scratch.down ? Theme.controlActive
+                                                    : (scratch.hovered ? Theme.controlHover : "transparent"))
+            border.width: scratch.visualFocus ? 2 : 1
+            border.color: scratch.visualFocus ? Theme.accent : (scratch.isFilled ? scratch.fillColor
+                                                                                 : scratch.accentColor)
         }
     }
 

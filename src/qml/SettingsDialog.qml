@@ -1,6 +1,6 @@
 /**
  * @file SettingsDialog.qml
- * @brief 進階設定：自動跟隨、命令逾時、網路設定、Agent 關閉、除錯工具與結束 GCS（網頁版 SettingsPanel）
+ * @brief 進階設定：自動跟隨、網路設定、Agent 關閉、除錯工具與結束 GCS（網頁版 SettingsPanel）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
@@ -104,34 +104,6 @@ Popup {
                     }
                 }
 
-                // 命令逾時
-                RowLayout {
-                    spacing: 12
-                    Layout.fillWidth: true
-                    ColumnLayout {
-                        spacing: 2
-                        Layout.fillWidth: true
-                        Label { text: qsTr("命令逾時（毫秒）"); color: Theme.textBody; font.pixelSize: Theme.fontBase }
-                        Label {
-                            text: qsTr("發送命令後若未在此時間內收到回執，視為失敗")
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontSmall
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
-                    SpinBox {
-                        from: 1000
-                        to: 30000
-                        stepSize: 500
-                        editable: true
-                        value: root.settings.cmdTimeoutMs
-                        font.pixelSize: Theme.fontBase
-                        onValueModified: root.settings.cmdTimeoutMs = value
-                        Accessible.name: qsTr("命令逾時")
-                    }
-                }
-
                 // 網路設定
                 Section {
                     title: qsTr("網路設定")
@@ -155,9 +127,10 @@ Popup {
                     }
                 }
 
-                // 進階操作：Agent 關閉
-                Section {
-                    title: qsTr("進階操作")
+                // Agent 關閉：保留警告文字，確認對話框再次提示
+                ColumnLayout {
+                    spacing: 8
+                    Layout.fillWidth: true
                     Label {
                         text: qsTr("此操作會要求指定 Agent 結束程序，不會先執行返航或降落；飛行中執行將失去 Agent 控制，請勿使用。")
                         color: Theme.caution
@@ -175,22 +148,12 @@ Popup {
                 }
 
                 // 除錯工具
-                Section {
-                    title: qsTr("除錯工具")
-                    Label {
-                        text: qsTr("唯讀：列出 DDS topic、檢視 Agent 資料與事件紀錄；不提供發布命令")
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontSmall
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
-                    ActionButton {
-                        text: qsTr("開啟除錯工具")
-                        Layout.fillWidth: true
-                        onClicked: {
-                            root.close()
-                            root.inspectorRequested()
-                        }
+                ActionButton {
+                    text: qsTr("開啟除錯工具")
+                    Layout.fillWidth: true
+                    onClicked: {
+                        root.close()
+                        root.inspectorRequested()
                     }
                 }
             }

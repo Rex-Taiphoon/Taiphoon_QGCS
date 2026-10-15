@@ -19,6 +19,18 @@ Item {
     /// 尚未取得有效 GPS 時的預設中心（台北），與網頁版相同
     readonly property var defaultCenter: QtPositioning.coordinate(25.03997, 121.51195)
     readonly property real defaultZoom: 16
+    /// 縮放上限：OSM 圖磚只到 19 級，之後放大既有圖磚；兩層地圖共用此上限，
+    /// 否則疊圖層停在 19 級而底圖繼續放大，機體間距不再隨縮放改變且與底圖錯位
+    readonly property real maximumZoom: 22
+
+    /**
+     * @brief 將縮放層級限制在可用範圍
+     * @param zoom 欲設定的層級
+     * @return 限制後的層級
+     */
+    function clampZoom(zoom) {
+        return Math.max(map.minimumZoomLevel, Math.min(maximumZoom, zoom))
+    }
     /// 上次自動置中的目標與位置；使用者拖曳後清除，直到位置改變才再次置中（網頁版行為）
     property string lastAutoCenterKey: ""
     /// 已建立的機體標記（委派自行註冊），供名稱標籤避讓計算
@@ -132,6 +144,10 @@ Item {
         center: root.defaultCenter
         zoomLevel: root.defaultZoom
         copyrightsVisible: false
+        // 滾輪直接寫入 zoomLevel 不受圖磚上限限制，在此統一夾住
+        onZoomLevelChanged: if (zoomLevel !== root.clampZoom(zoomLevel)) {
+            zoomLevel = root.clampZoom(zoomLevel)
+        }
         // 背景色經 shader 反相後才是畫面上的顏色：取 OSM 陸地色，圖磚載入前就呈現與底圖一致的深色
         color: "#f2efe9"
         layer.enabled: true
@@ -165,7 +181,7 @@ Item {
         tilt: map.tilt
         fieldOfView: map.fieldOfView
         minimumZoomLevel: map.minimumZoomLevel
-        maximumZoomLevel: map.maximumZoomLevel
+        maximumZoomLevel: root.maximumZoom
         minimumTilt: map.minimumTilt
         maximumTilt: map.maximumTilt
         minimumFieldOfView: map.minimumFieldOfView
@@ -309,7 +325,7 @@ Item {
                 map.startCentroid = map.toCoordinate(pinch.centroid.position, false)
             }
             onScaleChanged: (delta) => {
-                map.zoomLevel += Math.log2(delta)
+                map.zoomLevel = root.clampZoom(map.zoomLevel + Math.log2(delta))
                 map.alignCoordinateToPoint(map.startCentroid, pinch.centroid.position)
             }
             onRotationChanged: (delta) => {
@@ -359,13 +375,13 @@ Item {
             MapButton {
                 text: "+"
                 tooltip: qsTr("放大")
-                onClicked: map.zoomLevel = Math.min(map.maximumZoomLevel, map.zoomLevel + 1)
+                onClicked: map.zoomLevel = root.clampZoom(map.zoomLevel + 1)
             }
             Rectangle { width: parent.width; height: 1; color: Theme.borderSoft }
             MapButton {
                 text: "−"
                 tooltip: qsTr("縮小")
-                onClicked: map.zoomLevel = Math.max(map.minimumZoomLevel, map.zoomLevel - 1)
+                onClicked: map.zoomLevel = root.clampZoom(map.zoomLevel - 1)
             }
             Rectangle { width: parent.width; height: 1; color: Theme.borderSoft }
             MapButton {

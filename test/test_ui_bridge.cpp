@@ -1,10 +1,10 @@
 /**
  * @file test_ui_bridge.cpp
- * @brief UiBridge 與 UI 組裝：命令仍須經 Guard、按鈕狀態與 Guard 一致、待回應防重複、選取調整
+ * @brief UiBridge 與 UI 組裝：命令仍須經 Guard、按鈕狀態與 Guard 一致、待回應防重複、選取調整、
+ *        成功只寫日誌而失敗與警告彈出提示
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
-#include "app/app_settings.hpp"
 #include "app/fleet_model.hpp"
 #include "app/toast_model.hpp"
 #include "app/ui_bridge.hpp"
@@ -17,7 +17,7 @@
 #include "modules/telemetry/telemetry_module.hpp"
 
 #include <QSignalSpy>
-#include <QTemporaryDir>
+#include <QStringList>
 #include <QTest>
 
 #include <gtest/gtest.h>
@@ -31,10 +31,27 @@ namespace
 
 const QString AGENT_1 = QStringLiteral("uav_1_agent");
 const QString AGENT_2 = QStringLiteral("uav_2_agent");
-/// 解鎖確認逾時（毫秒），使用設定允許的最小值以縮短測試時間
+/// 命令與解鎖確認逾時（毫秒），縮短以加快測試
 constexpr int SHORT_TIMEOUT_MS = 1000;
 /// 等待逾時觸發的時間（毫秒）
 constexpr int WAIT_PAST_TIMEOUT_MS = 1300;
+
+/// 測試期間擷取的 gcs.ui 日誌
+QStringList g_ui_logs;
+
+/**
+ * @brief 測試用訊息處理器：只收集 gcs.ui 類別
+ * @param type 訊息等級（未使用）
+ * @param context 來源資訊
+ * @param message 訊息內容
+ */
+void capture_ui_log(QtMsgType /*type*/, const QMessageLogContext& context, const QString& message)
+{
+    if (context.category != nullptr && QByteArray(context.category) == "gcs.ui")
+    {
+        g_ui_logs.append(message);
+    }
+}
 
 /**
  * @class UiBridgeTest
@@ -45,9 +62,9 @@ class UiBridgeTest : public ::testing::Test
 protected:
     void SetUp() override
     {
-        ASSERT_TRUE(temp_dir_.isValid());
-        settings_ = std::make_unique<AppSettings>(temp_dir_.filePath(QStringLiteral("settings.ini")));
-        bridge_ = std::make_unique<UiBridge>(settings_.get());
+        g_ui_logs.clear();
+        previous_handler_ = qInstallMessageHandler(capture_ui_log);
+        bridge_ = std::make_unique<UiBridge>(SHORT_TIMEOUT_MS);
         ASSERT_TRUE(fleet_.init());
         ASSERT_TRUE(telemetry_.init());
         ASSERT_TRUE(guard_.init());
@@ -86,11 +103,19 @@ protected:
         return model->data(model->index(model->rowCount() - 1), ToastModel::TitleRole).toString();
     }
 
+    void TearDown() override
+    {
+        qInstallMessageHandler(previous_handler_);
+    }
+
     /** @brief 提示總數 */
     int toast_count() const { return bridge_->toasts().rowCount(); }
 
-    QTemporaryDir temp_dir_;
-    std::unique_ptr<AppSettings> settings_;
+    /** @brief 最後一筆 gcs.ui 日誌 */
+    static QString last_log() { return g_ui_logs.isEmpty() ? QString() : g_ui_logs.last(); }
+
+    QtMessageHandler previous_handler_ = nullptr;
+
     std::unique_ptr<UiBridge> bridge_;
     FakeAgentLink link_;
     FleetModule fleet_{&link_};
@@ -140,8 +165,9 @@ TEST_F(UiBridgeTest, CommandGoesThroughGuardToLink)
     ASSERT_EQ(link_.published_commands.size(), 1U);
     EXPECT_EQ(link_.published_commands[0].target, AGENT_1);
     EXPECT_EQ(link_.published_commands[0].command_line, QStringLiteral("ARM"));
-    // 命令協定為單向，發布成功只能稱為已送出
-    EXPECT_EQ(last_toast_title(), QStringLiteral("ARM 已送出"));
+    // 命令協定為單向，發布成功只能稱為已送出；成功只寫日誌，不彈出提示
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("ARM 已送出")));
+    EXPECT_EQ(toast_count(), 0);
 }
 
 TEST_F(UiBridgeTest, GuardRejectionShownAndNothingPublished)
@@ -153,6 +179,7 @@ TEST_F(UiBridgeTest, GuardRejectionShownAndNothingPublished)
 
     EXPECT_TRUE(link_.published_commands.empty());
     EXPECT_EQ(last_toast_title(), QStringLiteral("TAKEOFF 失敗"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("TAKEOFF 失敗")));
 }
 
 TEST_F(UiBridgeTest, NonNumericParamRejectedByGuard)
@@ -275,43 +302,40 @@ TEST_F(UiBridgeTest, TrajectoriesForValidPathsOnly)
 
 TEST_F(UiBridgeTest, NonArmCommandShownAsSentWithoutConfirmation)
 {
-    settings_->set_cmd_timeout_ms(SHORT_TIMEOUT_MS);
     bring_online(AGENT_1, make_state(FlightState::IDLE));
     bridge_->selectAgent(AGENT_1);
     bridge_->sendCommand(QStringLiteral("MODE_OFFBOARD"));
-    EXPECT_EQ(last_toast_title(), QStringLiteral("MODE_OFFBOARD 已送出"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("MODE_OFFBOARD 已送出")));
 
     // 非 ARM／DISARM 不追蹤解鎖狀態，逾時後不應出現警告
-    const int count = toast_count();
     QTest::qWait(WAIT_PAST_TIMEOUT_MS);
-    EXPECT_EQ(toast_count(), count);
+    EXPECT_EQ(toast_count(), 0);
 }
 
 TEST_F(UiBridgeTest, ArmConfirmedWhenStateShowsArmed)
 {
-    settings_->set_cmd_timeout_ms(SHORT_TIMEOUT_MS);
     bring_online(AGENT_1, make_state(FlightState::IDLE));
     bridge_->selectAgent(AGENT_1);
     bridge_->sendCommand(QStringLiteral("ARM"));
-    EXPECT_EQ(last_toast_title(), QStringLiteral("ARM 已送出"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("ARM 已送出")));
 
     // 尚未解鎖的狀態不算確認
     emit link_.state_received(AGENT_1, make_state(FlightState::ARMED));
-    EXPECT_EQ(last_toast_title(), QStringLiteral("ARM 已送出"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("ARM 已送出")));
 
     emit link_.state_received(AGENT_1, make_state(FlightState::ARMED, true));
-    EXPECT_EQ(last_toast_title(), QStringLiteral("uav_1_agent 已解鎖"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("uav_1_agent 已解鎖")));
 
-    // 已確認後逾時不再警告，後續狀態也不重複提示
-    const int count = toast_count();
+    // 已確認後逾時不再警告，後續狀態也不重複記錄
+    const qsizetype log_count = g_ui_logs.size();
     emit link_.state_received(AGENT_1, make_state(FlightState::ARMED, true));
     QTest::qWait(WAIT_PAST_TIMEOUT_MS);
-    EXPECT_EQ(toast_count(), count);
+    EXPECT_EQ(g_ui_logs.size(), log_count);
+    EXPECT_EQ(toast_count(), 0);
 }
 
 TEST_F(UiBridgeTest, ArmWarnsWhenPx4DoesNotArm)
 {
-    settings_->set_cmd_timeout_ms(SHORT_TIMEOUT_MS);
     bring_online(AGENT_1, make_state(FlightState::IDLE));
     bridge_->selectAgent(AGENT_1);
     bridge_->sendCommand(QStringLiteral("ARM"));
@@ -319,7 +343,9 @@ TEST_F(UiBridgeTest, ArmWarnsWhenPx4DoesNotArm)
     // 模擬 PX4 拒絕解鎖：Agent 持續回報未解鎖
     emit link_.state_received(AGENT_1, make_state(FlightState::ARMED));
     QTest::qWait(WAIT_PAST_TIMEOUT_MS);
+    // 警告仍彈出提示，並同時寫入日誌
     EXPECT_EQ(last_toast_title(), QStringLiteral("uav_1_agent 未解鎖"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("uav_1_agent 未解鎖")));
 
     // 逾時後才解鎖不再補發確認
     const int count = toast_count();
@@ -329,35 +355,32 @@ TEST_F(UiBridgeTest, ArmWarnsWhenPx4DoesNotArm)
 
 TEST_F(UiBridgeTest, ArmCheckIgnoresInvalidPx4State)
 {
-    settings_->set_cmd_timeout_ms(SHORT_TIMEOUT_MS);
     bring_online(AGENT_1, make_state(FlightState::IDLE));
     bridge_->selectAgent(AGENT_1);
     bridge_->sendCommand(QStringLiteral("ARM"));
 
     // PX4 狀態無效時 armed 不可信，不能據此確認
     emit link_.state_received(AGENT_1, make_state(FlightState::ARMED, true, true, PX4_NAV_STATE_OFFBOARD, false));
-    EXPECT_EQ(last_toast_title(), QStringLiteral("ARM 已送出"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("ARM 已送出")));
 
     emit link_.state_received(AGENT_1, make_state(FlightState::ARMED, true));
-    EXPECT_EQ(last_toast_title(), QStringLiteral("uav_1_agent 已解鎖"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("uav_1_agent 已解鎖")));
 }
 
 TEST_F(UiBridgeTest, DisarmConfirmedWhenStateShowsDisarmed)
 {
-    settings_->set_cmd_timeout_ms(SHORT_TIMEOUT_MS);
     bring_online(AGENT_1, make_state(FlightState::ARMED, true));
     bridge_->selectAgent(AGENT_1);
     ASSERT_TRUE(bridge_->can_disarm());
     bridge_->sendCommand(QStringLiteral("DISARM"));
-    EXPECT_EQ(last_toast_title(), QStringLiteral("DISARM 已送出"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("DISARM 已送出")));
 
     emit link_.state_received(AGENT_1, make_state(FlightState::IDLE));
-    EXPECT_EQ(last_toast_title(), QStringLiteral("uav_1_agent 已上鎖"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("uav_1_agent 已上鎖")));
 }
 
 TEST_F(UiBridgeTest, AllTargetArmChecksEachOnlineAgent)
 {
-    settings_->set_cmd_timeout_ms(SHORT_TIMEOUT_MS);
     bring_online(AGENT_1, make_state(FlightState::IDLE));
     bring_online(AGENT_2, make_state(FlightState::IDLE));
     bridge_->selectAgent(ALL_AGENTS_TARGET);
@@ -367,15 +390,15 @@ TEST_F(UiBridgeTest, AllTargetArmChecksEachOnlineAgent)
     EXPECT_EQ(link_.published_commands[0].target, ALL_AGENTS_TARGET);
 
     emit link_.state_received(AGENT_1, make_state(FlightState::ARMED, true));
-    EXPECT_EQ(last_toast_title(), QStringLiteral("uav_1_agent 已解鎖"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("uav_1_agent 已解鎖")));
 
     QTest::qWait(WAIT_PAST_TIMEOUT_MS);
     EXPECT_EQ(last_toast_title(), QStringLiteral("uav_2_agent 未解鎖"));
+    EXPECT_EQ(toast_count(), 1);
 }
 
 TEST_F(UiBridgeTest, ArmCheckDroppedWhenAgentGoesOffline)
 {
-    settings_->set_cmd_timeout_ms(SHORT_TIMEOUT_MS);
     bring_online(AGENT_1, make_state(FlightState::IDLE));
     bridge_->selectAgent(AGENT_1);
     bridge_->sendCommand(QStringLiteral("ARM"));
@@ -390,14 +413,15 @@ TEST_F(UiBridgeTest, ArmCheckDroppedWhenAgentGoesOffline)
     EXPECT_EQ(toast_count(), count);
 }
 
-TEST_F(UiBridgeTest, ShutdownReplyStillShownAsSuccess)
+TEST_F(UiBridgeTest, ShutdownReplyLoggedAsSuccess)
 {
     bring_online(AGENT_1, make_state(FlightState::IDLE));
     bridge_->selectAgent(AGENT_1);
     bridge_->requestAgentShutdown();
     ASSERT_EQ(link_.shutdown_requests.size(), 1U);
 
-    // 關閉請求有 service 回應，仍可稱為成功
+    // 關閉請求有 service 回應，仍可稱為成功；成功只寫日誌
     emit link_.shutdown_replied(AGENT_1, link_.shutdown_requests[0].request_id, true, QStringLiteral("已接受"));
-    EXPECT_EQ(last_toast_title(), QStringLiteral("AGENT_SHUTDOWN 成功"));
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("AGENT_SHUTDOWN 成功")));
+    EXPECT_EQ(toast_count(), 0);
 }

@@ -1,6 +1,6 @@
 /**
  * @file Toasts.qml
- * @brief 可堆疊提示訊息（命令結果與系統警告），6 秒後自動消失（網頁版 ToastContainer）
+ * @brief 可堆疊提示訊息（命令失敗與系統警告；成功訊息只寫日誌），6 秒後自動消失（網頁版 ToastContainer）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */

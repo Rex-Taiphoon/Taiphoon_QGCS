@@ -28,6 +28,8 @@ add_library(gcs_ui STATIC
     diagnostics_controller.cpp
     fleet_model.hpp
     fleet_model.cpp
+    log_file.hpp
+    log_file.cpp
     network_controller.hpp
     network_controller.cpp
     toast_model.hpp
@@ -88,8 +90,9 @@ foreach(qml_file IN LISTS GCS_QML_FILES)
 endforeach()
 set_source_files_properties("${GCS_QML_DIR}/Theme.qml" PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
-set(GCS_LOGO "${PROJECT_SOURCE_DIR}/resources/taiphoon-logo.png")
-set_source_files_properties("${GCS_LOGO}" PROPERTIES QT_RESOURCE_ALIAS "resources/taiphoon-logo.png")
+# 狀態列橫式 Logo（白色去背）；resources/taiphoon-logo.png 僅作為 tools/make_icons.ps1 的圖示來源
+set(GCS_LOGO "${PROJECT_SOURCE_DIR}/resources/taiphoon-wordmark.png")
+set_source_files_properties("${GCS_LOGO}" PROPERTIES QT_RESOURCE_ALIAS "resources/taiphoon-wordmark.png")
 # 視窗圖示（標題列；Linux 工作列）
 set(GCS_WINDOW_ICON "${PROJECT_SOURCE_DIR}/resources/taiphoon-icon.png")
 set_source_files_properties("${GCS_WINDOW_ICON}" PROPERTIES QT_RESOURCE_ALIAS "resources/taiphoon-icon.png")

@@ -1,13 +1,17 @@
 /**
  * @file test_app_support.cpp
- * @brief AppSettings、顯示格式與唯讀除錯工具
+ * @brief AppSettings、顯示格式、唯讀除錯工具與日誌檔
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
 #include "app/app_settings.hpp"
 #include "app/diagnostics_controller.hpp"
+#include "app/log_file.hpp"
 #include "app/ui_format.hpp"
 
+#include <QFile>
+#include <QFileInfo>
+#include <QLoggingCategory>
 #include <QTemporaryDir>
 
 #include <gtest/gtest.h>
@@ -28,13 +32,7 @@ TEST(AppSettingsTest, DefaultsAndRangeValidation)
     ASSERT_TRUE(dir.isValid());
     AppSettings settings(dir.filePath(QStringLiteral("a.ini")));
     EXPECT_TRUE(settings.auto_follow());
-    EXPECT_EQ(settings.cmd_timeout_ms(), 3000);
     EXPECT_NEAR(settings.takeoff_height(), 3.0, EPSILON);
-
-    settings.set_cmd_timeout_ms(500);
-    EXPECT_EQ(settings.cmd_timeout_ms(), 3000);
-    settings.set_cmd_timeout_ms(5000);
-    EXPECT_EQ(settings.cmd_timeout_ms(), 5000);
 
     settings.set_takeoff_height(500.0);
     EXPECT_NEAR(settings.takeoff_height(), 3.0, EPSILON);
@@ -43,8 +41,9 @@ TEST(AppSettingsTest, DefaultsAndRangeValidation)
     settings.set_takeoff_height(8.5);
     EXPECT_NEAR(settings.takeoff_height(), 8.5, EPSILON);
 
+    settings.set_auto_follow(false);
     settings.resetUiSettings();
-    EXPECT_EQ(settings.cmd_timeout_ms(), 3000);
+    EXPECT_TRUE(settings.auto_follow());
     // 恢復預設值不影響飛行參數記憶
     EXPECT_NEAR(settings.takeoff_height(), 8.5, EPSILON);
 }
@@ -111,6 +110,23 @@ TEST(UiFormatTest, LabelsAndNumbers)
     EXPECT_EQ(ui::format_signed_number(std::numeric_limits<double>::infinity(), 1), QStringLiteral("—"));
     AgentStateData state;
     EXPECT_EQ(ui::px4_status_label(state), QStringLiteral("PX4 狀態未確認"));
+    state.px4_nav_state = 14;
+    EXPECT_EQ(ui::px4_mode_label(state), QStringLiteral("未確認"));
+    state.is_px4_state_valid = true;
+    EXPECT_EQ(ui::px4_mode_label(state), QStringLiteral("Offboard"));
+    state.px4_nav_state = 4;
+    EXPECT_EQ(ui::px4_mode_label(state), QStringLiteral("Hold"));
+    state.px4_nav_state = 16;
+    EXPECT_EQ(ui::px4_mode_label(state), QStringLiteral("未知 16"));
+    state.px4_nav_state = 31;
+    EXPECT_EQ(ui::px4_mode_label(state), QStringLiteral("未知 31"));
+    EXPECT_EQ(ui::format_battery_percent(0.874F), QStringLiteral("87"));
+    EXPECT_EQ(ui::format_battery_percent(-1.0F), QStringLiteral("—"));
+    EXPECT_EQ(ui::format_battery_voltage(15.32F), QStringLiteral("15.3"));
+    EXPECT_EQ(ui::format_battery_voltage(0.0F), QStringLiteral("—"));
+    EXPECT_EQ(ui::format_battery_current(12.44F), QStringLiteral("12.4"));
+    EXPECT_EQ(ui::format_battery_current(-1.0F), QStringLiteral("—"));
+    EXPECT_EQ(ui::format_battery_current(0.0F), QStringLiteral("0.0"));
     EXPECT_FALSE(ui::has_valid_global_position({std::numeric_limits<double>::quiet_NaN(), 121.5, 0.0}));
     EXPECT_FALSE(ui::has_valid_global_position({95.0, 121.5, 0.0}));
     EXPECT_TRUE(ui::has_valid_global_position({25.0, 121.5, 0.0}));
@@ -141,4 +157,34 @@ TEST(DiagnosticsTest, ReadOnlyCommands)
     diagnostics.on_agent_online(QStringLiteral("uav_2_agent"));
     diagnostics.execute(QStringLiteral("events"));
     EXPECT_TRUE(diagnostics.output().contains(QStringLiteral("Agent 上線 uav_2_agent")));
+}
+
+TEST(LogFileTest, WritesInfoAndAboveToDatedFile)
+{
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString log_dir = dir.filePath(QStringLiteral("logs"));
+    ASSERT_TRUE(log_file::install(log_dir));
+
+    QLoggingCategory category("gcs.test");
+    qCDebug(category) << "debug-not-written";
+    qCInfo(category).noquote() << QStringLiteral("ARM 已送出");
+    qCWarning(category).noquote() << QStringLiteral("uav_1_agent 未解鎖");
+    const QString path = log_file::current_path();
+    log_file::uninstall();
+
+    ASSERT_FALSE(path.isEmpty());
+    EXPECT_TRUE(QFileInfo(path).fileName().startsWith(QStringLiteral("Taiphoon_QGCS_")));
+    QFile file(path);
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString content = QString::fromUtf8(file.readAll());
+    EXPECT_TRUE(content.contains(QStringLiteral("[INFO ] gcs.test: ARM 已送出")));
+    EXPECT_TRUE(content.contains(QStringLiteral("[WARN ] gcs.test: uav_1_agent 未解鎖")));
+    EXPECT_FALSE(content.contains(QStringLiteral("debug-not-written")));
+
+    // 移除後不再寫入
+    qCWarning(category) << "after-uninstall";
+    file.close();
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly | QIODevice::Text));
+    EXPECT_FALSE(QString::fromUtf8(file.readAll()).contains(QStringLiteral("after-uninstall")));
 }
