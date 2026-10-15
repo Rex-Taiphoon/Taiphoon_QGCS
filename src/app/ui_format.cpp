@@ -120,6 +120,18 @@ QString format_number(double value, int decimals)
     return std::isfinite(value) ? QString::number(value, 'f', decimals) : QStringLiteral("—");
 }
 
+QString format_signed_number(double value, int decimals)
+{
+    if (!std::isfinite(value))
+    {
+        return QStringLiteral("—");
+    }
+    const QString magnitude = QString::number(std::abs(value), 'f', decimals);
+    // 四捨五入後為零時不顯示負號，避免出現「−0.0」
+    const bool is_negative = value < 0.0 && magnitude.toDouble() != 0.0;
+    return (is_negative ? QStringLiteral("−") : QStringLiteral("+")) + magnitude;
+}
+
 bool has_valid_global_position(const std::array<double, 3>& position)
 {
     const double latitude = position[0];

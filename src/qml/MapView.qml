@@ -1,12 +1,11 @@
 /**
  * @file MapView.qml
- * @brief 全幅地圖：去飽和 OSM 底圖、透明疊圖層上的航向箭頭與名稱、EGO-Swarm 軌跡、自動跟隨（ADR-0016）
+ * @brief 全幅地圖：反相深色 OSM 底圖、透明疊圖層上的航向箭頭與名稱、EGO-Swarm 軌跡、自動跟隨（ADR-0016）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Effects
 import QtQuick.Shapes
 import QtLocation
 import QtPositioning
@@ -122,7 +121,7 @@ Item {
         PluginParameter { name: "osm.mapping.highdpi_tiles"; value: false }
     }
 
-    // 底圖：只有圖磚，去飽和並調暗，讓無人機與航跡成為畫面焦點
+    // 底圖：只有圖磚，以 shader 灰階反相成近黑底，讓無人機、航跡與面板成為畫面焦點
     Map {
         id: map
 
@@ -133,12 +132,11 @@ Item {
         center: root.defaultCenter
         zoomLevel: root.defaultZoom
         copyrightsVisible: false
-        color: Theme.background
+        // 背景色經 shader 反相後才是畫面上的顏色：取 OSM 陸地色，圖磚載入前就呈現與底圖一致的深色
+        color: "#f2efe9"
         layer.enabled: true
-        layer.effect: MultiEffect {
-            saturation: -1.0
-            brightness: -0.7
-            contrast: 0.35
+        layer.effect: ShaderEffect {
+            fragmentShader: "qrc:/qt/qml/TaiphoonQgcs/shaders/map_dark.frag.qsb"
         }
 
         Component.onCompleted: {
@@ -204,8 +202,11 @@ Item {
                 required property bool hasHeading
                 required property real heading
                 required property string modeLabel
+                required property string altitudeText
+                required property bool isWaitingForFlightController
 
                 readonly property color markerColor: isSelected ? Theme.markerSelected : Theme.markerNormal
+                readonly property string shortName: agent.replace(/_agent$/, "").toUpperCase()
                 readonly property int arrowSize: isSelected ? 30 : 26
                 /// 標籤避讓結果（由 MapView.declutterLabels 設定）
                 property bool isLabelHidden: false
@@ -252,9 +253,10 @@ Item {
                         // 箭頭原形指向右方；航向 0 度（北）需旋轉 -90 度
                         rotation: (marker.hasHeading ? marker.heading : 0) - map.bearing - 90
 
+                        // 等待飛控時以琥珀色空心箭頭表示（注意）
                         ShapePath {
-                            fillColor: marker.markerColor
-                            strokeColor: Theme.background
+                            fillColor: marker.isWaitingForFlightController ? "transparent" : marker.markerColor
+                            strokeColor: marker.isWaitingForFlightController ? Theme.caution : Theme.background
                             strokeWidth: 1.5
                             startX: 0
                             startY: 0
@@ -265,27 +267,24 @@ Item {
                         }
                     }
 
-                    Rectangle {
+                    // 名稱標籤：無框文字＋深色描邊，機號、模式（狀態色）與高度
+                    Text {
                         id: nameLabel
 
                         visible: !marker.isLabelHidden
                         anchors.horizontalCenter: parent.horizontalCenter
                         y: marker.arrowSize + 10
-                        width: nameText.implicitWidth + 10
-                        height: nameText.implicitHeight + 4
-                        radius: Theme.radius
-                        color: Theme.panel
-                        border.color: marker.isSelected ? Theme.markerSelected : Theme.border
-
-                        Text {
-                            id: nameText
-
-                            anchors.centerIn: parent
-                            text: marker.agent.replace(/_agent$/, "")
-                            color: marker.isSelected ? Theme.markerSelected : Theme.textStrong
-                            font.family: Theme.fontMono
-                            font.pixelSize: 12
-                        }
+                        text: marker.isWaitingForFlightController
+                              ? marker.shortName + " <font color=\"" + Theme.caution + "\">" + qsTr("等待飛控")
+                                + "</font>"
+                              : marker.shortName + " <font color=\"" + Theme.normal + "\">" + marker.modeLabel
+                                + "</font> " + marker.altitudeText
+                        textFormat: Text.StyledText
+                        color: marker.isSelected ? Theme.markerSelected : Theme.textStrong
+                        style: Text.Outline
+                        styleColor: Theme.background
+                        font.family: Theme.fontMono
+                        font.pixelSize: 12
                     }
 
                     TapHandler {
@@ -341,56 +340,95 @@ Item {
         }
     }
 
-    // 右下角：放大、縮小、朝北
-    Column {
+    // 右下角：放大、縮小、朝北，合併為一組直角按鈕
+    Rectangle {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.margins: 16
-        spacing: 6
+        anchors.margins: Theme.spaceLg
+        width: zoomColumn.width + 2
+        height: zoomColumn.height + 2
+        color: Theme.panel
+        border.color: Theme.border
 
-        MapButton { text: "+"; tooltip: qsTr("放大"); onClicked: map.zoomLevel = Math.min(map.maximumZoomLevel, map.zoomLevel + 1) }
-        MapButton { text: "−"; tooltip: qsTr("縮小"); onClicked: map.zoomLevel = Math.max(map.minimumZoomLevel, map.zoomLevel - 1) }
-        MapButton {
-            tooltip: qsTr("朝北")
-            onClicked: map.bearing = 0
-            contentItem: Text {
-                text: "▲"
-                rotation: -map.bearing
-                color: Theme.danger
-                font.pixelSize: 18
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
+        Column {
+            id: zoomColumn
+
+            x: 1
+            y: 1
+
+            MapButton {
+                text: "+"
+                tooltip: qsTr("放大")
+                onClicked: map.zoomLevel = Math.min(map.maximumZoomLevel, map.zoomLevel + 1)
+            }
+            Rectangle { width: parent.width; height: 1; color: Theme.borderSoft }
+            MapButton {
+                text: "−"
+                tooltip: qsTr("縮小")
+                onClicked: map.zoomLevel = Math.max(map.minimumZoomLevel, map.zoomLevel - 1)
+            }
+            Rectangle { width: parent.width; height: 1; color: Theme.borderSoft }
+            MapButton {
+                tooltip: qsTr("朝北")
+                onClicked: map.bearing = 0
+                contentItem: Text {
+                    text: "N"
+                    rotation: -map.bearing
+                    color: map.bearing === 0 ? Theme.textBody : Theme.accent
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.fontLabel + 1
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
         }
     }
 
-    // 左下角：OSM 必要來源標示
+    // 左下角：地圖中心座標、縮放層級與 OSM 必要來源標示
     Rectangle {
         anchors.left: parent.left
         anchors.bottom: parent.bottom
-        width: attribution.implicitWidth + 12
-        height: attribution.implicitHeight + 6
+        width: footer.implicitWidth + 2 * Theme.spaceSm
+        height: footer.implicitHeight + Theme.spaceXs
         color: Theme.panel
 
-        Text {
-            id: attribution
+        Row {
+            id: footer
 
             anchors.centerIn: parent
-            text: "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap contributors</a>"
-            textFormat: Text.RichText
-            font.pixelSize: 11
-            color: Theme.textMuted
-            linkColor: Theme.textBody
-            onLinkActivated: (link) => Qt.openUrlExternally(link)
+            spacing: Theme.spaceLg
+
+            FooterText {
+                text: Math.abs(map.center.latitude).toFixed(5) + (map.center.latitude >= 0 ? " N  " : " S  ")
+                      + Math.abs(map.center.longitude).toFixed(5) + (map.center.longitude >= 0 ? " E" : " W")
+            }
+            FooterText { text: "Z" + Math.round(map.zoomLevel) }
+            FooterText {
+                text: "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap contributors</a>"
+                textFormat: Text.RichText
+                font.family: Theme.fontFamily
+                linkColor: Theme.textBody
+                onLinkActivated: (link) => Qt.openUrlExternally(link)
+            }
         }
+    }
+
+    component FooterText: Text {
+        color: Theme.textMuted
+        font.family: Theme.fontMono
+        font.pixelSize: Theme.fontLabel
     }
 
     component MapButton: ActionButton {
         textAlignment: Text.AlignHCenter
-        implicitWidth: 36
-        implicitHeight: 36
+        implicitWidth: 34
+        implicitHeight: 34
         padding: 0
-        font.pixelSize: 20
+        font.family: Theme.fontMono
+        font.pixelSize: 16
         accentColor: Theme.commandNormal
+        background: Rectangle {
+            color: parent.down ? Theme.controlActive : (parent.hovered ? Theme.controlHover : "transparent")
+        }
     }
 }

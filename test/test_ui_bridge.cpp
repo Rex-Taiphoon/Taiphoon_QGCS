@@ -228,6 +228,8 @@ TEST_F(UiBridgeTest, FleetModelExposesDisplayRoles)
     EXPECT_EQ(bridge_->selected_summary().value(QStringLiteral("px4Label")).toString(),
               QStringLiteral("已解鎖 · 飛行中"));
     EXPECT_TRUE(bridge_->selected_summary().value(QStringLiteral("isArmed")).toBool());
+    EXPECT_EQ(bridge_->selected_summary().value(QStringLiteral("nedText")).toString(),
+              QStringLiteral("+1.0  +2.0  −5.0"));
 }
 
 TEST_F(UiBridgeTest, SummaryArmStateRequiresValidPx4State)

@@ -105,6 +105,10 @@ TEST(UiFormatTest, LabelsAndNumbers)
     EXPECT_EQ(ui::flight_mode_label(42), QStringLiteral("模式 42"));
     EXPECT_EQ(ui::format_number(std::numeric_limits<double>::quiet_NaN(), 1), QStringLiteral("—"));
     EXPECT_EQ(ui::format_number(16.24, 1), QStringLiteral("16.2"));
+    EXPECT_EQ(ui::format_signed_number(12.44, 1), QStringLiteral("+12.4"));
+    EXPECT_EQ(ui::format_signed_number(-3.1, 1), QStringLiteral("−3.1"));
+    EXPECT_EQ(ui::format_signed_number(-0.04, 1), QStringLiteral("+0.0"));
+    EXPECT_EQ(ui::format_signed_number(std::numeric_limits<double>::infinity(), 1), QStringLiteral("—"));
     AgentStateData state;
     EXPECT_EQ(ui::px4_status_label(state), QStringLiteral("PX4 狀態未確認"));
     EXPECT_FALSE(ui::has_valid_global_position({std::numeric_limits<double>::quiet_NaN(), 121.5, 0.0}));

@@ -61,6 +61,14 @@ std::optional<EulerDegrees> euler_degrees(const std::array<float, 4>& q);
 QString format_number(double value, int decimals);
 
 /**
+ * @brief 格式化有限數值並一律帶正負號（負號使用 U+2212），非有限值顯示「—」
+ * @param value 數值
+ * @param decimals 小數位數
+ * @return 文字，例如 "+12.4"、"−3.1"
+ */
+QString format_signed_number(double value, int decimals);
+
+/**
  * @brief WGS84 座標是否可在地圖顯示
  * @param position [緯度, 經度, 高度]
  * @return 緯經度皆有限且在合法範圍內

@@ -9,6 +9,7 @@ Taiphoon_QGCS 以 MIT 授權發布，並包含下列第三方元件。各元件�
 | Eclipse Cyclone DDS | 0.10.5 | EPL-2.0 或 EDL-1.0（BSD-3-Clause） | 動態連結（ddsc） | https://github.com/eclipse-cyclonedds/cyclonedds |
 | Microsoft Visual C++ 執行階段（僅 Windows） | 14.50 | Microsoft 軟體授權條款（可再散布檔案） | 隨程式安裝 | https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files |
 | B612／B612 Mono 字型 | 1.008 | SIL Open Font License 1.1 | 內嵌於程式資源，未修改字型檔 | https://github.com/polarsys/b612 |
+| Noto Sans TC 字型（可變字重） | 2.004 | SIL Open Font License 1.1 | 內嵌於程式資源作為中文字形，未修改字型檔 | https://github.com/notofonts/noto-cjk |
 | OpenStreetMap 圖磚 | — | 地圖資料 ODbL；圖磚使用須遵守 OSM 圖磚使用政策 | 執行時線上取得，畫面左下角保留來源標示 | https://www.openstreetmap.org/copyright |
 
 ## Qt（LGPL-3.0）

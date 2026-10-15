@@ -16,6 +16,7 @@
 #include "link/cyclone_agent_link.hpp"
 
 #include <QCommandLineParser>
+#include <QFont>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QIcon>
@@ -71,14 +72,15 @@ bool parse_network_override(const QCommandLineParser& parser, gcs::link::DdsNetw
 }
 
 /**
- * @brief 註冊內嵌的 B612／B612 Mono 字型（OFL-1.1），供 QML 以字族名稱使用
+ * @brief 註冊內嵌的 B612／B612 Mono 與 Noto Sans TC 字型（皆為 OFL-1.1），供 QML 以字族名稱使用
  *
- * 字型不含中文字形，中文由系統字型自動備援；載入失敗時只記錄警告，介面改用系統字型。
+ * B612 不含中文字形，以字族替代讓中文一律改用內嵌的 Noto Sans TC，Windows 與 macOS 外觀一致；
+ * 載入失敗時只記錄警告，介面改用系統字型。
  */
 void register_fonts()
 {
     static const char* const FONT_FILES[] = {"B612-Regular.ttf", "B612-Bold.ttf", "B612Mono-Regular.ttf",
-                                             "B612Mono-Bold.ttf"};
+                                             "B612Mono-Bold.ttf", "NotoSansTC-VF.ttf"};
     for (const char* file : FONT_FILES)
     {
         const QString path = QStringLiteral(":/qt/qml/TaiphoonQgcs/resources/fonts/") + QLatin1String(file);
@@ -87,6 +89,9 @@ void register_fonts()
             qCWarning(lc_app) << "字型載入失敗：" << path;
         }
     }
+    const QString cjk_family = QStringLiteral("Noto Sans TC");
+    QFont::insertSubstitution(QStringLiteral("B612"), cjk_family);
+    QFont::insertSubstitution(QStringLiteral("B612 Mono"), cjk_family);
 }
 
 }  // namespace

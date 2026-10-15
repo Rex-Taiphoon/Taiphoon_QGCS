@@ -1,8 +1,10 @@
 /**
  * @file FleetPanel.qml
- * @brief 機群懸浮視窗：表格列出各機模式、電量、高度，選取列展開電壓、電流與姿態，可最小化（網頁版 FleetPanel）
+ * @brief 機群懸浮視窗：表格列出各機模式、電量、高度，下方固定顯示選取機的姿態儀與電力，可最小化（網頁版 FleetPanel）
  * @author Taiphoon GCS Team
- * @date 2026-10-12
+ * @date 2026-10-15
+ *
+ * 姿態區固定在表格下方，不隨選取列展開，切換選取時表格高度不跳動（航電座艙提案）。
  */
 import QtQuick
 import QtQuick.Controls
@@ -21,9 +23,25 @@ Rectangle {
     /// 表格欄寬：模式、電量、高度（其餘給機號）
     readonly property int modeColumnWidth: 112
     readonly property int numberColumnWidth: 58
+    readonly property int headerHeight: 40
+
+    readonly property var summary: bridge.selectedSummary
+    /// 選取單機且已有遙測時顯示姿態區
+    readonly property bool hasSelectedTelemetry: bridge.isSingleSelected && summary.hasTelemetry === true
+                                                 && summary.isWaitingForFlightController !== true
+
+    /**
+     * @brief 帶正負號的角度文字（負號使用 U+2212）
+     * @param value 角度（度）
+     * @return 例如 "+1.6°"、"−8.0°"
+     */
+    function signedDegrees(value) {
+        const text = Math.abs(value).toFixed(1)
+        return (value < 0 && Number(text) !== 0 ? "−" : "+") + text + "°"
+    }
 
     width: isCollapsed ? header.implicitWidth + 2 * Theme.spaceLg : 360
-    height: isCollapsed ? 44 : Math.min(44 + 1 + content.implicitHeight, maximumHeight)
+    height: isCollapsed ? headerHeight : Math.min(headerHeight + 1 + content.implicitHeight, maximumHeight)
     color: Theme.panel
     radius: Theme.radius
     border.color: Theme.border
@@ -34,13 +52,13 @@ Rectangle {
 
         x: Theme.spaceLg
         width: root.isCollapsed ? implicitWidth : root.width - Theme.spaceLg - Theme.spaceXs
-        height: 44
+        height: root.headerHeight
         spacing: Theme.spaceMd
 
         Label {
-            text: qsTr("機群")
-            color: Theme.textMuted
-            font.pixelSize: Theme.fontLabel
+            text: "FLEET"
+            color: Theme.textBody
+            font.pixelSize: Theme.fontLabel + 1
             font.letterSpacing: Theme.labelSpacing
         }
         Label {
@@ -54,8 +72,8 @@ Rectangle {
         ActionButton {
             iconName: root.isCollapsed ? "chevronDown" : "minus"
             accentColor: Theme.textMuted
-            implicitWidth: 36
-            implicitHeight: 36
+            implicitWidth: 32
+            implicitHeight: 32
             padding: 0
             background: Item {}
             tooltip: root.isCollapsed ? qsTr("展開機群管理") : qsTr("最小化機群管理")
@@ -66,7 +84,7 @@ Rectangle {
 
     Rectangle {
         visible: !root.isCollapsed
-        y: 44
+        y: root.headerHeight
         width: parent.width
         height: 1
         color: Theme.border
@@ -77,7 +95,7 @@ Rectangle {
 
         visible: !root.isCollapsed
         anchors.top: parent.top
-        anchors.topMargin: 45
+        anchors.topMargin: root.headerHeight + 1
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -97,11 +115,12 @@ Rectangle {
             // 欄位標題
             TableRow {
                 implicitHeight: 30
-                cells: [qsTr("機號"), qsTr("模式"), qsTr("電量"), qsTr("高度 m")]
+                cells: ["ID", "MODE", "BATT", "ALT M"]
                 cellColor: Theme.textMuted
                 cellSize: Theme.fontLabel
                 isMono: false
             }
+            Rectangle { implicitHeight: 1; Layout.fillWidth: true; color: Theme.border }
 
             // 全體
             RowButton {
@@ -112,7 +131,8 @@ Rectangle {
                     anchors.fill: parent
                     cells: [qsTr("全部"), qsTr("%1 台").arg(root.bridge.onlineCount), "—", "—"]
                     firstColor: Theme.accent
-                    cellColor: Theme.textMuted
+                    cellColor: Theme.textDim
+                    secondColor: Theme.textMuted
                 }
             }
 
@@ -134,19 +154,12 @@ Rectangle {
                     required property bool isWaitingForFlightController
                     required property string modeLabel
                     required property string batteryText
-                    required property string voltageText
-                    required property string currentText
                     required property string altitudeText
-                    required property bool hasAttitude
-                    required property real roll
-                    required property real pitch
 
-                    readonly property bool isExpanded: isSelected && !isWaitingForFlightController
-                    /// 表格顯示短名稱（去掉固定的 _agent 字尾），完整名稱見提示與無障礙名稱
-                    readonly property string shortName: agent.replace(/_agent$/, "")
+                    /// 表格顯示大寫短名稱（去掉固定的 _agent 字尾），完整名稱見提示與無障礙名稱
+                    readonly property string shortName: agent.replace(/_agent$/, "").toUpperCase()
 
                     isActive: isSelected
-                    implicitHeight: Theme.rowHeight + (isExpanded ? detail.implicitHeight : 0)
                     Accessible.name: qsTr("選取 %1").arg(agent)
                     ToolTip.visible: hovered
                     ToolTip.text: agent
@@ -154,67 +167,76 @@ Rectangle {
                     onClicked: root.bridge.selectAgent(agent)
 
                     TableRow {
-                        width: parent.width
-                        implicitHeight: Theme.rowHeight
+                        anchors.fill: parent
                         cells: row.isWaitingForFlightController
                                ? [row.shortName, qsTr("等待飛控"), "—", "—"]
                                : [row.shortName, row.modeLabel, row.batteryText + "%", row.altitudeText]
                         firstColor: Theme.textStrong
                         secondColor: row.isWaitingForFlightController ? Theme.caution : Theme.normal
+                        cellColor: row.isWaitingForFlightController ? Theme.textDim : Theme.textValue
                     }
+                }
+            }
 
-                    // 選取列展開：電壓、電流與姿態
-                    RowLayout {
-                        id: detail
+            // 選取機的姿態與電力：固定在表格下方
+            Rectangle {
+                visible: root.hasSelectedTelemetry
+                implicitHeight: 1
+                Layout.fillWidth: true
+                color: Theme.border
+            }
+            RowLayout {
+                visible: root.hasSelectedTelemetry
+                spacing: Theme.spaceLg
+                Layout.fillWidth: true
+                Layout.margins: Theme.spaceMd
+                Layout.leftMargin: Theme.spaceLg
 
-                        visible: row.isExpanded
-                        y: Theme.rowHeight
-                        x: Theme.spaceLg
-                        width: parent.width - 2 * Theme.spaceLg
-                        implicitHeight: Math.max(values.implicitHeight, attitude.implicitHeight) + Theme.spaceMd
-                        spacing: Theme.spaceLg
+                Item {
+                    visible: root.settings.showAttitude
+                    implicitWidth: 88
+                    implicitHeight: 88
 
-                        Item {
-                            id: attitude
-
-                            visible: root.settings.showAttitude
-                            implicitWidth: 72
-                            implicitHeight: 72
-                            Layout.alignment: Qt.AlignTop
-
-                            AttitudeIndicator {
-                                anchors.fill: parent
-                                visible: row.hasAttitude
-                                roll: row.roll
-                                pitch: row.pitch
-                            }
-                            Label {
-                                anchors.centerIn: parent
-                                visible: !row.hasAttitude
-                                text: qsTr("等待姿態")
-                                color: Theme.textMuted
-                                font.pixelSize: Theme.fontLabel
-                            }
-                        }
-                        GridLayout {
-                            id: values
-
-                            columns: 2
-                            columnSpacing: Theme.spaceLg
-                            rowSpacing: 2
-                            Layout.alignment: Qt.AlignTop
-                            Layout.fillWidth: true
-
-                            DetailLabel { text: qsTr("電壓") }
-                            DetailValue { text: row.voltageText + " V" }
-                            DetailLabel { text: qsTr("電流") }
-                            DetailValue { text: row.currentText + " A" }
-                            DetailLabel { visible: row.hasAttitude; text: "ROLL" }
-                            DetailValue { visible: row.hasAttitude; text: row.roll.toFixed(1) + "°" }
-                            DetailLabel { visible: row.hasAttitude; text: "PITCH" }
-                            DetailValue { visible: row.hasAttitude; text: row.pitch.toFixed(1) + "°" }
-                        }
+                    AttitudeIndicator {
+                        anchors.fill: parent
+                        visible: root.summary.hasAttitude === true
+                        roll: root.summary.roll || 0
+                        pitch: root.summary.pitch || 0
                     }
+                    Label {
+                        anchors.centerIn: parent
+                        visible: root.summary.hasAttitude !== true
+                        text: qsTr("等待姿態")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontLabel
+                    }
+                }
+                GridLayout {
+                    columns: 2
+                    columnSpacing: Theme.spaceLg
+                    rowSpacing: Theme.spaceXs
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.fillWidth: true
+
+                    DetailLabel { visible: root.summary.hasAttitude === true; text: "ROLL" }
+                    DetailValue {
+                        visible: root.summary.hasAttitude === true
+                        text: root.signedDegrees(root.summary.roll || 0)
+                    }
+                    DetailLabel { visible: root.summary.hasAttitude === true; text: "PITCH" }
+                    DetailValue {
+                        visible: root.summary.hasAttitude === true
+                        text: root.signedDegrees(root.summary.pitch || 0)
+                    }
+                    DetailLabel { visible: root.summary.hasHeading === true; text: "HDG" }
+                    DetailValue {
+                        visible: root.summary.hasHeading === true
+                        text: String(Math.round(root.summary.heading || 0) % 360).padStart(3, "0") + "°"
+                    }
+                    DetailLabel { text: "VOLT" }
+                    DetailValue { text: (root.summary.voltageText || "—") + " V" }
+                    DetailLabel { text: "CURR" }
+                    DetailValue { text: (root.summary.currentText || "—") + " A" }
                 }
             }
         }
@@ -263,7 +285,7 @@ Rectangle {
         Label {
             text: parent.cells[0]
             color: parent.firstColor
-            font.family: parent.isMono ? Theme.fontMono : Qt.application.font.family
+            font.family: parent.isMono ? Theme.fontMono : Theme.fontFamily
             font.pixelSize: parent.cellSize
             font.letterSpacing: parent.isMono ? 0 : Theme.labelSpacing
             elide: Text.ElideRight
@@ -273,6 +295,7 @@ Rectangle {
         Label {
             text: parent.cells[1]
             color: parent.secondColor
+            font.family: Theme.fontFamily
             font.pixelSize: parent.cellSize
             font.letterSpacing: parent.isMono ? 0 : Theme.labelSpacing
             elide: Text.ElideRight
@@ -281,7 +304,7 @@ Rectangle {
         Label {
             text: parent.cells[2]
             color: parent.cellColor
-            font.family: parent.isMono ? Theme.fontMono : Qt.application.font.family
+            font.family: parent.isMono ? Theme.fontMono : Theme.fontFamily
             font.pixelSize: parent.cellSize
             font.letterSpacing: parent.isMono ? 0 : Theme.labelSpacing
             horizontalAlignment: Text.AlignRight
@@ -290,7 +313,7 @@ Rectangle {
         Label {
             text: parent.cells[3]
             color: parent.cellColor
-            font.family: parent.isMono ? Theme.fontMono : Qt.application.font.family
+            font.family: parent.isMono ? Theme.fontMono : Theme.fontFamily
             font.pixelSize: parent.cellSize
             font.letterSpacing: parent.isMono ? 0 : Theme.labelSpacing
             horizontalAlignment: Text.AlignRight

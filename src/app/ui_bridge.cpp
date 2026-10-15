@@ -311,10 +311,13 @@ void UiBridge::rebuild_summary()
         summary.insert(QStringLiteral("isPx4Valid"), state.is_px4_state_valid);
         // 供飛行控制面板常駐顯示解鎖狀態；僅在 isPx4Valid 為 true 時可信
         summary.insert(QStringLiteral("isArmed"), state.is_px4_state_valid && state.is_armed);
-        summary.insert(QStringLiteral("nedText"), QStringLiteral("(%1, %2, %3)")
-                                                      .arg(ui::format_number(state.position_ned[0], 1),
-                                                           ui::format_number(state.position_ned[1], 1),
-                                                           ui::format_number(state.position_ned[2], 1)));
+        summary.insert(QStringLiteral("voltageText"), ui::format_number(state.battery_voltage_v, 1));
+        summary.insert(QStringLiteral("currentText"), ui::format_number(state.battery_current_a, 1));
+        // 儀表格以帶正負號、雙空白分隔顯示 N／E／D，等寬字下各軸對齊
+        summary.insert(QStringLiteral("nedText"), QStringLiteral("%1  %2  %3")
+                                                      .arg(ui::format_signed_number(state.position_ned[0], 1),
+                                                           ui::format_signed_number(state.position_ned[1], 1),
+                                                           ui::format_signed_number(state.position_ned[2], 1)));
         summary.insert(QStringLiteral("hasPosition"), ui::has_valid_global_position(state.position_global));
         summary.insert(QStringLiteral("latitude"), state.position_global[0]);
         summary.insert(QStringLiteral("longitude"), state.position_global[1]);
@@ -324,6 +327,11 @@ void UiBridge::rebuild_summary()
         const auto heading = ui::heading_degrees(it->attitude.q);
         summary.insert(QStringLiteral("hasHeading"), heading.has_value());
         summary.insert(QStringLiteral("heading"), heading.value_or(0.0));
+        // 機群面板姿態儀：四元數無效時不顯示
+        const auto euler = ui::euler_degrees(it->attitude.q);
+        summary.insert(QStringLiteral("hasAttitude"), euler.has_value());
+        summary.insert(QStringLiteral("roll"), euler.has_value() ? euler->roll : 0.0);
+        summary.insert(QStringLiteral("pitch"), euler.has_value() ? euler->pitch : 0.0);
     }
     selected_summary_ = summary;
 }

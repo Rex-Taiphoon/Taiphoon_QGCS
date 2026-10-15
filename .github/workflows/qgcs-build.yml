@@ -31,7 +31,7 @@ permissions:
 
 env:
   QT_VERSION: "6.11.2"
-  QT_MODULES: "qtlocation qtpositioning"
+  QT_MODULES: "qtlocation qtpositioning qtshadertools"
 
 jobs:
   windows:

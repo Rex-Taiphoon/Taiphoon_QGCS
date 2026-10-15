@@ -46,7 +46,7 @@ if(NOT GCS_BUILD_APP)
 endif()
 
 find_package(Qt6 ${GCS_QT_VERSION} EXACT REQUIRED
-    COMPONENTS Gui Qml Quick QuickControls2 Location Positioning
+    COMPONENTS Gui Qml Quick QuickControls2 Location Positioning ShaderTools
 )
 
 qt_add_executable(Taiphoon_QGCS WIN32 MACOSX_BUNDLE
@@ -94,13 +94,15 @@ set_source_files_properties("${GCS_LOGO}" PROPERTIES QT_RESOURCE_ALIAS "resource
 set(GCS_WINDOW_ICON "${PROJECT_SOURCE_DIR}/resources/taiphoon-icon.png")
 set_source_files_properties("${GCS_WINDOW_ICON}" PROPERTIES QT_RESOURCE_ALIAS "resources/taiphoon-icon.png")
 
-# 介面字型：B612／B612 Mono（OFL-1.1，Airbus 駕駛艙顯示器字型），由 main.cpp 註冊
+# 介面字型：B612／B612 Mono（OFL-1.1，Airbus 駕駛艙顯示器字型）與中文備援 Noto Sans TC（OFL-1.1），
+# 由 main.cpp 註冊
 set(GCS_FONT_DIR "${PROJECT_SOURCE_DIR}/resources/fonts")
 set(GCS_FONTS
     ${GCS_FONT_DIR}/B612-Regular.ttf
     ${GCS_FONT_DIR}/B612-Bold.ttf
     ${GCS_FONT_DIR}/B612Mono-Regular.ttf
     ${GCS_FONT_DIR}/B612Mono-Bold.ttf
+    ${GCS_FONT_DIR}/NotoSansTC-VF.ttf
 )
 foreach(font_file IN LISTS GCS_FONTS)
     get_filename_component(font_name "${font_file}" NAME)
@@ -112,6 +114,13 @@ qt_add_qml_module(Taiphoon_QGCS
     VERSION 1.0
     QML_FILES ${GCS_QML_FILES}
     RESOURCES ${GCS_LOGO} ${GCS_WINDOW_ICON} ${GCS_FONTS}
+)
+
+# 地圖深色化 shader：建置時以 qsb 編譯，執行期不需要 ShaderTools
+qt_add_shaders(Taiphoon_QGCS "gcs_shaders"
+    PREFIX "/qt/qml/TaiphoonQgcs"
+    BASE "${GCS_QML_DIR}"
+    FILES "${GCS_QML_DIR}/shaders/map_dark.frag"
 )
 
 target_compile_definitions(Taiphoon_QGCS PRIVATE GCS_VERSION_FULL="${GCS_VERSION_FULL}")

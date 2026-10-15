@@ -76,7 +76,8 @@
 
 ## 開發環境
 
-- Qt **6.11.2**（`msvc2022_64`、Qt Location、Qt Positioning），版本固定
+- Qt **6.11.2**（`msvc2022_64`、Qt Location、Qt Positioning、Qt Shader Tools），版本固定；
+  Shader Tools 只在建置時編譯地圖 shader，執行期不需要
 - Windows：VS Build Tools（MSVC），CMake + Ninja（Qt 安裝目錄 `Tools` 內附）
 - Python 3（IDL 產生腳本）
 
@@ -115,4 +116,4 @@ GCS 以命令列參數啟動（只在本次有效，不寫入設定檔）：
 
 ## 授權
 
-MIT。發布套件另附 Qt（LGPL）、CycloneDDS（EPL-2.0／EDL-1.0）、B612 字型（OFL-1.1）等第三方授權聲明。
+MIT。發布套件另附 Qt（LGPL）、CycloneDDS（EPL-2.0／EDL-1.0）、B612 與 Noto Sans TC 字型（OFL-1.1）等第三方授權聲明。

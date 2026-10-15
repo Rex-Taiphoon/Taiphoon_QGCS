@@ -1,10 +1,11 @@
 /**
  * @file StatusBar.qml
- * @brief 頂部狀態列：品牌、選取目標的遙測儀表格、DDS 連線狀態與設定入口（網頁版 StatusBar）
+ * @brief 頂部狀態列：品牌、選取目標的遙測儀表格、DDS 連線、UTC 時鐘與設定入口（網頁版 StatusBar）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  *
- * 每個欄位為「標籤在上、數值在下」的儀表格，以細分隔線區隔；數值一律使用等寬字。
+ * 每個欄位為「標籤在上、數值在下」的儀表格，以細分隔線區隔；標籤為英文大寫縮寫（座艙慣例），
+ * 數值與狀態維持中文並一律使用等寬字。
  */
 import QtQuick
 import QtQuick.Controls
@@ -21,6 +22,16 @@ Rectangle {
     readonly property var summary: bridge.selectedSummary
     readonly property bool hasLiveTelemetry: bridge.isSingleSelected && summary.hasTelemetry === true
                                              && summary.isWaitingForFlightController !== true
+
+    /**
+     * @brief 數值後接暗色單位（StyledText）
+     * @param value 數值文字，空值顯示「—」
+     * @param unit 單位
+     * @return StyledText 字串
+     */
+    function withUnit(value, unit) {
+        return (value || "—") + "<font color=\"" + Theme.textDim + "\">" + unit + "</font>"
+    }
 
     implicitHeight: 48
     color: Theme.bar
@@ -88,18 +99,18 @@ Rectangle {
                 // 全體
                 Cell {
                     visible: root.bridge.isAllSelected
-                    label: qsTr("目標")
+                    label: "TARGET"
                     value: qsTr("全部機群")
                     valueColor: Theme.accent
                 }
                 Cell {
                     visible: root.bridge.isAllSelected
-                    label: qsTr("線上")
+                    label: "ONLINE"
                     value: qsTr("%1 台").arg(root.bridge.onlineCount)
                 }
                 Cell {
                     visible: root.bridge.isAllSelected
-                    label: qsTr("編隊")
+                    label: "FORMATION"
                     // 目前資料鏈尚未轉送 FormationEpoch，與網頁版相同顯示「待回報」
                     value: root.bridge.onlineCount === 0 ? qsTr("等待回報")
                                                          : root.bridge.onlineAgents
@@ -111,27 +122,31 @@ Rectangle {
                 // 單機
                 Cell {
                     visible: root.bridge.isSingleSelected
-                    label: qsTr("目標")
-                    value: root.bridge.selectedAgent
+                    label: "TARGET"
+                    value: root.bridge.selectedAgent.replace(/_agent$/, "").toUpperCase()
                     valueColor: Theme.accent
+                    tooltip: root.bridge.selectedAgent
                 }
                 Cell {
                     visible: root.bridge.isSingleSelected && !root.hasLiveTelemetry
-                    label: qsTr("狀態")
+                    label: "STATUS"
                     value: root.summary.isWaitingForFlightController ? qsTr("等待飛控連線中...")
                                                                     : qsTr("等待遙測資料...")
                     valueColor: root.summary.isWaitingForFlightController ? Theme.caution : Theme.textMuted
                 }
                 Cell {
                     visible: root.hasLiveTelemetry
-                    label: qsTr("模式")
+                    label: "MODE"
                     value: root.summary.modeLabel || ""
                     valueColor: Theme.normal
+                    isBoxed: true
                 }
                 Cell {
                     visible: root.hasLiveTelemetry
-                    label: qsTr("電量")
-                    value: (root.summary.batteryText || "—") + " %"
+                    label: "BATT"
+                    value: root.withUnit(root.summary.batteryText, "%") + " "
+                           + root.withUnit(root.summary.voltageText, "V")
+                    isStyled: true
                 }
                 Cell {
                     visible: root.hasLiveTelemetry
@@ -150,22 +165,31 @@ Rectangle {
         Separator {}
         // DDS 連線狀態
         Cell {
-            label: qsTr("連線")
+            label: "LINK"
             value: root.bridge.isLinkConnected ? "DDS" : qsTr("中斷")
             valueColor: root.bridge.isLinkConnected ? Theme.normal : Theme.danger
+            tooltip: (root.bridge.isLinkConnected ? qsTr("已連線") : qsTr("未連線"))
+                     + (root.bridge.linkMessage.length > 0 ? "：" + root.bridge.linkMessage : "")
             Layout.fillHeight: true
             Accessible.role: Accessible.Indicator
-            Accessible.name: connectionTip.text
+            Accessible.name: tooltip
+        }
+        // UTC 時鐘：與飛控日誌、Agent 時間戳對照用
+        Cell {
+            id: clockCell
 
-            HoverHandler { id: linkHover }
-            ToolTip {
-                id: connectionTip
-                visible: linkHover.hovered
-                text: (root.bridge.isLinkConnected ? qsTr("已連線") : qsTr("未連線"))
-                      + (root.bridge.linkMessage.length > 0 ? "：" + root.bridge.linkMessage : "")
+            label: "UTC"
+            value: "--:--:--"
+            Layout.fillHeight: true
+
+            Timer {
+                interval: 1000
+                running: true
+                repeat: true
+                triggeredOnStart: true
+                onTriggered: clockCell.value = new Date().toISOString().substr(11, 8)
             }
         }
-        Separator {}
 
         ActionButton {
             iconName: "settings"
@@ -187,14 +211,19 @@ Rectangle {
         property string label: ""
         property string value: ""
         property color valueColor: Theme.textValue
+        /// 數值加外框（目前模式，比照 PFD 的 FMA 方框）
+        property bool isBoxed: false
+        /// 數值含 StyledText 標記（單位以暗色顯示）
+        property bool isStyled: false
+        property string tooltip: ""
 
-        implicitWidth: visible ? Math.max(labelText.implicitWidth, valueText.implicitWidth) + 2 * Theme.spaceLg : 0
+        implicitWidth: visible ? Math.max(labelText.implicitWidth, valueBox.width) + 2 * Theme.spaceLg : 0
         height: parent ? parent.height : 47
 
         Column {
             anchors.verticalCenter: parent.verticalCenter
             x: Theme.spaceLg
-            spacing: 1
+            spacing: 2
 
             Label {
                 id: labelText
@@ -204,13 +233,26 @@ Rectangle {
                 font.pixelSize: Theme.fontLabel
                 font.letterSpacing: Theme.labelSpacing
             }
-            Label {
-                id: valueText
+            Rectangle {
+                id: valueBox
 
-                text: cell.value
-                color: cell.valueColor
-                font.family: Theme.fontMono
-                font.pixelSize: Theme.fontBase
+                width: valueText.implicitWidth + (cell.isBoxed ? 10 : 0)
+                height: valueText.implicitHeight
+                x: cell.isBoxed ? -5 : 0
+                color: "transparent"
+                border.width: cell.isBoxed ? 1 : 0
+                border.color: cell.valueColor
+
+                Label {
+                    id: valueText
+
+                    anchors.centerIn: parent
+                    text: cell.value
+                    textFormat: cell.isStyled ? Text.StyledText : Text.PlainText
+                    color: cell.valueColor
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.fontBase
+                }
             }
         }
         Rectangle {
@@ -220,6 +262,10 @@ Rectangle {
             height: parent.height
             color: Theme.borderSoft
         }
+        HoverHandler { id: cellHover }
+        ToolTip.visible: cell.tooltip.length > 0 && cellHover.hovered
+        ToolTip.text: cell.tooltip
+        ToolTip.delay: 600
     }
 
     component Separator: Rectangle {
