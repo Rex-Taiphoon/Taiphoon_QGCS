@@ -89,7 +89,15 @@ ctest --preset windows-debug
 ```
 
 打包：`cmake --preset windows-release`、`cmake --build --preset windows-release` 後，於 `build/windows-release`
-執行 `cpack -C Release`。詳見 [AGENTS.md](AGENTS.md#建置與驗證)。
+執行 `cpack -C Release`，產生 `Taiphoon_QGCS-v<版本>-Windows-AMD64.exe`（NSIS）與 `.zip`。詳見 [AGENTS.md](AGENTS.md#建置與驗證)。
+
+版本號記錄在根目錄 `VERSION`，格式為 `X.Y.Z`，會帶入安裝檔名稱、「新增或移除程式」的版本與啟動日誌。
+**每次發布或交給其他電腦安裝前都要遞增**（修正遞增 Z、新功能遞增 Y、不相容變更遞增 X），
+修改 `VERSION` 後須重新 configure，同一個版本號不可對應兩份不同內容的安裝檔。
+
+升級安裝：安裝程式以固定、不含版本號的登錄機碼 `Taiphoon_QGCS` 偵測已安裝的版本，
+詢問後先執行舊版的移除程式再安裝；使用者設定位於 `HKCU\Software\Taiphoon\Taiphoon_QGCS`，不受影響。安裝時會重建防火牆規則
+`Taiphoon_QGCS DDS`，覆蓋安裝也不會產生重複規則。
 
 開發用工具（不隨產品發布）：`tools/dds_probe`（DDS 互通驗證）、`tools/gcs_headless`（無介面整合驗證）。
 

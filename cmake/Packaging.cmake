@@ -93,6 +93,9 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Taiphoon Qt 原生地面控制站")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_FILE_NAME "Taiphoon_QGCS-v${GCS_VERSION_FULL}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "Taiphoon_QGCS")
+# 安裝程式以此機碼偵測舊版並先移除；不可含版本號，否則升級後偵測不到舊版，
+# 「新增或移除程式」會出現兩筆。CPack 預設取 CPACK_PACKAGE_INSTALL_DIRECTORY，此處明確固定。
+set(CPACK_PACKAGE_INSTALL_REGISTRY_KEY "Taiphoon_QGCS")
 set(CPACK_PACKAGE_EXECUTABLES "Taiphoon_QGCS" "Taiphoon_QGCS")
 set(CPACK_RESOURCE_FILE_LICENSE "${PROJECT_SOURCE_DIR}/packaging/licenses/THIRD_PARTY_NOTICES.md")
 set(CPACK_COMPONENTS_ALL ${GCS_INSTALL_COMPONENT})
@@ -123,8 +126,10 @@ if(WIN32)
     set(CPACK_NSIS_MUI_FINISHPAGE_RUN "Taiphoon_QGCS.exe")
     # DDS 需要接收 Agent 的 UDP 封包；安裝時建立只針對本程式、只允許同一子網路來源的入站規則，
     # 移除時一併刪除。Agent 需經路由器或 VPN 連線時，須由使用者自行放寬來源範圍。
+    # 新增前先刪除同名規則：使用者未先移除舊版就覆蓋安裝時，規則才不會重複。
     set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS
-        "nsExec::ExecToLog 'netsh advfirewall firewall add rule name=\\\"Taiphoon_QGCS DDS\\\" dir=in action=allow protocol=UDP remoteip=localsubnet program=\\\"$INSTDIR\\\\bin\\\\Taiphoon_QGCS.exe\\\" enable=yes'")
+        "nsExec::ExecToLog 'netsh advfirewall firewall delete rule name=\\\"Taiphoon_QGCS DDS\\\"'
+nsExec::ExecToLog 'netsh advfirewall firewall add rule name=\\\"Taiphoon_QGCS DDS\\\" dir=in action=allow protocol=UDP remoteip=localsubnet program=\\\"$INSTDIR\\\\bin\\\\Taiphoon_QGCS.exe\\\" enable=yes'")
     set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS
         "nsExec::ExecToLog 'netsh advfirewall firewall delete rule name=\\\"Taiphoon_QGCS DDS\\\"'")
 elseif(APPLE)

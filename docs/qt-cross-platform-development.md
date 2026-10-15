@@ -375,6 +375,7 @@ ctest --test-dir build --output-on-failure
 - [ ] Linux 發布格式。
 - [x] Git 遠端：https://github.com/Rex-Taiphoon/Taiphoon_QGCS.git（push 前須取得使用者同意）。
 - [x] 版本號起點：v1.0.0。
+- [x] 版本號規則：`VERSION` 採 `X.Y.Z`，每次發布或交給其他電腦安裝前遞增；安裝程式登錄機碼固定為不含版本的 `Taiphoon_QGCS`（2026-10-15 決定）。
 - [ ] 版本標籤、分支與 Release 標準（原 Taiphoon_GCS 標準已移除，M9 前重新制定）。
 
 ## 11. 參考資料
