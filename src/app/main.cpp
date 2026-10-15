@@ -49,13 +49,15 @@ bool parse_network_override(const QCommandLineParser& parser, gcs::link::DdsNetw
 {
     const bool has_override = parser.isSet(QStringLiteral("peer")) || parser.isSet(QStringLiteral("interface"))
                               || parser.isSet(QStringLiteral("domain")) || parser.isSet(QStringLiteral("no-multicast"))
-                              || parser.isSet(QStringLiteral("participant-index"));
+                              || parser.isSet(QStringLiteral("participant-index"))
+                              || parser.isSet(QStringLiteral("external-address"));
     if (!has_override)
     {
         return false;
     }
     config->domain_id = parser.value(QStringLiteral("domain")).toUInt();
     config->network_interface = parser.value(QStringLiteral("interface")).toStdString();
+    config->external_address = parser.value(QStringLiteral("external-address")).toStdString();
     config->is_multicast_allowed = !parser.isSet(QStringLiteral("no-multicast"));
     for (const QString& peer : parser.values(QStringLiteral("peer")))
     {
@@ -121,6 +123,8 @@ int main(int argc, char* argv[])
         {QStringLiteral("peer"), QStringLiteral("本次使用的 Agent 位址，可重複"), QStringLiteral("address")},
         {QStringLiteral("no-multicast"), QStringLiteral("本次關閉 multicast")},
         {QStringLiteral("participant-index"), QStringLiteral("本次使用固定 participant index"), QStringLiteral("index")},
+        {QStringLiteral("external-address"), QStringLiteral("本次對外公告的位址（位於 NAT 之後時使用）"),
+         QStringLiteral("ipv4")},
     });
     parser.process(app);
 

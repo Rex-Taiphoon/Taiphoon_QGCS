@@ -92,6 +92,19 @@ ctest --preset windows-debug
 
 開發用工具（不隨產品發布）：`tools/dds_probe`（DDS 互通驗證）、`tools/gcs_headless`（無介面整合驗證）。
 
+### 連線本機 Docker Desktop 內的 Agent
+
+Agent 位於 Docker Desktop NAT 之後，需使用單播並讓 GCS 對外公告 `host.docker.internal`（192.168.65.254），
+容器回送封包才會經 Docker Desktop 轉送到主機。Agent 端設定見
+[開發規劃](docs/qt-cross-platform-development.md) 6.1 節
+（`ExternalNetworkAddress` 設為主機區網 IP、發布 UDP 7410 起的埠、Peer 加上 `192.168.65.254:7510`）。
+GCS 以命令列參數啟動（只在本次有效，不寫入設定檔）：
+
+```powershell
+.\build\windows-debug\bin\Taiphoon_QGCS.exe --interface <主機區網 IP> --external-address 192.168.65.254 `
+    --no-multicast --peer <主機區網 IP> --participant-index 50
+```
+
 ## 文件
 
 - [開發規劃：需求、架構與路線](docs/qt-cross-platform-development.md)
