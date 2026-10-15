@@ -161,6 +161,30 @@ private:
      */
     bool begin_pending(const QString& agent, const QString& command, int timeout_ms);
 
+    /**
+     * @brief ARM／DISARM 已送出後，開始等待 AgentState 的解鎖狀態符合預期
+     *
+     * 命令協定沒有飛控回報，送出成功不代表 PX4 已執行；
+     * 逾時仍未觀察到預期狀態時提示使用者，只影響提示，不重送命令。
+     * @param agent 單機 namespace 或全體目標
+     * @param is_expected_armed 預期是否解鎖
+     */
+    void begin_arm_check(const QString& agent, bool is_expected_armed);
+
+    /**
+     * @brief 收到狀態時檢查是否已符合預期解鎖狀態
+     * @param agent_ns Agent namespace
+     * @param state 最新狀態
+     */
+    void resolve_arm_check(const QString& agent_ns, const AgentStateData& state);
+
+    /// 等待解鎖狀態確認的項目
+    struct ArmCheck
+    {
+        quint64 id = 0;
+        bool is_expected_armed = false;
+    };
+
     AppSettings* settings_ = nullptr;
     FleetModel fleet_model_;
     ToastModel toast_model_;
@@ -179,6 +203,9 @@ private:
     /// "agent:command" → 識別碼；逾時計時器以識別碼確認仍是同一筆請求
     QHash<QString, quint64> pending_commands_;
     quint64 next_pending_id_ = 1;
+
+    /// Agent namespace → 等待中的解鎖狀態確認；逾時計時器以識別碼確認仍是同一筆
+    QHash<QString, ArmCheck> arm_checks_;
 };
 
 }  // namespace gcs

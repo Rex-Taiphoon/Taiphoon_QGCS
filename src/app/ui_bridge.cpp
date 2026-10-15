@@ -156,11 +156,29 @@ void UiBridge::requestAgentShutdown()
 void UiBridge::on_command_acked(const CommandAck& ack)
 {
     pending_commands_.remove(pending_key(ack.agent, ack.command));
+    if (ack.is_ok && ack.command == SHUTDOWN_COMMAND)
+    {
+        // 關閉請求有 service 回應，是唯一能確認對方已執行的命令
+        toast_model_.add(ToastModel::Kind::SUCCESS, QStringLiteral("%1 成功").arg(ack.command),
+                         ack.message.isEmpty() ? QStringLiteral("%1 已接受 %2").arg(ack.agent, ack.command)
+                                               : ack.message);
+        return;
+    }
     if (ack.is_ok)
     {
-        toast_model_.add(ToastModel::Kind::SUCCESS, QStringLiteral("%1 成功").arg(ack.command),
-                         ack.message.isEmpty() ? QStringLiteral("%1 已接收 %2 命令").arg(ack.agent, ack.command)
-                                               : ack.message);
+        // 命令協定為單向，發布成功只代表已送出，不代表 Agent 或飛控已執行
+        const bool is_arm = ack.command == QLatin1String("ARM");
+        const bool is_disarm = ack.command == QLatin1String("DISARM");
+        const QString detail = (is_arm || is_disarm) ? QStringLiteral("，等待飛控解鎖狀態確認")
+                                                     : QStringLiteral("，飛控執行結果請以狀態為準");
+        toast_model_.add(ToastModel::Kind::SUCCESS, QStringLiteral("%1 已送出").arg(ack.command),
+                         ack.message.isEmpty()
+                             ? QStringLiteral("已將 %1 送至 %2").arg(ack.command, ack.agent) + detail
+                             : ack.message);
+        if (is_arm || is_disarm)
+        {
+            begin_arm_check(ack.agent, is_arm);
+        }
         return;
     }
     toast_model_.add(ToastModel::Kind::ERROR, QStringLiteral("%1 失敗").arg(ack.command),
@@ -168,11 +186,56 @@ void UiBridge::on_command_acked(const CommandAck& ack)
                                            : ack.message);
 }
 
+void UiBridge::begin_arm_check(const QString& agent, bool is_expected_armed)
+{
+    const QStringList targets = agent == ALL_AGENTS_TARGET ? online_agents_ : QStringList{agent};
+    const int timeout_ms = settings_ != nullptr ? settings_->cmd_timeout_ms() : DEFAULT_COMMAND_TIMEOUT_MS;
+    for (const QString& target : targets)
+    {
+        // 同一台重新送出 ARM／DISARM 時以最新一筆為準，舊計時器會因識別碼不符而略過
+        const quint64 id = next_pending_id_++;
+        arm_checks_.insert(target, ArmCheck{id, is_expected_armed});
+        QTimer::singleShot(timeout_ms, this,
+                           [this, target, id, is_expected_armed, timeout_ms]()
+                           {
+                               const auto it = arm_checks_.constFind(target);
+                               if (it == arm_checks_.cend() || it->id != id)
+                               {
+                                   return;
+                               }
+                               arm_checks_.remove(target);
+                               toast_model_.add(
+                                   ToastModel::Kind::WARNING,
+                                   QStringLiteral("%1 未%2").arg(target, is_expected_armed ? QStringLiteral("解鎖")
+                                                                                          : QStringLiteral("上鎖")),
+                                   QStringLiteral("%1 秒內未觀察到%2，飛控可能拒絕命令，請檢查 PX4 健康狀態")
+                                       .arg(timeout_ms / MS_PER_SECOND)
+                                       .arg(is_expected_armed ? QStringLiteral("解鎖") : QStringLiteral("上鎖")));
+                           });
+    }
+}
+
+void UiBridge::resolve_arm_check(const QString& agent_ns, const AgentStateData& state)
+{
+    const auto it = arm_checks_.constFind(agent_ns);
+    // PX4 狀態無效時 armed 欄位不可信，繼續等待
+    if (it == arm_checks_.cend() || !state.is_px4_state_valid || state.is_armed != it->is_expected_armed)
+    {
+        return;
+    }
+    const bool is_armed = it->is_expected_armed;
+    arm_checks_.remove(agent_ns);
+    const QString label = is_armed ? QStringLiteral("已解鎖") : QStringLiteral("已上鎖");
+    toast_model_.add(ToastModel::Kind::SUCCESS, agent_ns + QLatin1Char(' ') + label,
+                     QStringLiteral("飛控回報 %1 %2").arg(agent_ns, label));
+}
+
 void UiBridge::on_state_updated(const QString& agent_ns, const AgentStateData& state)
 {
     AgentView& view = views_[agent_ns];
     view.state = state;
     view.has_state = true;
+    resolve_arm_check(agent_ns, state);
     mark_dirty();
 }
 
@@ -198,6 +261,11 @@ void UiBridge::on_fleet_changed(const FleetSnapshot& snapshot)
     for (const QString& agent : snapshot.offline)
     {
         views_.remove(agent);
+        if (arm_checks_.remove(agent))
+        {
+            toast_model_.add(ToastModel::Kind::WARNING, QStringLiteral("%1 解鎖狀態未確認").arg(agent),
+                             QStringLiteral("%1 已離線，無法確認 ARM／DISARM 是否生效").arg(agent));
+        }
     }
     const bool is_list_changed = snapshot.online != online_agents_;
     online_agents_ = snapshot.online;
