@@ -22,7 +22,17 @@ FetchContent_Declare(cyclonedds
 # 只需要 C 函式庫與 idlc；安全性、共享記憶體與範例不使用。
 # BUILD_TESTING 會被 CycloneDDS 讀取，本專案測試改由 GCS_BUILD_TESTS 控制。
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(BUILD_IDLC ON CACHE BOOL "" FORCE)
+# 交叉編譯（iOS）時編出的 idlc 無法在主機執行；CycloneDDS 的 idlc_generate 會改從 PATH 尋找
+# 主機版 idlc，需先以 tools/build-host-idlc.sh 建置（ADR-0017）。
+if(CMAKE_CROSSCOMPILING)
+    set(BUILD_IDLC OFF CACHE BOOL "" FORCE)
+else()
+    set(BUILD_IDLC ON CACHE BOOL "" FORCE)
+endif()
+# iOS App 不能附帶一般動態函式庫，ddsc 改為靜態連結（本專案自己的函式庫皆已明確指定 STATIC）。
+if(IOS)
+    set(BUILD_SHARED_LIBS OFF)
+endif()
 set(BUILD_DDSPERF OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_DOCS OFF CACHE BOOL "" FORCE)

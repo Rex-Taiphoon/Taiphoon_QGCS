@@ -55,10 +55,11 @@ qt_add_executable(Taiphoon_QGCS WIN32 MACOSX_BUNDLE
     main.cpp
 )
 
-# 程式圖示（tools/make_icons.ps1 產生）：Windows 以資源檔嵌入 exe，macOS 放入 bundle Resources
+# 程式圖示（tools/make_icons.ps1 產生）：Windows 以資源檔嵌入 exe，macOS 放入 bundle Resources；
+# iOS 需 asset catalog，尚未提供（ADR-0017）
 if(WIN32)
     target_sources(Taiphoon_QGCS PRIVATE "${PROJECT_SOURCE_DIR}/packaging/windows/Taiphoon_QGCS.rc")
-elseif(APPLE)
+elseif(APPLE AND NOT IOS)
     set(GCS_MACOS_ICON "${PROJECT_SOURCE_DIR}/packaging/macos/Taiphoon_QGCS.icns")
     set_source_files_properties("${GCS_MACOS_ICON}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     target_sources(Taiphoon_QGCS PRIVATE "${GCS_MACOS_ICON}")
@@ -142,8 +143,18 @@ set_target_properties(Taiphoon_QGCS PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER tw.com.taiphoon.qgcs
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-    MACOSX_BUNDLE_INFO_PLIST "${PROJECT_SOURCE_DIR}/packaging/macos/Info.plist.in"
-    MACOSX_BUNDLE_ICON_FILE Taiphoon_QGCS.icns
 )
+if(IOS)
+    # 同一個 App 支援 iPhone（1）與 iPad（2）
+    set_target_properties(Taiphoon_QGCS PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST "${PROJECT_SOURCE_DIR}/packaging/ios/Info.plist.in"
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+    )
+else()
+    set_target_properties(Taiphoon_QGCS PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST "${PROJECT_SOURCE_DIR}/packaging/macos/Info.plist.in"
+        MACOSX_BUNDLE_ICON_FILE Taiphoon_QGCS.icns
+    )
+endif()
 
 include(Packaging)

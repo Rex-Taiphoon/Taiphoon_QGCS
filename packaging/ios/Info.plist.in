@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  @file Info.plist.in
+  @brief iOS／iPadOS App 設定；由 Qt 與 CMake 代入版本、識別碼與啟動畫面（ADR-0017）
+  @author Taiphoon GCS Team
+  @date 2026-10-15
+
+  NSLocalNetworkUsageDescription：iOS 14 起存取區域網路需使用者授權，否則 DDS 收不到 Agent 資料。
+  未取得 multicast entitlement 前只能以單播連線（關閉 multicast 並輸入 Agent 位址）。
+  介面為橫向桌面版面，因此只支援橫向並要求全螢幕（iPad 不提供分割畫面）。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_TW</string>
+    <key>CFBundleExecutable</key>
+    <string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+    <key>CFBundleIdentifier</key>
+    <string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Taiphoon_QGCS</string>
+    <key>CFBundleDisplayName</key>
+    <string>Taiphoon QGCS</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
+    <key>CFBundleVersion</key>
+    <string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UILaunchStoryboardName</key>
+    <string>@qt_ios_launch_screen_plist_entry@</string>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
+    <key>UIRequiresFullScreen</key>
+    <true/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Taiphoon QGCS 需要存取區域網路，才能與無人機上的 Taiphoon_Agent 交換狀態與命令。</string>
+</dict>
+</plist>

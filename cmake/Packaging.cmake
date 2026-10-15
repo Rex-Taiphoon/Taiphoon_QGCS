@@ -11,6 +11,38 @@
 # =============================================================================
 include(GNUInstallDirs)
 
+# -----------------------------------------------------------------------------
+# iOS／iPadOS：Xcode 產生 .app 後由 CI 包成 IPA，不使用 install／CPack（ADR-0017）。
+# 授權聲明直接放入 App bundle 的 licenses/；檔名加上來源前綴，避免同名檔案互相覆蓋。
+# -----------------------------------------------------------------------------
+if(IOS)
+    set(GCS_IOS_LICENSE_DIR "${CMAKE_CURRENT_BINARY_DIR}/ios_licenses")
+    set(GCS_IOS_LICENSE_SOURCES
+        "${PROJECT_SOURCE_DIR}/packaging/licenses/THIRD_PARTY_NOTICES.md|THIRD_PARTY_NOTICES.md"
+        "${cyclonedds_SOURCE_DIR}/LICENSE|cyclonedds-LICENSE.txt"
+        "${cyclonedds_SOURCE_DIR}/NOTICE.md|cyclonedds-NOTICE.md"
+        "${PROJECT_SOURCE_DIR}/resources/fonts/OFL.txt|b612-OFL.txt"
+        "${PROJECT_SOURCE_DIR}/resources/fonts/NotoSansTC-OFL.txt|noto-sans-tc-OFL.txt"
+    )
+    get_filename_component(GCS_QT_LICENSE_DIR "${QT6_INSTALL_PREFIX}/../../Licenses" ABSOLUTE)
+    file(GLOB GCS_QT_LICENSE_FILES "${GCS_QT_LICENSE_DIR}/*")
+    foreach(qt_license IN LISTS GCS_QT_LICENSE_FILES)
+        get_filename_component(qt_license_name "${qt_license}" NAME)
+        list(APPEND GCS_IOS_LICENSE_SOURCES "${qt_license}|qt-${qt_license_name}")
+    endforeach()
+
+    foreach(entry IN LISTS GCS_IOS_LICENSE_SOURCES)
+        string(REPLACE "|" ";" entry "${entry}")
+        list(GET entry 0 license_source)
+        list(GET entry 1 license_name)
+        configure_file("${license_source}" "${GCS_IOS_LICENSE_DIR}/${license_name}" COPYONLY)
+        set_source_files_properties("${GCS_IOS_LICENSE_DIR}/${license_name}"
+            PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/licenses")
+        target_sources(Taiphoon_QGCS PRIVATE "${GCS_IOS_LICENSE_DIR}/${license_name}")
+    endforeach()
+    return()
+endif()
+
 set(GCS_INSTALL_COMPONENT gcs)
 
 # -----------------------------------------------------------------------------
@@ -85,13 +117,40 @@ if(EXISTS "${GCS_QT_LICENSE_DIR}")
 endif()
 
 # -----------------------------------------------------------------------------
+# macOS：Apple Silicon 不執行沒有簽章的程式，而 macdeployqt 修改過的二進位簽章已失效。
+# 取得 Developer ID 前先以 ad-hoc 重新簽章（無法通過 Gatekeeper 公證，僅供測試）。
+# 必須放在所有寫入 bundle 的安裝規則之後，否則之後加入的檔案會使簽章失效。
+# -----------------------------------------------------------------------------
+if(APPLE)
+    install(CODE "
+        execute_process(
+            COMMAND codesign --force --deep --sign - \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/Taiphoon_QGCS.app\"
+            COMMAND_ERROR_IS_FATAL ANY
+        )
+    " COMPONENT ${GCS_INSTALL_COMPONENT})
+endif()
+
+# -----------------------------------------------------------------------------
 # CPack
 # -----------------------------------------------------------------------------
 set(CPACK_PACKAGE_NAME "Taiphoon_QGCS")
 set(CPACK_PACKAGE_VENDOR "Taiphoon")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Taiphoon Qt 原生地面控制站")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_FILE_NAME "Taiphoon_QGCS-v${GCS_VERSION_FULL}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+# macOS 的 CMAKE_SYSTEM_PROCESSOR 是建置機架構，無法表示 Universal Binary，改以 CMAKE_OSX_ARCHITECTURES 命名
+if(APPLE)
+    list(LENGTH CMAKE_OSX_ARCHITECTURES GCS_OSX_ARCH_COUNT)
+    if(GCS_OSX_ARCH_COUNT GREATER 1)
+        set(GCS_PACKAGE_PLATFORM "macOS-universal")
+    elseif(GCS_OSX_ARCH_COUNT EQUAL 1)
+        set(GCS_PACKAGE_PLATFORM "macOS-${CMAKE_OSX_ARCHITECTURES}")
+    else()
+        set(GCS_PACKAGE_PLATFORM "macOS-${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+else()
+    set(GCS_PACKAGE_PLATFORM "${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+set(CPACK_PACKAGE_FILE_NAME "Taiphoon_QGCS-v${GCS_VERSION_FULL}-${GCS_PACKAGE_PLATFORM}")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "Taiphoon_QGCS")
 # 安裝程式以此機碼偵測舊版並先移除；不可含版本號，否則升級後偵測不到舊版，
 # 「新增或移除程式」會出現兩筆。CPack 預設取 CPACK_PACKAGE_INSTALL_DIRECTORY，此處明確固定。

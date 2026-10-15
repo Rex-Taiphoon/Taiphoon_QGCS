@@ -1,18 +1,23 @@
 # =============================================================================
 # @file qgcs-build.yml
-# @brief Taiphoon_QGCS 三平台建置、單元測試與打包；v* 標籤建立草稿 Release（M9）
+# @brief Taiphoon_QGCS 多平台建置、單元測試與打包；v* 標籤建立草稿 Release（M9）
 # @author Taiphoon GCS Team
 # @date 2026-10-12
 #
 # Qt 與相依版本固定（ADR-0013）；版本、分支與 Release 命名標準於正式發布前另行制定，
 # 因此 Release 一律建立為草稿，由人員確認後才公開。
 # 依開發者指示，目前只允許手動觸發，且預設只建置 Windows；推送或標籤不會自動執行。
+# iOS／iPadOS 為交叉編譯，取得 Apple Developer 帳號前只產生未簽章 IPA（ADR-0017）。
 # =============================================================================
 name: QGCS Build
 
 on:
   workflow_dispatch:
     inputs:
+      build_windows:
+        description: "建置 Windows"
+        type: boolean
+        default: true
       build_macos:
         description: "同時建置 macOS"
         type: boolean
@@ -21,8 +26,12 @@ on:
         description: "同時建置 Linux"
         type: boolean
         default: false
+      build_ios:
+        description: "同時建置 iOS／iPadOS（未簽章 IPA）"
+        type: boolean
+        default: false
       create_draft_release:
-        description: "以目前標籤建立草稿 Release（需三平台皆建置）"
+        description: "以目前標籤建立草稿 Release（需所有平台皆建置）"
         type: boolean
         default: false
 
@@ -35,6 +44,7 @@ env:
 
 jobs:
   windows:
+    if: ${{ inputs.build_windows }}
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -106,11 +116,19 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir build/macos-release --output-on-failure
 
-      # 簽章與公證待取得 Apple Developer 帳號後加入（packaging/macos/entitlements.plist 已備妥）；
-      # 未簽章的 DMG 在其他 Mac 上會被 Gatekeeper 阻擋，只供內部測試。
-      - name: 打包（DMG，未簽章）
+      # Developer ID 簽章與公證待取得 Apple Developer 帳號後加入（packaging/macos/entitlements.plist 已備妥）；
+      # 目前只有 ad-hoc 簽章，其他 Mac 下載後會被 Gatekeeper 阻擋，只供測試。
+      - name: 打包（DMG，ad-hoc 簽章）
         working-directory: build/macos-release
         run: cpack
+
+      - name: 驗證部署結果（架構、簽章、載入主視窗）
+        run: |
+          cmake --install build/macos-release --component gcs --prefix stage
+          app=stage/Taiphoon_QGCS.app
+          lipo -archs "$app/Contents/MacOS/Taiphoon_QGCS"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          "$app/Contents/MacOS/Taiphoon_QGCS" --smoke-test
 
       - uses: actions/upload-artifact@v4
         with:
@@ -139,19 +157,90 @@ jobs:
           cache: true
 
       - name: Configure
-        run: cmake --preset linux-debug
+        run: cmake --preset linux-release
 
       - name: Build
-        run: cmake --build --preset linux-debug
+        run: cmake --build --preset linux-release
 
       - name: Unit tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ctest --preset linux-debug
+        run: ctest --preset linux-release
+
+      - name: 打包（TGZ）
+        working-directory: build/linux-release
+        run: cpack
+
+      # 解壓縮打包結果後執行，確認 Qt 函式庫、外掛與 QML 模組都已隨附；
+      # 清除 install-qt-action 設定的路徑，避免從 Qt 安裝目錄載入而掩蓋缺漏。
+      - name: 驗證部署結果（載入主視窗）
+        run: |
+          mkdir stage
+          tar -xzf build/linux-release/Taiphoon_QGCS-*.tar.gz -C stage --strip-components=1
+          env -u LD_LIBRARY_PATH -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH QT_QPA_PLATFORM=offscreen \
+            stage/bin/Taiphoon_QGCS --smoke-test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qgcs-linux
+          path: build/linux-release/Taiphoon_QGCS-*.tar.gz
+          if-no-files-found: error
+
+  ios:
+    if: ${{ inputs.build_ios }}
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # 交叉編譯需要主機版 Qt 的建置工具（moc、qsb 等），install-qt-action 會一併安裝並設定 QT_HOST_PATH
+      - name: 安裝 Qt（iOS）
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: mac
+          target: ios
+          arch: ios
+          modules: ${{ env.QT_MODULES }}
+          cache: true
+
+      - name: 安裝 Ninja
+        run: brew install ninja
+
+      - name: 建置主機版 idlc
+        run: |
+          bash tools/build-host-idlc.sh "$RUNNER_TEMP/host-idlc"
+          echo "$RUNNER_TEMP/host-idlc/bin" >> "$GITHUB_PATH"
+
+      - name: Configure（未簽章）
+        run: >
+          cmake --preset ios-release
+          -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
+          -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO
+          -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY=
+
+      - name: Build
+        run: cmake --build --preset ios-release -- -sdk iphoneos -quiet
+
+      # IPA 即 Payload/<App>.app 的 ZIP；未簽章，安裝前需由使用者以自己的 Apple ID 重新簽章
+      - name: 打包（IPA，未簽章）
+        run: |
+          app="$(find build/ios-release -type d -name Taiphoon_QGCS.app -path '*Release-iphoneos*' | head -n 1)"
+          test -n "$app"
+          version="$(tr -d '[:space:]' < VERSION)"
+          mkdir -p ipa/Payload
+          cp -R "$app" ipa/Payload/
+          (cd ipa && zip -qry "../Taiphoon_QGCS-v${version}-iOS-unsigned.ipa" Payload)
+          ls -lh Taiphoon_QGCS-*.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qgcs-ios
+          path: Taiphoon_QGCS-*.ipa
+          if-no-files-found: error
 
   release:
     if: ${{ inputs.create_draft_release && startsWith(github.ref, 'refs/tags/v') }}
-    needs: [windows, macos, linux]
+    needs: [windows, macos, linux, ios]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
