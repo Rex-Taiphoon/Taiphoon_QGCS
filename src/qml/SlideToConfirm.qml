@@ -15,10 +15,13 @@ Item {
     property color accentColor: Theme.danger
     /// 滑動進度 0～1
     property real progress: 0
-    /// 已確認（觸發後保持，直到停用或重設）
+    /// 已確認（觸發後保持，直到停用、重設或自動重設逾時）
     property bool isConfirmed: false
     /// 鍵盤第一次確認後等待第二次
     property bool isKeyboardArmed: false
+    /// 觸發後仍可用時自動重設的等待時間（毫秒）。命令被飛控拒絕或遺失時，
+    /// enabled 不會改變，若不自動重設，滑桿會停在已確認而無法重試
+    property int autoResetIntervalMs: 3000
 
     /// 滑到底時觸發
     signal confirmed()
@@ -28,6 +31,7 @@ Item {
     readonly property int knobWidth: 50
 
     function reset() {
+        autoResetTimer.stop()
         progress = 0
         isConfirmed = false
         isKeyboardArmed = false
@@ -37,6 +41,8 @@ Item {
         progress = 1
         isConfirmed = true
         isKeyboardArmed = false
+        // 先啟動計時再發出訊號：接收端若因命令成功而停用本元件，reset() 會一併停止計時
+        autoResetTimer.restart()
         confirmed()
     }
 
@@ -65,6 +71,14 @@ Item {
             event.accepted = true
             reset()
         }
+    }
+
+    // 自動重設前仍維持已確認：滑鼠與鍵盤輸入皆被忽略，不會重複觸發
+    Timer {
+        id: autoResetTimer
+
+        interval: root.autoResetIntervalMs
+        onTriggered: root.reset()
     }
 
     Rectangle {

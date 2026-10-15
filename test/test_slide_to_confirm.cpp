@@ -6,6 +6,9 @@
  *
  * 飛行控制面板是 Flickable；拖曳帶有垂直分量時，Flickable 會搶走滑桿的拖曳而使其彈回。
  * 以真實的 QQuickWindow 事件傳遞重現此情境。
+ *
+ * 另驗證觸發後的自動重設：命令被飛控拒絕時 enabled 不變，滑桿須逾時後回到可重試狀態，
+ * 且重設前不得重複觸發。
  */
 #include <QDir>
 #include <QFile>
@@ -26,6 +29,12 @@ namespace
 constexpr int DRAG_STEPS = 30;
 /// 斜向拖曳的總垂直偏移（像素），超過 Flickable 的拖曳門檻
 constexpr int VERTICAL_DRIFT_PX = 40;
+/// 元件預設的自動重設時間（毫秒），須與 SlideToConfirm.qml 一致
+constexpr int DEFAULT_AUTO_RESET_MS = 3000;
+/// 測試用的短自動重設時間（毫秒），縮短測試時間
+constexpr int SHORT_AUTO_RESET_MS = 200;
+/// 等待自動重設的上限（毫秒）
+constexpr int AUTO_RESET_WAIT_MS = 2000;
 
 /**
  * @brief 把元件與最小 qmldir 複製到暫存目錄，讓測試不依賴主程式的 QML 模組
@@ -112,6 +121,18 @@ protected:
                             QPointF(end.x(), knob.y() + vertical_drift).toPoint());
     }
 
+    /**
+     * @brief 讓滑桿取得焦點後按一次 Enter
+     */
+    void press_enter()
+    {
+        slider_->forceActiveFocus();
+        QTest::keyClick(&view_, Qt::Key_Return);
+    }
+
+    /// @return 滑桿是否處於已確認
+    bool is_confirmed() const { return slider_->property("isConfirmed").toBool(); }
+
     QTemporaryDir dir_;
     QQuickView view_;
     QQuickItem* slider_ = nullptr;
@@ -153,6 +174,77 @@ TEST_F(SlideToConfirmTest, PressingTrackEndDoesNotJumpToConfirm)
     QTest::mouseMove(&view_, (end + QPointF(2, 0)).toPoint());
     QTest::mouseRelease(&view_, Qt::LeftButton, Qt::NoModifier, (end + QPointF(2, 0)).toPoint());
     EXPECT_TRUE(confirmed.isEmpty());
+}
+
+TEST_F(SlideToConfirmTest, DefaultAutoResetIntervalIsThreeSeconds)
+{
+    EXPECT_EQ(slider_->property("autoResetIntervalMs").toInt(), DEFAULT_AUTO_RESET_MS);
+}
+
+TEST_F(SlideToConfirmTest, AutoResetsAfterConfirmWhileStillEnabled)
+{
+    // ARM 被 PX4 拒絕時 canArm 仍為 true（enabled 不變），滑桿必須自行回到可重試狀態
+    slider_->setProperty("autoResetIntervalMs", SHORT_AUTO_RESET_MS);
+    QSignalSpy confirmed(slider_, SIGNAL(confirmed()));
+    drag_to_end(0);
+    ASSERT_EQ(confirmed.size(), 1);
+    ASSERT_TRUE(is_confirmed());
+    ASSERT_TRUE(slider_->isEnabled());
+
+    EXPECT_TRUE(QTest::qWaitFor([this] { return !is_confirmed(); }, AUTO_RESET_WAIT_MS));
+    EXPECT_NEAR(slider_->property("progress").toDouble(), 0.0, 1e-9);
+    EXPECT_FALSE(slider_->property("isKeyboardArmed").toBool());
+
+    // 重設後可再次拖曳確認
+    drag_to_end(0);
+    EXPECT_EQ(confirmed.size(), 2);
+}
+
+TEST_F(SlideToConfirmTest, AutoResetStillRequiresTwoEnters)
+{
+    // 自動重設不降低 L2 防呆：重設後單按一次 Enter 不得觸發
+    slider_->setProperty("autoResetIntervalMs", SHORT_AUTO_RESET_MS);
+    QSignalSpy confirmed(slider_, SIGNAL(confirmed()));
+    press_enter();
+    press_enter();
+    ASSERT_EQ(confirmed.size(), 1);
+    ASSERT_TRUE(QTest::qWaitFor([this] { return !is_confirmed(); }, AUTO_RESET_WAIT_MS));
+
+    press_enter();
+    EXPECT_EQ(confirmed.size(), 1);
+    EXPECT_TRUE(slider_->property("isKeyboardArmed").toBool());
+    press_enter();
+    EXPECT_EQ(confirmed.size(), 2);
+}
+
+TEST_F(SlideToConfirmTest, DoesNotConfirmAgainBeforeAutoReset)
+{
+    // 預設 3 秒內維持已確認：再次拖曳或連按兩次 Enter 都不得重複觸發
+    QSignalSpy confirmed(slider_, SIGNAL(confirmed()));
+    drag_to_end(0);
+    ASSERT_EQ(confirmed.size(), 1);
+
+    drag_to_end(0);
+    press_enter();
+    press_enter();
+    EXPECT_EQ(confirmed.size(), 1);
+    EXPECT_TRUE(is_confirmed());
+}
+
+TEST_F(SlideToConfirmTest, DisablingResetsAndCancelsAutoReset)
+{
+    // 命令成功使 enabled 變為 false 時立即重設；重新啟用後須重新拖曳才會觸發
+    slider_->setProperty("autoResetIntervalMs", SHORT_AUTO_RESET_MS);
+    QSignalSpy confirmed(slider_, SIGNAL(confirmed()));
+    drag_to_end(0);
+    ASSERT_EQ(confirmed.size(), 1);
+
+    slider_->setEnabled(false);
+    EXPECT_FALSE(is_confirmed());
+    slider_->setEnabled(true);
+    QTest::qWait(SHORT_AUTO_RESET_MS * 2);
+    EXPECT_EQ(confirmed.size(), 1);
+    EXPECT_FALSE(is_confirmed());
 }
 
 /**
