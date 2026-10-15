@@ -17,7 +17,10 @@ Taiphoon_QGCS 以 MIT 授權發布，並包含下列第三方元件。各元件�
 本程式以動態連結方式使用 Qt。依 LGPL-3.0，使用者可以相容版本的 Qt 函式庫替換安裝目錄中的
 Qt 動態函式庫。Qt 原始碼可自 https://download.qt.io/ 取得。
 
+iOS／iPadOS 版因平台限制，Qt 與 Cyclone DDS 皆以靜態方式連結。本程式完整原始碼與建置腳本公開於
+https://github.com/Rex-Taiphoon/Taiphoon_QGCS ，使用者可以修改後的 Qt 重新建置並安裝。
+
 ## 發布前待確認事項
 
-- 正式發布前需由法務確認 Qt 授權模式（LGPL 或商業授權）。
+- 正式發布前需由法務確認 Qt 授權模式（LGPL 或商業授權），iOS／iPadOS 靜態連結的情況尤其需要確認。
 - 目前使用 OSM 官方圖磚（ADR-0016）；需遵守 OSM 圖磚使用政策，用量增加時再評估圖磚來源。

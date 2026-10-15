@@ -1,7 +1,7 @@
 # Taiphoon_QGCS 開發規劃：需求、架構與路線
 
 **日期**：2026-10-12
-**狀態**：已確認方向（決策見 ADR-0013～0016）
+**狀態**：已確認方向（決策見 ADR-0013～0017）
 **來源**：由 Taiphoon_GCS（網頁版，提交 `1350831`）衍生；網頁版原始碼保留於 `../Taiphoon_GCS` 作為功能對照
 
 ---
@@ -11,11 +11,13 @@
 在**維持網頁版所有功能與 Agent 介面**的前提下，提供可直接安裝、執行的原生地面控制站：
 
 - 使用者不需安裝 Docker、ROS2、Python 或任何執行環境。
-- Windows（NSIS 安裝程式）與 macOS（DMG、Universal Binary）皆支援；Linux 先作為開發與 CI 驗證平台。
+- Windows（NSIS 安裝程式）與 macOS（DMG、Universal Binary）皆支援；Linux 提供 TGZ。
+- iOS／iPadOS 以交叉編譯提供未簽章測試版（ADR-0017）。
 - **Agent 端不做任何修改**，網路層維持與 ROS2 Humble + `rmw_cyclonedds_cpp` 相容。
 - 保留安全機制：GuardModule 轉移表、Arm／Takeoff 的 PX4 原生狀態規則、防呆層級 L1／L2。
 
-**非目標（第一版）**：行動版、影片串流、離線 `.mbtiles` 地圖、變更 Agent 介面契約。
+**非目標（第一版）**：行動版介面與正式上架（iOS／iPadOS 只提供未簽章測試版）、影片串流、
+離線 `.mbtiles` 地圖、變更 Agent 介面契約。
 
 ## 2. 已確認決策
 
@@ -28,6 +30,7 @@
 | D5 | 地圖第一版用 Qt Location `osm` plugin，MapLibre 延後 | 0016 |
 | D6 | 安全邏輯（轉移表、PX4 原生狀態規則）內容不變，只改介面與測試驅動方式 | 0003、0015 |
 | D7 | 暫不設定 Git 遠端 | — |
+| D8 | iOS／iPadOS 以交叉編譯產生同一個未簽章 App；主機版 idlc 另行建置，ddsc 靜態連結 | 0017 |
 
 ## 3. 需求
 
@@ -340,7 +343,9 @@ M1 是決定方案是否可行的關卡；M2 不需要網路，可與 M1 同時�
 - **macOS**：Universal Binary 需以 `CMAKE_OSX_ARCHITECTURES="x86_64;arm64"` 建置所有相依；
   需 Apple Developer 帳號簽章與公證；`Info.plist` 需 `NSLocalNetworkUsageDescription`，
   使用 multicast 時另需 `com.apple.developer.networking.multicast` entitlement。
-- **Linux**：第一版用於開發與 CI，發布格式待定。
+- **Linux**：以 TGZ 發布（Ubuntu 24.04 建置，附 Qt 函式庫）；執行需系統的 xcb 相依（例如 `libxcb-cursor0`）。
+- **iOS／iPadOS**：以 `ios-release` preset 在 macOS 交叉編譯（Xcode generator）；需先以
+  `tools/build-host-idlc.sh` 建置主機版 idlc。未簽章、只能單播連線、App 在背景時 DDS 中斷（ADR-0017）。
 - **互通測試環境**：Windows 上的 Agent SITL 在 Docker Desktop NAT 之後，原生 GCS 無法以 multicast 發現；
   需使用區網 Linux 主機／VM 或 host networking。
 
@@ -372,7 +377,8 @@ ctest --test-dir build --output-on-failure
 - [ ] 實際執行 CI（目前僅能手動觸發，預設只建置 Windows）。
 - [ ] Wi-Fi 位址切換時自動重建 DDS 的實機驗證。
 - [ ] Apple Developer 帳號與 Windows 程式碼簽章憑證。
-- [ ] Linux 發布格式。
+- [x] Linux 發布格式：TGZ（2026-10-15 決定）。
+- [ ] iOS／iPadOS 正式版：App 圖示、Apple 簽章、multicast entitlement 申請與實機驗證（ADR-0017）。
 - [x] Git 遠端：https://github.com/Rex-Taiphoon/Taiphoon_QGCS.git（push 前須取得使用者同意）。
 - [x] 版本號起點：v1.0.0。
 - [x] 版本號規則：`VERSION` 採 `X.Y.Z`，每次發布或交給其他電腦安裝前遞增；安裝程式登錄機碼固定為不含版本的 `Taiphoon_QGCS`（2026-10-15 決定）。

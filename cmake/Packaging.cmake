@@ -1,6 +1,6 @@
 # =============================================================================
 # @file Packaging.cmake
-# @brief 安裝規則與 CPack：Windows NSIS／ZIP、macOS DMG、Linux TGZ（ADR-0013）
+# @brief 安裝規則與 CPack：Windows NSIS／ZIP、macOS DMG、Linux TGZ（ADR-0013）；iOS 授權聲明（ADR-0017）
 # @author Taiphoon GCS Team
 # @date 2026-10-12
 #

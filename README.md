@@ -12,8 +12,15 @@
 | 平台 | 格式 | 狀態 |
 |------|------|------|
 | Windows 10／11 x64 | 可攜式 ZIP；NSIS 安裝程式 | ZIP 可用；安裝程式需建置環境安裝 NSIS |
-| macOS | DMG（Universal Binary） | 設定完成，待 Mac 建置與簽章 |
-| Linux | TGZ | 開發與 CI 驗證用 |
+| macOS 12 以上（Apple Silicon／Intel） | DMG（Universal Binary） | CI 建置；僅 ad-hoc 簽章，待 Developer ID 簽章與公證 |
+| Linux（Ubuntu 24.04 x86_64） | TGZ | CI 建置；需系統 xcb 相依 |
+| iOS／iPadOS | IPA（未簽章） | CI 交叉編譯的測試版；需自行簽章、只能單播連線（[ADR-0017](docs/adr/0017-ios-ipados-cross-build.md)） |
+
+macOS 版下載後會被 Gatekeeper 阻擋：開啟一次後，到「系統設定 → 隱私權與安全性」按「強制打開」。
+Linux 版解壓縮後執行 `bin/Taiphoon_QGCS`；缺少系統相依時先安裝
+`sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libegl1`。
+iOS／iPadOS 版需以 Sideloadly 等工具用自己的 Apple ID 重新簽章後安裝（免費帳號 7 天後失效）；
+網路設定須關閉 multicast 並填入 Agent 位址，App 切到背景時會中斷連線。
 
 ## 使用方式
 
@@ -106,6 +113,14 @@ ctest --preset windows-debug
 詢問後先執行舊版的移除程式再安裝；使用者設定位於 `HKCU\Software\Taiphoon\Taiphoon_QGCS`，不受影響。安裝時會重建防火牆規則
 `Taiphoon_QGCS DDS`，覆蓋安裝也不會產生重複規則。
 
+其他平台（在該平台上執行，或交給 GitHub Actions 的 `QGCS Build` workflow 手動觸發）：
+
+- macOS：`cmake --preset macos-release`、`cmake --build --preset macos-release`，於建置目錄執行 `cpack` 產生 DMG。
+- Linux：`cmake --preset linux-release`、`cmake --build --preset linux-release`，於建置目錄執行 `cpack` 產生 TGZ。
+- iOS／iPadOS（macOS 上交叉編譯，需 Xcode 與 iOS 版 Qt，並設定 `QT_ROOT_DIR`、`QT_HOST_PATH`）：
+  先執行 `tools/build-host-idlc.sh <目錄>` 並把 `<目錄>/bin` 加入 PATH，
+  再執行 `cmake --preset ios-release`、`cmake --build --preset ios-release`。
+
 開發用工具（不隨產品發布）：`tools/dds_probe`（DDS 互通驗證）、`tools/gcs_headless`（無介面整合驗證）。
 
 ### 連線本機 Docker Desktop 內的 Agent
@@ -125,7 +140,7 @@ GCS 以命令列參數啟動（只在本次有效，不寫入設定檔）：
 
 - [開發規劃：需求、架構與路線](docs/qt-cross-platform-development.md)
 - [領域詞彙表](CONTEXT.md)
-- [架構決策記錄](docs/adr/)（Qt 版主要決策：ADR-0013～0016）
+- [架構決策記錄](docs/adr/)（Qt 版主要決策：ADR-0013～0017）
 - [開發規範 (AGENTS.md)](AGENTS.md)
 - [程式碼規範 (CODE_CONSTRAINT.md)](CODE_CONSTRAINT.md)
 

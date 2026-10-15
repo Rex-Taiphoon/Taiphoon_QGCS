@@ -111,10 +111,24 @@ jobs:
       - name: Build
         run: cmake --build --preset macos-release
 
+      # 暫時診斷：macOS 上建立 DDS participant 卡住，取得卡住時的呼叫堆疊
+      - name: 診斷 DDS participant（暫時）
+        continue-on-error: true
+        run: |
+          build/macos-release/bin/test_dds_config --gtest_filter=DdsConfig.CycloneDdsAcceptsGeneratedXml &
+          pid=$!
+          sleep 20
+          if kill -0 "$pid" 2>/dev/null; then
+            sample "$pid" 3 -file sample.txt
+            grep -v "^ *[0-9]* *\?\?\?" sample.txt | head -200
+            kill -9 "$pid"
+            exit 1
+          fi
+
       - name: Unit tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir build/macos-release --output-on-failure
+        run: ctest --test-dir build/macos-release --output-on-failure --timeout 120
 
       # Developer ID 簽章與公證待取得 Apple Developer 帳號後加入（packaging/macos/entitlements.plist 已備妥）；
       # 目前只有 ad-hoc 簽章，其他 Mac 下載後會被 Gatekeeper 阻擋，只供測試。
@@ -173,12 +187,14 @@ jobs:
 
       # 解壓縮打包結果後執行，確認 Qt 函式庫、外掛與 QML 模組都已隨附；
       # 清除 install-qt-action 設定的路徑，避免從 Qt 安裝目錄載入而掩蓋缺漏。
+      # 部署只附 xcb 平台外掛（使用者實際使用的外掛），以虛擬 X server 執行。
       - name: 驗證部署結果（載入主視窗）
         run: |
+          sudo apt-get install -y xvfb
           mkdir stage
           tar -xzf build/linux-release/Taiphoon_QGCS-*.tar.gz -C stage --strip-components=1
-          env -u LD_LIBRARY_PATH -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH QT_QPA_PLATFORM=offscreen \
-            stage/bin/Taiphoon_QGCS --smoke-test
+          env -u LD_LIBRARY_PATH -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH \
+            xvfb-run -a stage/bin/Taiphoon_QGCS --smoke-test
 
       - uses: actions/upload-artifact@v4
         with:

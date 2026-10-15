@@ -47,6 +47,11 @@ set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_NO_WARNINGS TRUE)
 
 FetchContent_MakeAvailable(cyclonedds)
 
+# idlc_generate 原本隨 idlc 子目錄載入；交叉編譯不編 idlc 時需自行載入
+if(CMAKE_CROSSCOMPILING)
+    include("${cyclonedds_SOURCE_DIR}/cmake/Modules/Generate.cmake")
+endif()
+
 # -----------------------------------------------------------------------------
 # GoogleTest
 # -----------------------------------------------------------------------------

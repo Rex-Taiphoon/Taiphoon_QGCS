@@ -169,7 +169,8 @@ cmake --build --preset windows-debug
 ctest --preset windows-debug
 ```
 
-其他 preset：`windows-release`、`macos-debug`、`macos-release`、`linux-debug`（需先設定 `QT_ROOT_DIR`）。
+其他 preset：`windows-release`、`macos-debug`、`macos-release`、`linux-debug`、`linux-release`（需先設定 `QT_ROOT_DIR`）；
+`ios-release` 為 macOS 上的交叉編譯，需先建置主機版 idlc（見 README 與 ADR-0017）。
 
 打包（Release）：
 
