@@ -55,12 +55,17 @@ install(TARGETS Taiphoon_QGCS
 
 if(WIN32)
     install(FILES $<TARGET_FILE:ddsc> DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT ${GCS_INSTALL_COMPONENT})
-elseif(NOT APPLE)
+elseif(APPLE)
+    # 安裝後執行檔的 rpath 只剩 bundle 內的 Frameworks，macdeployqt 找不到建置目錄的 libddsc，
+    # 需先以 install name（libddsc.<SOVERSION>.dylib）放入 Frameworks，否則程式啟動即被 dyld 中止。
+    get_target_property(GCS_DDSC_SOVERSION ddsc SOVERSION)
+    install(FILES $<TARGET_FILE:ddsc> DESTINATION Taiphoon_QGCS.app/Contents/Frameworks
+        RENAME libddsc.${GCS_DDSC_SOVERSION}.dylib COMPONENT ${GCS_INSTALL_COMPONENT})
+else()
     install(FILES $<TARGET_FILE:ddsc> $<TARGET_SONAME_FILE:ddsc>
         DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ${GCS_INSTALL_COMPONENT})
     set_target_properties(Taiphoon_QGCS PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
 endif()
-# macOS：macdeployqt 會把 ddsc.dylib 等非系統相依複製進 bundle 的 Frameworks
 
 set(GCS_DEPLOY_ARGS
     TARGET Taiphoon_QGCS
