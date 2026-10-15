@@ -1,11 +1,12 @@
 /**
  * @file MapView.qml
- * @brief 全幅地圖：OSM 點陣圖磚、依航向旋轉的箭頭與名稱、EGO-Swarm 軌跡、自動跟隨（ADR-0016）
+ * @brief 全幅地圖：去飽和 OSM 底圖、透明疊圖層上的航向箭頭與名稱、EGO-Swarm 軌跡、自動跟隨（ADR-0016）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Shapes
 import QtLocation
 import QtPositioning
@@ -21,6 +22,54 @@ Item {
     readonly property real defaultZoom: 16
     /// 上次自動置中的目標與位置；使用者拖曳後清除，直到位置改變才再次置中（網頁版行為）
     property string lastAutoCenterKey: ""
+    /// 已建立的機體標記（委派自行註冊），供名稱標籤避讓計算
+    property var markers: []
+
+    function registerMarker(marker) {
+        markers.push(marker)
+        root.scheduleDeclutter()
+    }
+
+    function unregisterMarker(marker) {
+        const index = markers.indexOf(marker)
+        if (index >= 0) {
+            markers.splice(index, 1)
+        }
+        root.scheduleDeclutter()
+    }
+
+    /**
+     * @brief 排程標籤避讓計算；計時中不重設，避免高頻遙測更新使計算永遠延後
+     */
+    function scheduleDeclutter() {
+        if (!declutterTimer.running) {
+            declutterTimer.start()
+        }
+    }
+
+    /**
+     * @brief 名稱標籤避讓：選取機體優先、其餘依名稱排序，與已顯示標籤重疊者隱藏（箭頭與提示仍保留）
+     */
+    function declutterLabels() {
+        const placed = []
+        const ordered = markers.filter(m => m.visible)
+                               .sort((a, b) => (b.isSelected - a.isSelected) || a.agent.localeCompare(b.agent))
+        for (const marker of ordered) {
+            const point = overlay.fromCoordinate(marker.coordinate, false)
+            const rect = {
+                x: point.x - marker.labelWidth / 2,
+                y: point.y + marker.labelOffset,
+                w: marker.labelWidth,
+                h: marker.labelHeight
+            }
+            const isOverlapping = placed.some(r => rect.x < r.x + r.w && r.x < rect.x + rect.w
+                                                   && rect.y < r.y + r.h && r.y < rect.y + rect.h)
+            marker.isLabelHidden = isOverlapping && !marker.isSelected
+            if (!marker.isLabelHidden) {
+                placed.push(rect)
+            }
+        }
+    }
 
     function followSelected() {
         if (!settings.autoFollow || !bridge.isSingleSelected) {
@@ -43,8 +92,22 @@ Item {
 
     Connections {
         target: root.bridge
-        function onTelemetryChanged() { root.followSelected() }
-        function onSelectionChanged() { root.followSelected() }
+        function onTelemetryChanged() {
+            root.followSelected()
+            root.scheduleDeclutter()
+        }
+        function onSelectionChanged() {
+            root.followSelected()
+            root.scheduleDeclutter()
+        }
+    }
+
+    // 視角或位置改變後最多每 150 ms 計算一次，避免拖曳與遙測更新時頻繁重算
+    Timer {
+        id: declutterTimer
+
+        interval: 150
+        onTriggered: root.declutterLabels()
     }
 
     Plugin {
@@ -59,6 +122,7 @@ Item {
         PluginParameter { name: "osm.mapping.highdpi_tiles"; value: false }
     }
 
+    // 底圖：只有圖磚，去飽和並調暗，讓無人機與航跡成為畫面焦點
     Map {
         id: map
 
@@ -70,6 +134,12 @@ Item {
         zoomLevel: root.defaultZoom
         copyrightsVisible: false
         color: Theme.background
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            saturation: -1.0
+            brightness: -0.7
+            contrast: 0.35
+        }
 
         Component.onCompleted: {
             // 「Custom URL Map」為自訂圖磚來源，位於清單最後
@@ -79,6 +149,35 @@ Item {
                 }
             }
         }
+    }
+
+    // 疊圖層：透明的 itemsoverlay 地圖，與底圖同步視角，承載標記、航跡與手勢；不受底圖調色影響
+    Map {
+        id: overlay
+
+        property var startCentroid
+
+        anchors.fill: parent
+        plugin: Plugin { name: "itemsoverlay" }
+        color: "transparent"
+        copyrightsVisible: false
+        center: map.center
+        zoomLevel: map.zoomLevel
+        bearing: map.bearing
+        tilt: map.tilt
+        fieldOfView: map.fieldOfView
+        minimumZoomLevel: map.minimumZoomLevel
+        maximumZoomLevel: map.maximumZoomLevel
+        minimumTilt: map.minimumTilt
+        maximumTilt: map.maximumTilt
+        minimumFieldOfView: map.minimumFieldOfView
+        maximumFieldOfView: map.maximumFieldOfView
+
+        onCenterChanged: root.scheduleDeclutter()
+        onZoomLevelChanged: root.scheduleDeclutter()
+        onBearingChanged: root.scheduleDeclutter()
+        onWidthChanged: root.scheduleDeclutter()
+        onHeightChanged: root.scheduleDeclutter()
 
         // 軌跡在標記下方
         MapItemView {
@@ -86,9 +185,8 @@ Item {
             delegate: MapPolyline {
                 required property var modelData
 
-                line.width: 3
-                line.color: modelData.isSelected ? Theme.markerSelected : Theme.trajectoryOther
-                opacity: 0.9
+                line.width: modelData.isSelected ? 2.5 : 1.5
+                line.color: modelData.isSelected ? Theme.trajectorySelected : Theme.trajectoryOther
                 path: modelData.path.map(p => QtPositioning.coordinate(p.latitude, p.longitude))
             }
         }
@@ -108,7 +206,13 @@ Item {
                 required property string modeLabel
 
                 readonly property color markerColor: isSelected ? Theme.markerSelected : Theme.markerNormal
-                readonly property int arrowSize: isSelected ? 38 : 32
+                readonly property int arrowSize: isSelected ? 30 : 26
+                /// 標籤避讓結果（由 MapView.declutterLabels 設定）
+                property bool isLabelHidden: false
+                readonly property real labelWidth: nameLabel.width
+                readonly property real labelHeight: nameLabel.height
+                /// 標籤上緣相對座標點的位移（anchorPoint 位於箭頭中心）
+                readonly property real labelOffset: arrowSize / 2 + 10
 
                 visible: hasPosition
                 // 選中的標記畫在最上層，避免與鄰近無人機重疊時被遮住
@@ -118,9 +222,25 @@ Item {
                 anchorPoint.y: arrowSize / 2
                 zoomLevel: 0
 
+                Component.onCompleted: root.registerMarker(marker)
+                Component.onDestruction: root.unregisterMarker(marker)
+
                 sourceItem: Item {
-                    width: Math.max(marker.arrowSize, nameLabel.width)
-                    height: marker.arrowSize + 7 + nameLabel.height
+                    width: Math.max(marker.arrowSize + 16, nameLabel.width)
+                    height: marker.arrowSize + 10 + nameLabel.height
+
+                    // 選取機體外圈
+                    Rectangle {
+                        visible: marker.isSelected
+                        x: (parent.width - width) / 2
+                        y: (marker.arrowSize - height) / 2
+                        width: marker.arrowSize + 16
+                        height: width
+                        radius: width / 2
+                        color: "transparent"
+                        border.color: Theme.markerSelected
+                        border.width: 1.5
+                    }
 
                     Shape {
                         id: arrow
@@ -134,8 +254,8 @@ Item {
 
                         ShapePath {
                             fillColor: marker.markerColor
-                            strokeColor: Qt.rgba(0, 0, 0, 0.6)
-                            strokeWidth: 1
+                            strokeColor: Theme.background
+                            strokeWidth: 1.5
                             startX: 0
                             startY: 0
                             PathLine { x: arrow.width; y: arrow.height / 2 }
@@ -148,22 +268,23 @@ Item {
                     Rectangle {
                         id: nameLabel
 
+                        visible: !marker.isLabelHidden
                         anchors.horizontalCenter: parent.horizontalCenter
-                        y: marker.arrowSize + 7
+                        y: marker.arrowSize + 10
                         width: nameText.implicitWidth + 10
                         height: nameText.implicitHeight + 4
-                        radius: 4
-                        color: Qt.rgba(7 / 255, 14 / 255, 22 / 255, 0.86)
-                        border.color: marker.markerColor
+                        radius: Theme.radius
+                        color: Theme.panel
+                        border.color: marker.isSelected ? Theme.markerSelected : Theme.border
 
                         Text {
                             id: nameText
 
                             anchors.centerIn: parent
-                            text: marker.agent
-                            color: Theme.textStrong
+                            text: marker.agent.replace(/_agent$/, "")
+                            color: marker.isSelected ? Theme.markerSelected : Theme.textStrong
+                            font.family: Theme.fontMono
                             font.pixelSize: 12
-                            font.bold: true
                         }
                     }
 
@@ -203,6 +324,8 @@ Item {
             acceptedDevices: Qt.platform.pluginName === "cocoa" || Qt.platform.pluginName === "wayland"
                              ? PointerDevice.Mouse | PointerDevice.TouchPad
                              : PointerDevice.Mouse
+            // 縮放寫入底圖，疊圖層透過繫結跟隨
+            target: map
             rotationScale: 1 / 120
             property: "zoomLevel"
         }
@@ -247,7 +370,7 @@ Item {
         anchors.bottom: parent.bottom
         width: attribution.implicitWidth + 12
         height: attribution.implicitHeight + 6
-        color: Qt.rgba(1, 1, 1, 0.75)
+        color: Theme.panel
 
         Text {
             id: attribution
@@ -256,17 +379,18 @@ Item {
             text: "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap contributors</a>"
             textFormat: Text.RichText
             font.pixelSize: 11
-            color: "#333333"
+            color: Theme.textMuted
+            linkColor: Theme.textBody
             onLinkActivated: (link) => Qt.openUrlExternally(link)
         }
     }
 
     component MapButton: ActionButton {
         textAlignment: Text.AlignHCenter
-        implicitWidth: 40
-        implicitHeight: 40
+        implicitWidth: 36
+        implicitHeight: 36
         padding: 0
         font.pixelSize: 20
-        accentColor: Theme.textBody
+        accentColor: Theme.commandNormal
     }
 }

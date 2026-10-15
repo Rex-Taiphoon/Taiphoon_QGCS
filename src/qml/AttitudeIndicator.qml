@@ -1,6 +1,6 @@
 /**
  * @file AttitudeIndicator.qml
- * @brief 圓形姿態儀：天空／地面隨 roll、pitch 轉動，頂端黃色三角指示 roll（網頁版 AttitudeIndicator）
+ * @brief 圓形姿態儀：天空／地面隨 roll、pitch 轉動，頂端琥珀色三角指示 roll（網頁版 AttitudeIndicator）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
@@ -38,7 +38,7 @@ Item {
 
             ctx.beginPath()
             ctx.arc(half, half, radius, 0, Math.PI * 2)
-            ctx.fillStyle = "#111111"
+            ctx.fillStyle = Theme.background
             ctx.fill()
 
             ctx.save()
@@ -48,9 +48,9 @@ Item {
             ctx.translate(half, half)
             ctx.rotate(-root.roll * Math.PI / 180)
             ctx.translate(-half, -half)
-            ctx.fillStyle = "#1a3a6a"
+            ctx.fillStyle = Theme.sky
             ctx.fillRect(-size, -size, size * 3, horizonY + size)
-            ctx.fillStyle = "#4a2a1a"
+            ctx.fillStyle = Theme.ground
             ctx.fillRect(-size, horizonY, size * 3, size * 2)
             ctx.strokeStyle = "rgba(255, 255, 255, 0.6)"
             ctx.lineWidth = 1
@@ -60,7 +60,7 @@ Item {
             ctx.stroke()
             ctx.restore()
 
-            ctx.strokeStyle = "#444444"
+            ctx.strokeStyle = Theme.border
             ctx.lineWidth = 1.5
             ctx.beginPath()
             ctx.arc(half, half, radius, 0, Math.PI * 2)
@@ -75,7 +75,7 @@ Item {
             ctx.lineTo(half, size - 4)
             ctx.stroke()
 
-            ctx.fillStyle = "#00ff00"
+            ctx.fillStyle = Theme.caution
             ctx.beginPath()
             ctx.arc(half, half, 2, 0, Math.PI * 2)
             ctx.fill()
@@ -84,7 +84,7 @@ Item {
             ctx.translate(half, half)
             ctx.rotate(root.roll * Math.PI / 180)
             ctx.translate(-half, -half)
-            ctx.fillStyle = "#ffff00"
+            ctx.fillStyle = Theme.caution
             ctx.beginPath()
             ctx.moveTo(half, 2)
             ctx.lineTo(half - 4, 8)

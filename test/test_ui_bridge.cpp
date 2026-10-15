@@ -227,6 +227,23 @@ TEST_F(UiBridgeTest, FleetModelExposesDisplayRoles)
     EXPECT_TRUE(model->data(index, FleetModel::HasPositionRole).toBool());
     EXPECT_EQ(bridge_->selected_summary().value(QStringLiteral("px4Label")).toString(),
               QStringLiteral("已解鎖 · 飛行中"));
+    EXPECT_TRUE(bridge_->selected_summary().value(QStringLiteral("isArmed")).toBool());
+}
+
+TEST_F(UiBridgeTest, SummaryArmStateRequiresValidPx4State)
+{
+    AgentStateData state = make_state(FlightState::IDLE);
+    state.is_armed = true;
+    state.is_px4_state_valid = false;
+    bring_online(AGENT_1, state);
+    bridge_->selectAgent(AGENT_1);
+    EXPECT_FALSE(bridge_->selected_summary().value(QStringLiteral("isArmed")).toBool());
+
+    state.is_px4_state_valid = true;
+    state.is_armed = false;
+    bring_online(AGENT_1, state);
+    bridge_->refresh_now();
+    EXPECT_FALSE(bridge_->selected_summary().value(QStringLiteral("isArmed")).toBool());
 }
 
 TEST_F(UiBridgeTest, TrajectoriesForValidPathsOnly)

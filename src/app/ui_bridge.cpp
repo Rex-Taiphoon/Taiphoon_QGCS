@@ -309,6 +309,8 @@ void UiBridge::rebuild_summary()
                        ui::format_number(static_cast<double>(state.battery_remaining) * PERCENT, 0));
         summary.insert(QStringLiteral("px4Label"), ui::px4_status_label(state));
         summary.insert(QStringLiteral("isPx4Valid"), state.is_px4_state_valid);
+        // 供飛行控制面板常駐顯示解鎖狀態；僅在 isPx4Valid 為 true 時可信
+        summary.insert(QStringLiteral("isArmed"), state.is_px4_state_valid && state.is_armed);
         summary.insert(QStringLiteral("nedText"), QStringLiteral("(%1, %2, %3)")
                                                       .arg(ui::format_number(state.position_ned[0], 1),
                                                            ui::format_number(state.position_ned[1], 1),

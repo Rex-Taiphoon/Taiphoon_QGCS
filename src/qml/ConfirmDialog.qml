@@ -24,7 +24,7 @@ Popup {
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     width: Math.min(560, parent ? parent.width - 32 : 560)
-    padding: 26
+    padding: Theme.spaceXl
 
     Overlay.modal: Rectangle {
         color: Qt.rgba(2 / 255, 8 / 255, 14 / 255, 0.78)
@@ -32,8 +32,8 @@ Popup {
 
     background: Rectangle {
         color: Theme.panel
-        radius: 12
-        border.color: Theme.borderStrong
+        radius: Theme.radius
+        border.color: Theme.caution
     }
 
     contentItem: ColumnLayout {
@@ -41,7 +41,7 @@ Popup {
 
         Label {
             text: root.title
-            color: "#ffb3b3"
+            color: Theme.caution
             font.pixelSize: Theme.fontTitle
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
@@ -59,7 +59,8 @@ Popup {
         Rectangle {
             visible: root.statusInfo.length > 0
             color: Theme.inset
-            radius: 8
+            radius: Theme.radius
+            border.color: Theme.borderSoft
             Layout.fillWidth: true
             implicitHeight: statusText.implicitHeight + 24
 
@@ -69,7 +70,7 @@ Popup {
                 anchors.fill: parent
                 anchors.margins: 12
                 text: qsTr("目前狀態：") + root.statusInfo
-                color: "#bdcbd5"
+                color: Theme.textBody
                 font.pixelSize: Theme.fontBase
                 wrapMode: Text.WordWrap
             }
@@ -90,22 +91,22 @@ Popup {
                 id: confirmButton
 
                 text: qsTr("確認執行")
-                implicitHeight: 48
+                implicitHeight: Theme.controlHeight
                 font.pixelSize: Theme.fontBase
                 leftPadding: 18
                 rightPadding: 18
                 contentItem: Text {
                     text: confirmButton.text
                     font: confirmButton.font
-                    color: "white"
+                    color: Theme.caution
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
                 background: Rectangle {
-                    radius: 8
-                    color: confirmButton.down ? "#5a1515" : "#7a2020"
-                    border.width: confirmButton.visualFocus ? 3 : 1
-                    border.color: confirmButton.visualFocus ? Theme.accent : "#ff6b6b"
+                    radius: Theme.radius
+                    color: confirmButton.down ? Theme.controlActive : Theme.cautionInset
+                    border.width: confirmButton.visualFocus ? 2 : 1
+                    border.color: confirmButton.visualFocus ? Theme.accent : Theme.caution
                 }
                 onClicked: {
                     root.close()

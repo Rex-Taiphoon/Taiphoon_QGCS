@@ -16,6 +16,7 @@
 #include "link/cyclone_agent_link.hpp"
 
 #include <QCommandLineParser>
+#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QLoggingCategory>
@@ -67,6 +68,25 @@ bool parse_network_override(const QCommandLineParser& parser, gcs::link::DdsNetw
     return true;
 }
 
+/**
+ * @brief 註冊內嵌的 B612／B612 Mono 字型（OFL-1.1），供 QML 以字族名稱使用
+ *
+ * 字型不含中文字形，中文由系統字型自動備援；載入失敗時只記錄警告，介面改用系統字型。
+ */
+void register_fonts()
+{
+    static const char* const FONT_FILES[] = {"B612-Regular.ttf", "B612-Bold.ttf", "B612Mono-Regular.ttf",
+                                             "B612Mono-Bold.ttf"};
+    for (const char* file : FONT_FILES)
+    {
+        const QString path = QStringLiteral(":/qt/qml/TaiphoonQgcs/resources/fonts/") + QLatin1String(file);
+        if (QFontDatabase::addApplicationFont(path) < 0)
+        {
+            qCWarning(lc_app) << "字型載入失敗：" << path;
+        }
+    }
+}
+
 }  // namespace
 
 /**
@@ -106,6 +126,7 @@ int main(int argc, char* argv[])
 
     // 使用 Basic 樣式，避免各平台原生樣式造成外觀與控制項尺寸不一致
     QQuickStyle::setStyle(QStringLiteral("Basic"));
+    register_fonts();
 
     gcs::AppSettings settings;
     gcs::CoreRuntime runtime;

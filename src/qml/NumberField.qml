@@ -67,7 +67,7 @@ RowLayout {
 
     Label {
         text: root.label
-        color: Theme.textDim
+        color: Theme.textMuted
         font.pixelSize: Theme.fontBase
         Layout.minimumWidth: 88
     }
@@ -77,16 +77,17 @@ RowLayout {
 
         text: String(root.value)
         color: Theme.textBody
+        font.family: Theme.fontMono
         font.pixelSize: Theme.fontBase
         inputMethodHints: Qt.ImhFormattedNumbersOnly
         selectByMouse: true
         Layout.preferredWidth: 88
-        Layout.preferredHeight: 44
+        Layout.preferredHeight: Theme.controlHeight
         background: Rectangle {
             color: Theme.input
-            radius: 3
+            radius: Theme.radiusInput
             border.width: field.activeFocus ? 2 : 1
-            border.color: root.isDraftValid ? (field.activeFocus ? Theme.accent : "#555555") : Theme.danger
+            border.color: root.isDraftValid ? (field.activeFocus ? Theme.accent : Theme.borderStrong) : Theme.danger
         }
         ToolTip.visible: root.tooltip.length > 0 && hovered
         ToolTip.text: root.tooltip
@@ -96,7 +97,7 @@ RowLayout {
 
     Label {
         text: root.unit
-        color: "#666666"
+        color: Theme.textMuted
         font.pixelSize: Theme.fontBase
         Layout.preferredWidth: 28
     }

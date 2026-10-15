@@ -14,7 +14,7 @@ Column {
     required property var bridge
 
     width: 460
-    spacing: 10
+    spacing: Theme.spaceSm
 
     Repeater {
         model: root.bridge.toastModel
@@ -26,12 +26,12 @@ Column {
             required property string title
             required property string message
 
-            readonly property color accent: kind === "success" ? "#00ff00" : (kind === "error" ? "#ff4444" : "#ffaa00")
+            readonly property color accent: kind === "success" ? Theme.normal : (kind === "error" ? Theme.danger : Theme.caution)
 
             width: root.width
-            implicitHeight: toastRow.implicitHeight + 28
-            radius: 10
-            color: kind === "success" ? "#0a2a0a" : (kind === "error" ? "#2a0a0a" : "#2a2a0a")
+            implicitHeight: toastRow.implicitHeight + 2 * Theme.spaceMd
+            radius: Theme.radius
+            color: Theme.panel
             border.color: accent
             Accessible.role: Accessible.AlertMessage
             Accessible.name: title + "：" + message
@@ -40,15 +40,15 @@ Column {
                 id: toastRow
 
                 anchors.fill: parent
-                anchors.margins: 14
-                anchors.leftMargin: 16
-                spacing: 12
+                anchors.margins: Theme.spaceMd
+                anchors.leftMargin: Theme.spaceLg
+                spacing: Theme.spaceMd
 
-                Label {
-                    text: toast.kind === "success" ? "✓" : (toast.kind === "error" ? "✕" : "⚠")
+                Icon {
+                    name: toast.kind === "success" ? "check" : (toast.kind === "error" ? "close" : "alert")
                     color: toast.accent
-                    font.pixelSize: 22
-                    font.bold: true
+                    implicitWidth: 20
+                    implicitHeight: 20
                     Layout.alignment: Qt.AlignTop
                 }
                 ColumnLayout {
@@ -56,16 +56,16 @@ Column {
                     Layout.fillWidth: true
                     Label {
                         text: toast.title
-                        color: "#eeeeee"
-                        font.pixelSize: 20
+                        color: toast.accent
+                        font.pixelSize: Theme.fontBase
                         font.bold: true
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
                     Label {
                         text: toast.message
-                        color: "#aaaaaa"
-                        font.pixelSize: Theme.fontBase
+                        color: Theme.textBody
+                        font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WrapAnywhere
                         Layout.fillWidth: true
                     }
@@ -74,7 +74,7 @@ Column {
                     Accessible.name: qsTr("關閉通知")
                     Layout.alignment: Qt.AlignTop
                     onClicked: root.bridge.toastModel.remove(toast.toastId)
-                    contentItem: Icon { name: "close"; color: "#888888"; implicitWidth: 20; implicitHeight: 20 }
+                    contentItem: Icon { name: "close"; color: Theme.textMuted; implicitWidth: 18; implicitHeight: 18 }
                     background: Item {}
                 }
             }

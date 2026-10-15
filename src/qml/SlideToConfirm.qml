@@ -12,7 +12,7 @@ Item {
     /// 說明文字
     property string label: ""
     /// 強調色
-    property color accentColor: "#ff4444"
+    property color accentColor: Theme.danger
     /// 滑動進度 0～1
     property real progress: 0
     /// 已確認（觸發後保持，直到停用或重設）
@@ -71,9 +71,9 @@ Item {
         id: track
 
         anchors.fill: parent
-        radius: height / 2
-        color: "#1a1a1a"
-        border.width: 2
+        radius: Theme.radius
+        color: Theme.inset
+        border.width: 1
         border.color: root.accentColor
         clip: true
 
@@ -81,13 +81,13 @@ Item {
             width: root.knobWidth / 2 + root.progress * (track.width - root.knobWidth)
             height: parent.height
             radius: parent.radius
-            color: root.isConfirmed ? root.accentColor : Qt.alpha(root.accentColor, 0.53)
+            color: root.isConfirmed ? root.accentColor : Qt.alpha(root.accentColor, 0.3)
         }
 
         Text {
             anchors.centerIn: parent
             text: root.isConfirmed ? qsTr("已確認") : (root.isKeyboardArmed ? qsTr("再按 Enter 確認") : root.label)
-            color: Theme.textBody
+            color: root.isConfirmed ? Theme.background : Theme.textBody
             font.pixelSize: Theme.fontBase
         }
     }
@@ -99,23 +99,23 @@ Item {
         y: 2
         width: root.knobWidth - 4
         height: root.height - 4
-        radius: height / 2
-        color: root.isConfirmed ? root.accentColor : "#333333"
-        border.width: 2
+        radius: Theme.radius
+        color: root.isConfirmed ? root.accentColor : Theme.control
+        border.width: 1
         border.color: root.accentColor
 
         Text {
             anchors.centerIn: parent
             text: root.isConfirmed ? "✓" : (root.isKeyboardArmed ? "⏎" : "→")
-            color: "white"
-            font.pixelSize: 22
+            color: root.isConfirmed ? Theme.background : root.accentColor
+            font.pixelSize: Theme.fontTitle
         }
     }
 
     Rectangle {
         anchors.fill: parent
         anchors.margins: -3
-        radius: height / 2
+        radius: Theme.radius
         color: "transparent"
         border.width: root.activeFocus || root.isKeyboardArmed ? 2 : 0
         border.color: root.accentColor

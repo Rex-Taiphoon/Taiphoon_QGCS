@@ -29,7 +29,7 @@ Popup {
 
     background: Rectangle {
         color: Theme.panel
-        radius: 12
+        radius: Theme.radius
         border.color: Theme.border
     }
 
@@ -46,8 +46,8 @@ Popup {
             }
             Label {
                 text: qsTr("唯讀，不提供發布或呼叫")
-                color: Theme.warning
-                font.pixelSize: 15
+                color: Theme.caution
+                font.pixelSize: Theme.fontSmall
             }
             ActionButton {
                 iconName: "close"
@@ -65,7 +65,7 @@ Popup {
 
             Layout.fillWidth: true
             Layout.fillHeight: true
-            background: Rectangle { color: "#05090d"; radius: 6; border.color: Theme.borderSoft }
+            background: Rectangle { color: Theme.inset; radius: Theme.radius; border.color: Theme.borderSoft }
 
             TextArea {
                 id: outputArea
@@ -74,9 +74,9 @@ Popup {
                 readOnly: true
                 selectByMouse: true
                 wrapMode: TextEdit.NoWrap
-                color: "#cfe3d0"
-                font.family: "Consolas, Menlo, monospace"
-                font.pixelSize: 15
+                color: Theme.textBody
+                font.family: Theme.fontMono
+                font.pixelSize: Theme.fontSmall
                 background: Item {}
                 onTextChanged: cursorPosition = length
             }
@@ -92,13 +92,13 @@ Popup {
 
                 placeholderText: "topic list"
                 color: Theme.textBody
-                font.family: "Consolas, Menlo, monospace"
-                font.pixelSize: 16
+                font.family: Theme.fontMono
+                font.pixelSize: Theme.fontBase
                 Layout.fillWidth: true
                 background: Rectangle {
                     color: Theme.input
-                    radius: 4
-                    border.color: commandField.activeFocus ? Theme.accent : "#555555"
+                    radius: Theme.radiusInput
+                    border.color: commandField.activeFocus ? Theme.accent : Theme.borderStrong
                 }
                 onAccepted: {
                     root.diagnostics.execute(text)

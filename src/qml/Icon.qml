@@ -10,7 +10,7 @@ import QtQuick.Shapes
 Item {
     id: root
 
-    /// 圖示名稱：close、settings、minus、chevronDown、power、hexagon
+    /// 圖示名稱，見下方 paths（命令、方向、編隊與通用圖示）
     property string name: "close"
     property color color: Theme.textMuted
     property real lineWidth: 2
@@ -18,7 +18,27 @@ Item {
     readonly property var paths: ({
         "close": "M18 6 L6 18 M6 6 L18 18",
         "minus": "M5 12 L19 12",
+        "plus": "M12 5 L12 19 M5 12 L19 12",
         "chevronDown": "M6 9 L12 15 L18 9",
+        "chevronUp": "M6 15 L12 9 L18 15",
+        "send": "M22 2 L15 22 L11 13 L2 9 Z M22 2 L11 13",
+        "lock": "M5 11 L19 11 L19 21 L5 21 Z M8 11 L8 8 A4 4 0 0 1 16 8 L16 11",
+        "unlock": "M5 11 L19 11 L19 21 L5 21 Z M8 11 L8 8 A4 4 0 0 1 15.5 6",
+        "offboard": "M12 10 L12 14 M8.5 15.5 A5 5 0 0 1 8.5 8.5 M15.5 8.5 A5 5 0 0 1 15.5 15.5"
+                    + " M5.6 18.4 A9 9 0 0 1 5.6 5.6 M18.4 5.6 A9 9 0 0 1 18.4 18.4",
+        "takeoff": "M12 18 L12 5 M6 11 L12 5 L18 11 M5 21 L19 21",
+        "land": "M12 3 L12 16 M6 10 L12 16 L18 10 M5 21 L19 21",
+        "rtl": "M3 11 L12 4 L21 11 M6 10 L6 20 L18 20 L18 10 M10 20 L10 15 L14 15 L14 20",
+        "arrowUp": "M12 19 L12 5 M6 11 L12 5 L18 11",
+        "arrowDown": "M12 5 L12 19 M6 13 L12 19 L18 13",
+        "arrowLeft": "M19 12 L5 12 M11 6 L5 12 L11 18",
+        "arrowRight": "M5 12 L19 12 M13 6 L19 12 L13 18",
+        "yaw": "M20 12 A8 8 0 1 1 17.7 6.3 M20 3 L20 8 L15 8",
+        "formCircle": "M5 12 A7 7 0 1 0 19 12 A7 7 0 1 0 5 12 M12 4 L12 6 M5.5 16 L7 15 M18.5 16 L17 15",
+        "formLine": "M3 12 L5 12 M11 12 L13 12 M19 12 L21 12 M7 12 L9 12 M15 12 L17 12",
+        "formVertical": "M12 3 L12 5 M12 11 L12 13 M12 19 L12 21 M12 7 L12 9 M12 15 L12 17",
+        "check": "M5 12 L10 17 L19 7",
+        "alert": "M12 3 L22 20 L2 20 Z M12 9 L12 14 M12 17 L12 17.5",
         "power": "M12 2 L12 12 M18.36 6.64 A9 9 0 1 1 5.64 6.64",
         "hexagon": "M21 16 L21 8 L12 3 L3 8 L3 16 L12 21 Z",
         "settings": "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08"

@@ -34,7 +34,7 @@ Popup {
 
     background: Rectangle {
         color: Theme.panel
-        radius: 12
+        radius: Theme.radius
         border.color: Theme.border
     }
 
@@ -97,7 +97,7 @@ Popup {
                         Label {
                             text: qsTr("選取單一無人機時，地圖自動置中於其位置")
                             color: Theme.textMuted
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontSmall
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
@@ -115,7 +115,7 @@ Popup {
                         Label {
                             text: qsTr("發送命令後若未在此時間內收到回執，視為失敗")
                             color: Theme.textMuted
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontSmall
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
@@ -139,8 +139,8 @@ Popup {
                         text: root.bridge.isLinkConnected
                               ? qsTr("DDS 已連線：%1").arg(root.bridge.linkMessage)
                               : qsTr("DDS 未連線：%1").arg(root.bridge.linkMessage)
-                        color: root.bridge.isLinkConnected ? Theme.textMuted : Theme.warning
-                        font.pixelSize: 15
+                        color: root.bridge.isLinkConnected ? Theme.textMuted : Theme.caution
+                        font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -160,14 +160,14 @@ Popup {
                     title: qsTr("進階操作")
                     Label {
                         text: qsTr("此操作會要求指定 Agent 結束程序，不會先執行返航或降落；飛行中執行將失去 Agent 控制，請勿使用。")
-                        color: "#ffb74d"
-                        font.pixelSize: 15
+                        color: Theme.caution
+                        font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
                     ActionButton {
                         text: qsTr("關閉 %1").arg(root.bridge.canShutdownAgent ? root.bridge.selectedAgent : "Agent")
-                        accentColor: "#ff8a80"
+                        accentColor: Theme.danger
                         enabled: root.bridge.canShutdownAgent
                         Layout.fillWidth: true
                         onClicked: agentShutdownDialog.open()
@@ -180,7 +180,7 @@ Popup {
                     Label {
                         text: qsTr("唯讀：列出 DDS topic、檢視 Agent 資料與事件紀錄；不提供發布命令")
                         color: Theme.textMuted
-                        font.pixelSize: 15
+                        font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -208,7 +208,7 @@ Popup {
 
             ActionButton {
                 iconName: "power"
-                accentColor: "#ff8a80"
+                accentColor: Theme.danger
                 implicitWidth: 48
                 tooltip: qsTr("結束 GCS")
                 Accessible.name: qsTr("結束 GCS")
@@ -223,7 +223,7 @@ Popup {
             ActionButton {
                 text: qsTr("完成")
                 textAlignment: Text.AlignHCenter
-                accentColor: Theme.accentSoft
+                accentColor: Theme.accent
                 onClicked: root.close()
             }
         }
@@ -271,7 +271,7 @@ Popup {
                 verticalAlignment: Text.AlignVCenter
             }
             background: Rectangle {
-                radius: 8
+                radius: Theme.radius
                 color: Theme.panelDeep
                 border.color: sectionHeader.visualFocus ? Theme.accent : Theme.borderSoft
             }

@@ -52,7 +52,7 @@ Popup {
 
     background: Rectangle {
         color: Theme.panel
-        radius: 12
+        radius: Theme.radius
         border.color: Theme.border
     }
 
@@ -68,7 +68,7 @@ Popup {
             visible: root.isFirstRun
             text: qsTr("請輸入現場 Agent 的位址。同一台電腦或允許 multicast 的區網中模擬時，可保留空白直接開始。")
             color: Theme.textMuted
-            font.pixelSize: 15
+            font.pixelSize: Theme.fontSmall
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -94,14 +94,14 @@ Popup {
                     Layout.preferredHeight: 96
                     background: Rectangle {
                         color: Theme.input
-                        radius: 4
-                        border.color: peersField.activeFocus ? Theme.accent : "#555555"
+                        radius: Theme.radiusInput
+                        border.color: peersField.activeFocus ? Theme.accent : Theme.borderStrong
                     }
                 }
                 Label {
                     text: qsTr("Agent 所在電腦的區網 IP；也可在 Agent 端設定本機 IP 讓其主動探索")
                     color: Theme.textMuted
-                    font.pixelSize: 14
+                    font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
@@ -139,7 +139,7 @@ Popup {
                 id: multicastBox
 
                 text: qsTr("允許 multicast（本機或區網模擬；Wi-Fi 現場建議關閉）")
-                font.pixelSize: 15
+                font.pixelSize: Theme.fontSmall
                 Layout.fillWidth: true
             }
 
@@ -149,7 +149,7 @@ Popup {
                     id: fixedIndexBox
 
                     text: qsTr("固定")
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.fontSmall
                 }
                 SpinBox {
                     id: indexField
@@ -163,7 +163,7 @@ Popup {
                 Label {
                     text: qsTr("同機已有其他 DDS 程式占用埠號時使用")
                     color: Theme.textMuted
-                    font.pixelSize: 14
+                    font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
@@ -174,7 +174,7 @@ Popup {
             visible: root.errorText.length > 0
             text: root.errorText
             color: Theme.danger
-            font.pixelSize: 15
+            font.pixelSize: Theme.fontSmall
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -192,7 +192,7 @@ Popup {
             ActionButton {
                 text: root.isFirstRun ? qsTr("開始使用") : qsTr("保存並重新連線")
                 textAlignment: Text.AlignHCenter
-                accentColor: Theme.accentSoft
+                accentColor: Theme.accent
                 onClicked: {
                     const error = root.network.applySite(domainField.value, interfaceBox.currentValue, peersField.text,
                                                          multicastBox.checked,

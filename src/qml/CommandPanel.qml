@@ -6,11 +6,11 @@
  *
  * 按鈕可用狀態一律取自 UiBridge（與 GuardModule 同一份規則），QML 不自行判斷。
  * L1：Takeoff、RTL、Land、Disarm 與編隊命令需確認對話框；L2：Arm 需滑桿。
+ * 按鈕顏色只表達風險：一般（白）、需確認（琥珀）、危險（紅）；面板底部常駐顯示解鎖狀態。
  */
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Shapes
 
 Item {
     id: root
@@ -35,9 +35,14 @@ Item {
     readonly property string modeLabel: isSingle ? (bridge.selectedSummary.modeLabel || qsTr("未知"))
                                                  : (isAll ? qsTr("全體") : qsTr("未知"))
     readonly property string targetLabel: isSingle ? bridge.selectedAgent : qsTr("全體")
+    /// 解鎖狀態僅在單機且 PX4 狀態有效時可信
+    readonly property bool isArmStateKnown: isSingle && bridge.selectedSummary.isPx4Valid === true
+    readonly property bool isArmed: isArmStateKnown && bridge.selectedSummary.isArmed === true
 
     /// L1 命令：需確認後才送出
     readonly property var l1Commands: ["TAKEOFF", "MODE_RTL", "MODE_LAND", "DISARM"]
+    /// 需確認命令的附註文字
+    readonly property string confirmNote: qsTr("需確認")
 
     function send(command, params) {
         bridge.sendCommand(command, params || [])
@@ -53,60 +58,46 @@ Item {
         send(command, params)
     }
 
+    /**
+     * @brief 可展開表單按鈕的附註：需確認字樣加上展開方向
+     * @param form 表單名稱
+     * @return 附註文字
+     */
+    function expandNote(form) {
+        return confirmNote + (expandedForm === form ? "  ▴" : "  ▾")
+    }
+
     width: launcher.width
     height: launcher.height
 
     // 開啟按鈕（紙飛機圖示）
-    Button {
+    ActionButton {
         id: launcher
 
-        width: 52
-        height: 52
-        hoverEnabled: true
+        iconName: "send"
+        accentColor: root.isOpen ? Theme.accent : Theme.textBody
+        width: 44
+        height: 44
+        padding: 0
+        tooltip: Accessible.name
         Accessible.name: root.isOpen ? qsTr("收合飛行控制") : qsTr("開啟飛行控制")
-        ToolTip.visible: hovered
-        ToolTip.text: Accessible.name
         onClicked: root.isOpen = !root.isOpen
-
-        background: Rectangle {
-            radius: 8
-            color: Qt.rgba(17 / 255, 27 / 255, 37 / 255, 0.96)
-            border.width: launcher.visualFocus ? 3 : 1
-            border.color: root.isOpen || launcher.visualFocus ? Theme.accent : Theme.border
-        }
-        contentItem: Item {
-            Shape {
-                anchors.centerIn: parent
-                width: 24
-                height: 24
-                scale: 26 / 24
-                preferredRendererType: Shape.CurveRenderer
-                ShapePath {
-                    strokeColor: Theme.accent
-                    strokeWidth: 1.8
-                    fillColor: "transparent"
-                    capStyle: ShapePath.RoundCap
-                    joinStyle: ShapePath.RoundJoin
-                    PathSvg { path: "M22 2 L15 22 L11 13 L2 9 Z M22 2 L11 13" }
-                }
-            }
-        }
     }
 
     Rectangle {
         id: panel
 
         visible: root.isOpen
-        y: launcher.height + 10
-        width: Math.max(360, Math.min(480, root.parent ? root.parent.width * 0.31 : 400))
-        height: Math.min(panelContent.implicitHeight + 32, root.parent ? root.parent.height - 120 : 700)
-        radius: 10
-        color: Qt.rgba(13 / 255, 22 / 255, 31 / 255, 0.98)
+        y: launcher.height + Theme.spaceSm
+        width: Math.max(340, Math.min(420, root.parent ? root.parent.width * 0.3 : 380))
+        height: Math.min(panelContent.implicitHeight + 2, root.parent ? root.parent.height - 120 : 700)
+        radius: Theme.radius
+        color: Theme.panel
         border.color: Theme.border
 
         Flickable {
             anchors.fill: parent
-            anchors.margins: 16
+            anchors.margins: 1
             contentHeight: panelContent.implicitHeight
             clip: true
             boundsBehavior: Flickable.StopAtBounds
@@ -116,79 +107,101 @@ Item {
                 id: panelContent
 
                 width: parent.width
-                spacing: 8
+                spacing: 0
 
+                // 標題列：面板名稱、目標與模式
                 RowLayout {
+                    spacing: Theme.spaceSm
                     Layout.fillWidth: true
+                    Layout.leftMargin: Theme.spaceLg
+                    Layout.rightMargin: Theme.spaceXs
+                    Layout.preferredHeight: 44
+
+                    FieldLabel { text: qsTr("飛行控制") }
                     Label {
-                        text: qsTr("飛行控制")
-                        color: Theme.textStrong
-                        font.pixelSize: Theme.fontTitle
+                        visible: root.isSingle || root.isAll
+                        text: root.targetLabel
+                        color: Theme.accent
+                        font.family: Theme.fontMono
+                        font.pixelSize: Theme.fontBase
+                    }
+                    Label {
+                        visible: root.isSingle || root.isAll
+                        text: root.modeLabel
+                        color: Theme.normal
+                        font.pixelSize: Theme.fontSmall
+                        elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
+                    Item { visible: !root.isSingle && !root.isAll; Layout.fillWidth: true }
                     ActionButton {
                         iconName: "close"
-                        accentColor: "#d7e2ea"
-                        implicitWidth: 42
-                        implicitHeight: 42
+                        accentColor: Theme.textMuted
+                        implicitWidth: 36
+                        implicitHeight: 36
+                        padding: 0
+                        background: Item {}
                         Accessible.name: qsTr("收合飛行控制")
                         onClicked: root.isOpen = false
                     }
                 }
+                Divider {}
 
                 Label {
                     visible: !root.isSingle && !root.isAll
                     text: qsTr("請先在機群面板選取無人機")
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontBase
-                    padding: 14
+                    padding: Theme.spaceLg
                 }
 
-                Label {
-                    visible: root.isSingle || root.isAll
-                    text: (root.isSingle ? root.bridge.selectedAgent : qsTr("全部機群")) + " — " + root.modeLabel
-                    color: Theme.warning
-                    font.pixelSize: Theme.fontBase
-                    font.bold: true
-                    Layout.bottomMargin: 6
-                }
-
-                // 分頁列
+                // 分頁列：文字分頁，選取時底線標示
                 RowLayout {
                     visible: root.isSingle || root.isAll
-                    spacing: 6
+                    spacing: 0
                     Layout.fillWidth: true
 
                     Repeater {
                         model: [qsTr("安全開關"), qsTr("模式控制"), qsTr("移動與 YAW"), qsTr("編隊命令")]
-                        delegate: Button {
+                        delegate: AbstractButton {
                             id: tabButton
 
                             required property int index
                             required property string modelData
 
+                            readonly property bool isCurrent: root.activeTab === index
+
                             text: modelData
+                            hoverEnabled: true
+                            implicitHeight: 38
                             Layout.fillWidth: true
-                            implicitHeight: 42
-                            font.pixelSize: 15
+                            Accessible.role: Accessible.PageTab
+                            Accessible.name: text
                             onClicked: root.activeTab = index
+
                             contentItem: Text {
                                 text: tabButton.text
-                                font: tabButton.font
-                                color: root.activeTab === tabButton.index ? Theme.accentSoft : "#b9c9d4"
+                                font.pixelSize: Theme.fontSmall
+                                color: tabButton.isCurrent ? Theme.accent
+                                                           : (tabButton.hovered ? Theme.textBody : Theme.textMuted)
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
                             }
                             background: Rectangle {
-                                radius: 6
-                                color: root.activeTab === tabButton.index ? Theme.controlActive : Theme.control
-                                border.color: root.activeTab === tabButton.index || tabButton.visualFocus
-                                              ? Theme.accent : Theme.border
+                                color: tabButton.visualFocus ? Theme.controlHover : "transparent"
+                                Rectangle {
+                                    anchors.bottom: parent.bottom
+                                    width: parent.width
+                                    height: 2
+                                    visible: tabButton.isCurrent
+                                    color: Theme.accent
+                                }
                             }
                         }
                     }
                 }
+                Divider { visible: root.isSingle || root.isAll }
 
                 StackLayout {
                     id: tabStack
@@ -196,25 +209,27 @@ Item {
                     visible: root.isSingle || root.isAll
                     currentIndex: root.activeTab
                     Layout.fillWidth: true
-                    Layout.minimumHeight: 210
+                    Layout.margins: Theme.spaceMd
+                    Layout.minimumHeight: 120
                     // 高度依目前分頁，而非所有分頁中最高者，避免面板下方大片留白
                     Layout.preferredHeight: tabStack.children[root.activeTab]
-                                            ? tabStack.children[root.activeTab].implicitHeight : 210
-                    Layout.topMargin: 6
+                                            ? tabStack.children[root.activeTab].implicitHeight : 120
 
                     // 安全開關
                     ColumnLayout {
-                        spacing: 8
+                        spacing: Theme.spaceSm
                         SlideToConfirm {
                             label: qsTr("滑動以解鎖 Arm")
-                            accentColor: "#ff4444"
+                            accentColor: Theme.commandDanger
                             enabled: root.bridge.canArm
                             Layout.fillWidth: true
                             onConfirmed: root.send("ARM")
                         }
                         ActionButton {
-                            text: "🔒 " + qsTr("Disarm 上鎖")
-                            accentColor: Theme.disarm
+                            text: qsTr("Disarm 上鎖")
+                            leadingIcon: "lock"
+                            note: root.confirmNote
+                            accentColor: Theme.commandDanger
                             enabled: root.bridge.canDisarm
                             Layout.fillWidth: true
                             onClicked: root.exec("DISARM")
@@ -224,18 +239,20 @@ Item {
 
                     // 模式控制
                     ColumnLayout {
-                        spacing: 8
+                        spacing: Theme.spaceSm
                         ActionButton {
-                            text: "📡 " + qsTr("Offboard 模式")
-                            accentColor: Theme.offboard
+                            text: qsTr("Offboard 模式")
+                            leadingIcon: "offboard"
                             enabled: root.bridge.canOffboard
                             tooltip: qsTr("切換至 Offboard 模式（IDLE 或 OFFBOARD_INIT 時可用）")
                             Layout.fillWidth: true
                             onClicked: root.send("MODE_OFFBOARD")
                         }
                         ActionButton {
-                            text: "🚀 " + qsTr("Takeoff 起飛 ") + (root.expandedForm === "takeoff" ? "▲" : "▼")
-                            accentColor: Theme.takeoff
+                            text: qsTr("Takeoff 起飛")
+                            leadingIcon: "takeoff"
+                            note: root.expandNote("takeoff")
+                            accentColor: Theme.commandConfirm
                             enabled: root.bridge.canTakeoff
                             Layout.fillWidth: true
                             onClicked: root.expandedForm = root.expandedForm === "takeoff" ? "" : "takeoff"
@@ -253,7 +270,7 @@ Item {
                             }
                             ActionButton {
                                 text: qsTr("確認起飛")
-                                accentColor: Theme.takeoff
+                                accentColor: Theme.commandConfirm
                                 enabled: takeoffField.isDraftValid
                                 Layout.fillWidth: true
                                 onClicked: {
@@ -264,15 +281,19 @@ Item {
                             }
                         }
                         ActionButton {
-                            text: "🏠 " + qsTr("RTL 返航")
-                            accentColor: Theme.rtl
+                            text: qsTr("RTL 返航")
+                            leadingIcon: "rtl"
+                            note: root.confirmNote
+                            accentColor: Theme.commandConfirm
                             enabled: root.bridge.canRtl
                             Layout.fillWidth: true
                             onClicked: root.exec("MODE_RTL")
                         }
                         ActionButton {
-                            text: "⬇ " + qsTr("Land 降落")
-                            accentColor: Theme.land
+                            text: qsTr("Land 降落")
+                            leadingIcon: "land"
+                            note: root.confirmNote
+                            accentColor: Theme.commandConfirm
                             enabled: root.bridge.canLand
                             Layout.fillWidth: true
                             onClicked: root.exec("MODE_LAND")
@@ -282,7 +303,7 @@ Item {
 
                     // 移動與 YAW
                     ColumnLayout {
-                        spacing: 8
+                        spacing: Theme.spaceSm
                         NumberField {
                             id: moveField
                             label: qsTr("移動距離")
@@ -293,39 +314,43 @@ Item {
                         }
                         GridLayout {
                             columns: 4
-                            columnSpacing: 8
-                            rowSpacing: 8
+                            columnSpacing: Theme.spaceSm
+                            rowSpacing: Theme.spaceSm
                             Layout.fillWidth: true
 
                             readonly property bool canSendMove: root.bridge.canMove && moveField.isDraftValid
 
                             Item { Layout.fillWidth: true }
-                            MoveButton { text: qsTr("↑ 前"); tooltip: qsTr("前進（北）"); enabled: parent.canSendMove; onClicked: root.exec("MOVE_FORWARD", [root.moveDistance]) }
+                            MoveButton { text: qsTr("前"); leadingIcon: "arrowUp"; tooltip: qsTr("沿機頭方向前進"); enabled: parent.canSendMove; onClicked: root.exec("MOVE_FORWARD", [root.moveDistance]) }
                             Item { Layout.fillWidth: true }
-                            MoveButton { text: qsTr("⬆ 升"); tooltip: qsTr("上升"); accentColor: Theme.takeoff; enabled: parent.canSendMove; onClicked: root.exec("MOVE_UP", [root.moveDistance]) }
+                            MoveButton { text: qsTr("升"); leadingIcon: "takeoff"; tooltip: qsTr("上升"); enabled: parent.canSendMove; onClicked: root.exec("MOVE_UP", [root.moveDistance]) }
 
-                            MoveButton { text: qsTr("← 左"); tooltip: qsTr("左移（西）"); enabled: parent.canSendMove; onClicked: root.exec("MOVE_LEFT", [root.moveDistance]) }
+                            MoveButton { text: qsTr("左"); leadingIcon: "arrowLeft"; tooltip: qsTr("向機頭左側移動"); enabled: parent.canSendMove; onClicked: root.exec("MOVE_LEFT", [root.moveDistance]) }
                             Label {
-                                text: root.moveDistance + "m"
-                                color: Theme.textDim
+                                text: root.moveDistance + " m"
+                                color: Theme.textMuted
+                                font.family: Theme.fontMono
                                 font.pixelSize: Theme.fontBase
                                 horizontalAlignment: Text.AlignHCenter
                                 Layout.fillWidth: true
                             }
-                            MoveButton { text: qsTr("→ 右"); tooltip: qsTr("右移（東）"); enabled: parent.canSendMove; onClicked: root.exec("MOVE_RIGHT", [root.moveDistance]) }
-                            MoveButton { text: qsTr("⬇ 降"); tooltip: qsTr("下降"); accentColor: Theme.rtl; enabled: parent.canSendMove; onClicked: root.exec("MOVE_DOWN", [root.moveDistance]) }
+                            MoveButton { text: qsTr("右"); leadingIcon: "arrowRight"; tooltip: qsTr("向機頭右側移動"); enabled: parent.canSendMove; onClicked: root.exec("MOVE_RIGHT", [root.moveDistance]) }
+                            MoveButton { text: qsTr("降"); leadingIcon: "land"; tooltip: qsTr("下降"); enabled: parent.canSendMove; onClicked: root.exec("MOVE_DOWN", [root.moveDistance]) }
 
                             Item { Layout.fillWidth: true }
-                            MoveButton { text: qsTr("↓ 後"); tooltip: qsTr("後退（南）"); enabled: parent.canSendMove; onClicked: root.exec("MOVE_BACKWARD", [root.moveDistance]) }
+                            MoveButton { text: qsTr("後"); leadingIcon: "arrowDown"; tooltip: qsTr("沿機頭方向後退"); enabled: parent.canSendMove; onClicked: root.exec("MOVE_BACKWARD", [root.moveDistance]) }
                             Item { Layout.fillWidth: true }
                             Item { Layout.fillWidth: true }
                         }
-                        Rectangle {
-                            color: Theme.borderSoft
-                            implicitHeight: 1
+                        Label {
+                            // Agent 單機水平移動依保存的 target yaw，前後左右相對機頭而非東南西北
+                            text: qsTr("前後左右以機頭方向為準")
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontLabel
                             Layout.fillWidth: true
-                            Layout.topMargin: 6
+                            horizontalAlignment: Text.AlignHCenter
                         }
+                        Divider { Layout.topMargin: Theme.spaceXs }
                         NumberField {
                             id: yawField
                             label: qsTr("YAW 旋轉")
@@ -337,8 +362,8 @@ Item {
                             onCommitted: (newValue) => root.settings.yawDegrees = newValue
                         }
                         ActionButton {
-                            text: "⟳ " + qsTr("發送 YAW")
-                            accentColor: Theme.yaw
+                            text: qsTr("發送 YAW")
+                            leadingIcon: "yaw"
                             enabled: root.bridge.canYaw && yawField.isDraftValid
                             Layout.fillWidth: true
                             onClicked: root.exec("YAW", [root.settings.yawDegrees])
@@ -347,25 +372,27 @@ Item {
                             visible: !root.isSingle
                             text: qsTr("YAW 僅支援單機操作")
                             color: Theme.textMuted
-                            font.pixelSize: Theme.fontBase
+                            font.pixelSize: Theme.fontSmall
                         }
                         Item { Layout.fillHeight: true }
                     }
 
                     // 編隊命令
                     ColumnLayout {
-                        spacing: 8
+                        spacing: Theme.spaceSm
                         Label {
                             visible: !root.isAll
                             text: qsTr("請選取「全部機群」後使用編隊命令")
                             color: Theme.textMuted
                             font.pixelSize: Theme.fontBase
-                            padding: 14
+                            padding: Theme.spaceXs
                         }
                         ActionButton {
                             visible: root.isAll
-                            text: "⭕ " + qsTr("環形編隊 ") + (root.expandedForm === "circle" ? "▲" : "▼")
-                            accentColor: Theme.formation
+                            text: qsTr("環形編隊")
+                            leadingIcon: "formCircle"
+                            note: root.expandNote("circle")
+                            accentColor: Theme.commandConfirm
                             enabled: root.bridge.canFormation
                             Layout.fillWidth: true
                             onClicked: root.expandedForm = root.expandedForm === "circle" ? "" : "circle"
@@ -392,7 +419,7 @@ Item {
                             }
                             ActionButton {
                                 text: qsTr("確認發送 環形編隊")
-                                accentColor: Theme.formation
+                                accentColor: Theme.commandConfirm
                                 enabled: circleRadius.isDraftValid && circleHeight.isDraftValid
                                 Layout.fillWidth: true
                                 onClicked: {
@@ -406,8 +433,10 @@ Item {
                         }
                         ActionButton {
                             visible: root.isAll
-                            text: "⬌ " + qsTr("水平一字 ") + (root.expandedForm === "linear" ? "▲" : "▼")
-                            accentColor: Theme.formation
+                            text: qsTr("水平一字")
+                            leadingIcon: "formLine"
+                            note: root.expandNote("linear")
+                            accentColor: Theme.commandConfirm
                             enabled: root.bridge.canFormation
                             Layout.fillWidth: true
                             onClicked: root.expandedForm = root.expandedForm === "linear" ? "" : "linear"
@@ -434,7 +463,7 @@ Item {
                             }
                             ActionButton {
                                 text: qsTr("確認發送 水平一字")
-                                accentColor: Theme.formation
+                                accentColor: Theme.commandConfirm
                                 enabled: linearSpacing.isDraftValid && linearHeight.isDraftValid
                                 Layout.fillWidth: true
                                 onClicked: {
@@ -448,8 +477,10 @@ Item {
                         }
                         ActionButton {
                             visible: root.isAll
-                            text: "↕ " + qsTr("垂直一字 ") + (root.expandedForm === "vert" ? "▲" : "▼")
-                            accentColor: Theme.formation
+                            text: qsTr("垂直一字")
+                            leadingIcon: "formVertical"
+                            note: root.expandNote("vert")
+                            accentColor: Theme.commandConfirm
                             enabled: root.bridge.canFormation
                             Layout.fillWidth: true
                             onClicked: root.expandedForm = root.expandedForm === "vert" ? "" : "vert"
@@ -467,7 +498,7 @@ Item {
                             }
                             ActionButton {
                                 text: qsTr("確認發送 垂直一字")
-                                accentColor: Theme.formation
+                                accentColor: Theme.commandConfirm
                                 enabled: vertSpacing.isDraftValid
                                 Layout.fillWidth: true
                                 onClicked: {
@@ -479,13 +510,45 @@ Item {
                         }
                         ActionButton {
                             visible: root.isAll
-                            text: "✕ " + qsTr("取消編隊")
-                            accentColor: Theme.cancel
+                            text: qsTr("取消編隊")
+                            leadingIcon: "close"
+                            note: root.confirmNote
+                            accentColor: Theme.commandConfirm
                             enabled: root.bridge.canFormation
                             Layout.fillWidth: true
                             onClicked: root.exec("FORMATION_CANCEL", [])
                         }
                         Item { Layout.fillHeight: true }
+                    }
+                }
+
+                // 安全狀態常駐列：不論目前在哪個分頁都看得到是否已解鎖
+                Divider { visible: root.isSingle || root.isAll }
+                RowLayout {
+                    visible: root.isSingle || root.isAll
+                    spacing: Theme.spaceMd
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.spaceLg
+                    Layout.rightMargin: Theme.spaceLg
+                    Layout.preferredHeight: 44
+
+                    FieldLabel { text: qsTr("安全狀態") }
+                    Item { Layout.fillWidth: true }
+                    Label {
+                        text: !root.isSingle ? qsTr("多機，請個別確認")
+                                             : (!root.isArmStateKnown ? qsTr("未確認")
+                                                                      : (root.isArmed ? qsTr("已解鎖") : qsTr("已上鎖")))
+                        color: !root.isArmStateKnown ? Theme.textMuted : (root.isArmed ? Theme.danger : Theme.normal)
+                        font.pixelSize: Theme.fontSmall
+                        leftPadding: root.isArmStateKnown ? Theme.spaceSm : 0
+                        rightPadding: leftPadding
+                        topPadding: root.isArmStateKnown ? 2 : 0
+                        bottomPadding: topPadding
+                        background: Rectangle {
+                            visible: root.isArmStateKnown
+                            color: "transparent"
+                            border.color: root.isArmed ? Theme.danger : Theme.normal
+                        }
                     }
                 }
             }
@@ -501,30 +564,41 @@ Item {
         onAccepted: root.send(root.pendingCommand, root.pendingParams)
     }
 
+    component FieldLabel: Label {
+        color: Theme.textMuted
+        font.pixelSize: Theme.fontLabel
+        font.letterSpacing: Theme.labelSpacing
+    }
+
+    component Divider: Rectangle {
+        color: Theme.border
+        implicitHeight: 1
+        Layout.fillWidth: true
+    }
+
     component FormBox: Rectangle {
         default property alias content: formColumn.data
 
         color: Theme.inset
-        radius: 8
+        radius: Theme.radius
         border.color: Theme.borderSoft
-        implicitHeight: formColumn.implicitHeight + 24
+        implicitHeight: formColumn.implicitHeight + 2 * Theme.spaceMd
         Layout.fillWidth: true
 
         ColumnLayout {
             id: formColumn
 
             anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
+            anchors.margins: Theme.spaceMd
+            spacing: Theme.spaceSm
         }
     }
 
     component MoveButton: ActionButton {
-        accentColor: "#dddddd"
         textAlignment: Text.AlignHCenter
-        implicitHeight: 52
-        leftPadding: 4
-        rightPadding: 4
+        implicitHeight: 44
+        leftPadding: Theme.spaceXs
+        rightPadding: Theme.spaceXs
         Layout.fillWidth: true
         Layout.minimumWidth: 54
     }

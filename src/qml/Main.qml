@@ -28,6 +28,7 @@ ApplicationWindow {
     visible: true
     title: qsTr("Taiphoon_QGCS")
     color: Theme.background
+    font.family: Theme.fontFamily
     font.pixelSize: Theme.fontBase
 
     Component.onCompleted: {
@@ -56,8 +57,8 @@ ApplicationWindow {
         CommandPanel {
             id: commandPanel
 
-            x: 18
-            y: 18
+            x: Theme.spaceLg
+            y: Theme.spaceLg
             z: 20
             isOpen: window.isCommandPanelInitiallyOpen
             bridge: window.bridge
