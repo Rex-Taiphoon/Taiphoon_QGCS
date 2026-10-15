@@ -123,6 +123,11 @@ std::optional<std::string> build_cyclonedds_xml(const DdsNetworkConfig& config, 
     // 單一接收 socket 讓使用的埠號可預期，便於防火牆設定（ADR-0011）。
     xml << "<Compatibility><ManySocketsMode>false</ManySocketsMode></Compatibility>";
 
+    // 所有 socket 由單一接收執行緒處理。macOS／Linux 預設每個 socket 一條專屬執行緒，
+    // 關閉 domain 時必須送封包給自己才能喚醒；多播送不回本機（區域網路權限被拒、
+    // GitHub macOS runner）時 dds_delete 會永久卡住。Windows 預設即為 false。
+    xml << "<Internal><MultipleReceiveThreads>false</MultipleReceiveThreads></Internal>";
+
     xml << "<Discovery><ParticipantIndex>";
     if (config.participant_index.has_value())
     {

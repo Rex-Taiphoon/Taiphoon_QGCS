@@ -37,6 +37,7 @@ TEST(DdsConfig, DefaultUsesMulticastAndAutoIndex)
     EXPECT_TRUE(contains(*xml, "<ParticipantIndex>auto</ParticipantIndex>"));
     EXPECT_TRUE(contains(*xml, "<MaxAutoParticipantIndex>20</MaxAutoParticipantIndex>"));
     EXPECT_TRUE(contains(*xml, "<ManySocketsMode>false</ManySocketsMode>"));
+    EXPECT_TRUE(contains(*xml, "<MultipleReceiveThreads>false</MultipleReceiveThreads>"));
     EXPECT_FALSE(contains(*xml, "<Peers>"));
     EXPECT_FALSE(contains(*xml, "<Interfaces>"));
 }
