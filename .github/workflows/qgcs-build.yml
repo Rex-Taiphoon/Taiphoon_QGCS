@@ -49,6 +49,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Qt 6.11 起 Windows 套件庫改為依編譯器分目錄，aqtinstall 3.3.0 找不到；
+      # 支援的修正（miurahr/aqtinstall#1000）尚未發布，先固定 master 提交，發布後改回正式版本。
       - name: 安裝 Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -56,6 +58,7 @@ jobs:
           arch: win64_msvc2022_64
           modules: ${{ env.QT_MODULES }}
           cache: true
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
 
       - name: 載入 MSVC 環境
         uses: ilammy/msvc-dev-cmd@v1
