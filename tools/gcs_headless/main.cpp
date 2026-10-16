@@ -106,6 +106,11 @@ int main(int argc, char* argv[])
     const QCommandLineOption peer_option(QStringLiteral("peer"), QStringLiteral("Agent 探索入口，可重複"),
                                          QStringLiteral("address"));
     const QCommandLineOption no_multicast_option(QStringLiteral("no-multicast"), QStringLiteral("關閉 multicast"));
+    const QCommandLineOption participant_index_option(QStringLiteral("participant-index"),
+                                                      QStringLiteral("固定 participant index"), QStringLiteral("index"));
+    const QCommandLineOption external_address_option(QStringLiteral("external-address"),
+                                                     QStringLiteral("對外公告的位址（位於 NAT 之後時使用）"),
+                                                     QStringLiteral("ipv4"));
     const QCommandLineOption duration_option(QStringLiteral("duration"), QStringLiteral("執行秒數"),
                                              QStringLiteral("seconds"), QStringLiteral("20"));
     const QCommandLineOption warmup_option(QStringLiteral("warmup"), QStringLiteral("送出命令前等待秒數"),
@@ -118,8 +123,9 @@ int main(int argc, char* argv[])
     const QCommandLineOption shutdown_option(QStringLiteral("shutdown"),
                                              QStringLiteral("最後關閉指定 Agent（需 --allow-commands）"),
                                              QStringLiteral("agent"));
-    parser.addOptions({domain_option, interface_option, peer_option, no_multicast_option, duration_option,
-                       warmup_option, command_option, allow_commands_option, shutdown_option});
+    parser.addOptions({domain_option, interface_option, peer_option, no_multicast_option, participant_index_option,
+                       external_address_option, duration_option, warmup_option, command_option, allow_commands_option,
+                       shutdown_option});
     parser.process(app);
 
     link::DdsNetworkConfig config;
@@ -129,6 +135,11 @@ int main(int argc, char* argv[])
     for (const QString& peer : parser.values(peer_option))
     {
         config.peers.push_back(peer.toStdString());
+    }
+    config.external_address = parser.value(external_address_option).toStdString();
+    if (parser.isSet(participant_index_option))
+    {
+        config.participant_index = parser.value(participant_index_option).toUInt();
     }
 
     std::vector<CommandRequest> commands;
