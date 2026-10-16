@@ -32,17 +32,18 @@ const std::array<FlightState, 11> ALL_STATES = {
     FlightState::MOVING, FlightState::POST_RTL,      FlightState::ERROR,
 };
 
-const std::array<CmdType, 20> ALL_COMMANDS = {
+const std::array<CmdType, 21> ALL_COMMANDS = {
     CmdType::ARM,           CmdType::DISARM,          CmdType::TAKEOFF,          CmdType::MOVE_FORWARD,
     CmdType::MOVE_BACKWARD, CmdType::MOVE_LEFT,       CmdType::MOVE_RIGHT,       CmdType::MOVE_UP,
     CmdType::MOVE_DOWN,     CmdType::YAW,             CmdType::MOVE_POINT,       CmdType::HOLD,
     CmdType::MODE_RTL,      CmdType::MODE_LAND,       CmdType::MODE_OFFBOARD,    CmdType::FORMATION_CIRCLE,
-    CmdType::FORMATION_HORI_LINEAR, CmdType::FORMATION_VERT_LINEAR, CmdType::FORMATION_CANCEL, CmdType::UNKNOWN,
+    CmdType::FORMATION_HORI_LINEAR, CmdType::FORMATION_VERT_LINEAR, CmdType::FORMATION_V_SHAPE,
+    CmdType::FORMATION_CANCEL,      CmdType::UNKNOWN,
 };
 
 const std::set<CmdType> FORMATION_COMMANDS = {
     CmdType::FORMATION_CIRCLE, CmdType::FORMATION_HORI_LINEAR, CmdType::FORMATION_VERT_LINEAR,
-    CmdType::FORMATION_CANCEL,
+    CmdType::FORMATION_V_SHAPE, CmdType::FORMATION_CANCEL,
 };
 
 /// 測試用的單機 Agent
@@ -267,6 +268,17 @@ TEST_F(GuardModuleTest, FormationCommandRejectedForSingleAgent)
 TEST_F(GuardModuleTest, FormationCommandAllowedForAll)
 {
     EXPECT_TRUE(submit(make_request(ALL_AGENTS_TARGET, QStringLiteral("FORMATION_CIRCLE"), {10.0, 20.0})));
+}
+
+TEST_F(GuardModuleTest, VShapeFormationFollowsFormationRules)
+{
+    CommandAck ack;
+    EXPECT_FALSE(submit(make_request(AGENT_1, QStringLiteral("FORMATION_V_SHAPE"), {5.0, 20.0}), &ack));
+    EXPECT_TRUE(ack.message.contains(QStringLiteral("FORMATION")));
+    EXPECT_TRUE(submit(make_request(ALL_AGENTS_TARGET, QStringLiteral("FORMATION_V_SHAPE"), {5.0, 20.0})));
+    // 參數數量與 FORMATION_HORI_LINEAR 相同：間距與高度
+    EXPECT_FALSE(submit(make_request(ALL_AGENTS_TARGET, QStringLiteral("FORMATION_V_SHAPE"), {5.0}), &ack));
+    EXPECT_TRUE(ack.message.contains(QStringLiteral("需要")));
 }
 
 TEST_F(GuardModuleTest, RejectsMalformedAgentAndParams)

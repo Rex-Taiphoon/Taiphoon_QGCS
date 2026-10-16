@@ -38,6 +38,8 @@ class AppSettings : public QObject
     Q_PROPERTY(double formLinearSpacing READ form_linear_spacing WRITE set_form_linear_spacing NOTIFY changed)
     Q_PROPERTY(double formLinearHeight READ form_linear_height WRITE set_form_linear_height NOTIFY changed)
     Q_PROPERTY(double formVertSpacing READ form_vert_spacing WRITE set_form_vert_spacing NOTIFY changed)
+    Q_PROPERTY(double formVShapeSpacing READ form_v_shape_spacing WRITE set_form_v_shape_spacing NOTIFY changed)
+    Q_PROPERTY(double formVShapeHeight READ form_v_shape_height WRITE set_form_v_shape_height NOTIFY changed)
     // 站點設定（取代 Go 啟動器的設定頁）
     Q_PROPERTY(bool isSiteConfigured READ is_site_configured NOTIFY siteChanged)
     Q_PROPERTY(int domainId READ domain_id NOTIFY siteChanged)
@@ -76,6 +78,10 @@ public:
     void set_form_linear_height(double value);
     double form_vert_spacing() const;
     void set_form_vert_spacing(double value);
+    double form_v_shape_spacing() const;
+    void set_form_v_shape_spacing(double value);
+    double form_v_shape_height() const;
+    void set_form_v_shape_height(double value);
 
     bool is_site_configured() const;
     int domain_id() const;

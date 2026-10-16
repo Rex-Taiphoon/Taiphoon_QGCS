@@ -26,6 +26,8 @@ const QString KEY_CIRCLE_HEIGHT = QStringLiteral("command/form_circle_height");
 const QString KEY_LINEAR_SPACING = QStringLiteral("command/form_linear_spacing");
 const QString KEY_LINEAR_HEIGHT = QStringLiteral("command/form_linear_height");
 const QString KEY_VERT_SPACING = QStringLiteral("command/form_vert_spacing");
+const QString KEY_V_SHAPE_SPACING = QStringLiteral("command/form_v_shape_spacing");
+const QString KEY_V_SHAPE_HEIGHT = QStringLiteral("command/form_v_shape_height");
 const QString KEY_SITE_CONFIGURED = QStringLiteral("site/configured");
 const QString KEY_DOMAIN_ID = QStringLiteral("site/domain_id");
 const QString KEY_INTERFACE = QStringLiteral("site/network_interface");
@@ -49,6 +51,8 @@ constexpr NumberSpec YAW_DEGREES{15.0, -180.0, 180.0};
 constexpr NumberSpec CIRCLE_RADIUS{10.0, 1.0, 200.0};
 constexpr NumberSpec FORMATION_HEIGHT{20.0, 0.5, 120.0};
 constexpr NumberSpec FORMATION_SPACING{5.0, 1.0, 200.0};
+/// V 字翼上間距下限 2 m：與 Agent 預設 formation_min_distance_m 相同，過小的隊形會被 Agent 拒絕
+constexpr NumberSpec V_SHAPE_SPACING{5.0, 2.0, 200.0};
 
 /// ROS_DOMAIN_ID 上限（CycloneDDS 埠號計算可用範圍）
 constexpr int MAX_DOMAIN_ID = 232;
@@ -174,6 +178,26 @@ double AppSettings::form_vert_spacing() const
 void AppSettings::set_form_vert_spacing(double value)
 {
     write_double(KEY_VERT_SPACING, value, FORMATION_SPACING.min, FORMATION_SPACING.max);
+}
+
+double AppSettings::form_v_shape_spacing() const
+{
+    return read_double(KEY_V_SHAPE_SPACING, V_SHAPE_SPACING.fallback, V_SHAPE_SPACING.min, V_SHAPE_SPACING.max);
+}
+
+void AppSettings::set_form_v_shape_spacing(double value)
+{
+    write_double(KEY_V_SHAPE_SPACING, value, V_SHAPE_SPACING.min, V_SHAPE_SPACING.max);
+}
+
+double AppSettings::form_v_shape_height() const
+{
+    return read_double(KEY_V_SHAPE_HEIGHT, FORMATION_HEIGHT.fallback, FORMATION_HEIGHT.min, FORMATION_HEIGHT.max);
+}
+
+void AppSettings::set_form_v_shape_height(double value)
+{
+    write_double(KEY_V_SHAPE_HEIGHT, value, FORMATION_HEIGHT.min, FORMATION_HEIGHT.max);
 }
 
 bool AppSettings::is_site_configured() const

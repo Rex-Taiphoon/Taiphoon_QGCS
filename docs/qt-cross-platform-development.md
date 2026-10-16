@@ -40,7 +40,7 @@
 |---|---|---|
 | F-01 | 動態機隊發現：每 3 秒掃描；超過 5 秒無狀態資料視為 stale；shutdown 成功後直到 topic 消失前不重新加入 | `FleetModule` |
 | F-02 | 訂閱 `state`、`attitude`、`ned_target`、`waypoints`、`planning/trajectory` 並顯示 | `TelemetryModule` |
-| F-03 | 所有命令經 Guard 驗證：轉移表 + Arm／Takeoff 依 PX4 原生狀態；全體命令要求每台線上 Agent 都允許；FORMATION_* 僅限全體 | `GuardModule`、ADR-0003 |
+| F-03 | 所有命令經 Guard 驗證：轉移表 + Arm／Takeoff 依 PX4 原生狀態；全體命令要求每台線上 Agent 都允許；FORMATION_* 僅限全體，介面另要求至少 2 台線上 | `GuardModule`、ADR-0003 |
 | F-04 | 命令路由至 `/{ns}/command` 或 `/uav_all_agent/command`；參數含 NaN／Inf 時拒絕；回報成功或失敗 | `CommandModule` |
 | F-05 | 單機 Agent shutdown：只能選單一線上 Agent、二次確認、5 秒逾時、成功後立即從機隊隔離 | `AgentLifecycleModule` |
 | F-06 | 版面：60 px 狀態列與 50 × 50 品牌圖示、四分頁飛行控制、可最小化的機群懸浮視窗、全幅地圖、姿態儀、提示訊息 | ADR-0009 |
@@ -206,7 +206,7 @@ Taiphoon_QGCS/
 | 網頁版 | QML | 備註 |
 |---|---|---|
 | `StatusBar.tsx` | `StatusBar.qml` | 60 px、可水平捲動摘要、燈號與設定入口保持可見 |
-| `CommandPanel.tsx` | `CommandPanel.qml` | 四分頁：安全開關／模式控制／移動與 YAW／編隊命令 |
+| `CommandPanel.tsx` | `CommandPanel.qml` | 四分頁：安全開關／模式控制／移動與 YAW／編隊命令（環形、水平一字、燕行；垂直一字暫不開放） |
 | `ConfirmDialog.tsx` | `ConfirmDialog.qml` | L1 |
 | `SlideToConfirm.tsx` | `SlideToConfirm.qml` | L2 |
 | `FleetPanel.tsx` | `FleetPanel.qml` | 圓角卡片、可最小化、窄視窗移位 |

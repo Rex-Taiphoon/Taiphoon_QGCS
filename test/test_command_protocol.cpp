@@ -116,5 +116,7 @@ TEST(CommandProtocolTest, DetectsFormationCommands)
 {
     EXPECT_TRUE(protocol::is_formation_command(QStringLiteral("FORMATION_CIRCLE")));
     EXPECT_TRUE(protocol::is_formation_command(QStringLiteral("formation_cancel")));
+    EXPECT_TRUE(protocol::is_formation_command(QStringLiteral("FORMATION_V_SHAPE")));
+    EXPECT_EQ(protocol::parse_command(QStringLiteral("formation_v_shape")), CmdType::FORMATION_V_SHAPE);
     EXPECT_FALSE(protocol::is_formation_command(QStringLiteral("MODE_RTL")));
 }

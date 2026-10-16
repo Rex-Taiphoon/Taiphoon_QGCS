@@ -48,6 +48,25 @@ TEST(AppSettingsTest, DefaultsAndRangeValidation)
     EXPECT_NEAR(settings.takeoff_height(), 8.5, EPSILON);
 }
 
+TEST(AppSettingsTest, VShapeFormationSpacingKeepsAgentMinimumDistance)
+{
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    AppSettings settings(dir.filePath(QStringLiteral("v.ini")));
+    EXPECT_NEAR(settings.form_v_shape_spacing(), 5.0, EPSILON);
+    EXPECT_NEAR(settings.form_v_shape_height(), 20.0, EPSILON);
+
+    // 低於 Agent 預設最小中心距離 2 m 的間距不寫入
+    settings.set_form_v_shape_spacing(1.5);
+    EXPECT_NEAR(settings.form_v_shape_spacing(), 5.0, EPSILON);
+    settings.set_form_v_shape_spacing(2.0);
+    EXPECT_NEAR(settings.form_v_shape_spacing(), 2.0, EPSILON);
+    settings.set_form_v_shape_height(std::numeric_limits<double>::infinity());
+    EXPECT_NEAR(settings.form_v_shape_height(), 20.0, EPSILON);
+    settings.set_form_v_shape_height(12.0);
+    EXPECT_NEAR(settings.form_v_shape_height(), 12.0, EPSILON);
+}
+
 TEST(AppSettingsTest, PersistsAcrossInstances)
 {
     QTemporaryDir dir;

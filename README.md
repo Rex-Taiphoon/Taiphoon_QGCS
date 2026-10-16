@@ -38,6 +38,10 @@ iOS／iPadOS 版需以 Sideloadly 等工具用自己的 Apple ID 重新簽章後
 6. 命令送出、解鎖確認等成功訊息不彈出提示，只寫入日誌檔；Guard 拒絕、未解鎖、逾時等失敗與警告
    仍會在飛行控制與機群面板之間彈出（同時寫入日誌）。飛控面板需確認的命令會在確認列顯示「是否執行？」，
    按實心的 EXEC 才送出；編隊點選隊形後在同一列按閃爍的 CONFIRM 暫存。
+   編隊需選取「全部機群」且至少 2 台線上，提供環形、水平一字與燕行（V 字，頂點朝北）三種隊形；
+   垂直一字暫不開放。槽位分配與避碰由 Agent 端處理：以總移動距離最短分配槽位，有 Agent 離線時
+   存活成員自動重組，只剩 1 台時取消編隊並原地懸停。
+   Docker Desktop 模擬需使用含 `dds_peer_relay` 的 Taiphoon_Agent，否則各 Agent 互相看不到而無法編隊。
 7. 「進階設定」可調整自動跟隨、關閉單一 Agent、開啟唯讀除錯工具或結束 GCS。
    結束 GCS 不會對無人機發送任何命令。
 8. 日誌檔位於 `%LOCALAPPDATA%\Taiphoon\Taiphoon_QGCS\logs\Taiphoon_QGCS_yyyyMMdd.log`

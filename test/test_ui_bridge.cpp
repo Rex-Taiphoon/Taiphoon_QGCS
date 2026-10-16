@@ -149,8 +149,12 @@ TEST_F(UiBridgeTest, AvailabilityFollowsGuardRules)
 TEST_F(UiBridgeTest, AllSelectionRequiresEveryAgent)
 {
     bring_online(AGENT_1, make_state(FlightState::IDLE));
-    bring_online(AGENT_2, make_state(FlightState::IDLE, true));
     bridge_->selectAgent(ALL_AGENTS_TARGET);
+    // 單機沒有隊形，Agent 也會拒絕少於 2 台的編隊
+    EXPECT_FALSE(bridge_->can_formation());
+
+    bring_online(AGENT_2, make_state(FlightState::IDLE, true));
+    bridge_->refresh_now();
     EXPECT_FALSE(bridge_->can_arm());
     EXPECT_FALSE(bridge_->can_yaw());
     EXPECT_TRUE(bridge_->can_formation());

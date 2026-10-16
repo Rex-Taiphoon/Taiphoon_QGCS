@@ -93,7 +93,8 @@ bool is_landed_px4_offboard(const AgentStateData& state)
 bool is_formation_command(CmdType cmd)
 {
     return cmd == CmdType::FORMATION_CIRCLE || cmd == CmdType::FORMATION_HORI_LINEAR
-           || cmd == CmdType::FORMATION_VERT_LINEAR || cmd == CmdType::FORMATION_CANCEL;
+           || cmd == CmdType::FORMATION_VERT_LINEAR || cmd == CmdType::FORMATION_V_SHAPE
+           || cmd == CmdType::FORMATION_CANCEL;
 }
 
 bool is_command_allowed(FlightState state, CmdType cmd)

@@ -29,7 +29,7 @@ struct CommandSpec
 };
 
 /// 介面文件第 6.2 節的全部命令（含相容性簡寫）
-constexpr std::array<CommandSpec, 23> COMMAND_SPECS = {{
+constexpr std::array<CommandSpec, 24> COMMAND_SPECS = {{
     {"MODE_RTL", CmdType::MODE_RTL, 0, 0},
     {"MODE_LAND", CmdType::MODE_LAND, 0, 0},
     {"MODE_OFFBOARD", CmdType::MODE_OFFBOARD, 0, 0},
@@ -52,6 +52,7 @@ constexpr std::array<CommandSpec, 23> COMMAND_SPECS = {{
     {"FORMATION_CIRCLE", CmdType::FORMATION_CIRCLE, 2, 2},
     {"FORMATION_HORI_LINEAR", CmdType::FORMATION_HORI_LINEAR, 2, 2},
     {"FORMATION_VERT_LINEAR", CmdType::FORMATION_VERT_LINEAR, 1, 1},
+    {"FORMATION_V_SHAPE", CmdType::FORMATION_V_SHAPE, 2, 2},
     {"FORMATION_CANCEL", CmdType::FORMATION_CANCEL, 0, 0},
 }};
 

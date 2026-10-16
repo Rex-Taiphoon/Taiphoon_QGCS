@@ -32,6 +32,8 @@ constexpr double MS_PER_SECOND = 1000.0;
 const QString SHUTDOWN_COMMAND = QStringLiteral("AGENT_SHUTDOWN");
 /// 關閉請求的介面逾時（毫秒）：必須長於 AgentLifecycleModule 的 5 秒，避免先於模組誤報逾時
 constexpr int SHUTDOWN_UI_TIMEOUT_MS = 6000;
+/// 編隊最少線上台數：單機沒有隊形，Agent 端也會拒絕少於 2 台的編隊
+constexpr int MIN_FORMATION_AGENT_COUNT = 2;
 
 /**
  * @brief 組合待回應鍵
@@ -372,9 +374,10 @@ void UiBridge::recompute_availability()
     {
         availability_.insert(cmd, is_allowed(cmd));
     }
-    // YAW 僅支援單機（網頁版相同）；編隊僅支援全體
+    // YAW 僅支援單機（網頁版相同）；編隊僅支援全體且至少 2 台線上
     availability_.insert(CmdType::YAW, is_single_selected() && is_allowed(CmdType::YAW));
-    availability_.insert(CmdType::FORMATION_CIRCLE, is_all_selected() && !online_agents_.isEmpty());
+    availability_.insert(CmdType::FORMATION_CIRCLE,
+                         is_all_selected() && online_agents_.size() >= MIN_FORMATION_AGENT_COUNT);
 
     if (availability_ != previous)
     {

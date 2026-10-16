@@ -29,7 +29,7 @@ Rectangle {
     property var pending: null
     /// 移動距離（不保存，與網頁版相同預設 3 m）
     property real moveDistance: 3
-    /// 展開中的編隊參數：circle、linear、vert
+    /// 展開中的編隊參數：circle、linear、vshape
     property string expandedForm: ""
 
     readonly property bool isSingle: bridge.isSingleSelected
@@ -510,7 +510,7 @@ Rectangle {
                         risk: Theme.commandConfirm
                         enabled: root.bridge.canFormation
                         isExpanded: root.expandedForm === "circle"
-                        tag: enabled ? "▾" : qsTr("無線上機")
+                        tag: enabled ? "▾" : qsTr("需 2 台以上")
                         actionText: isExpanded ? "CONFIRM" : ""
                         isActionEnabled: circleRadius.isDraftValid && circleHeight.isDraftValid
                         onClicked: root.expandedForm = isExpanded ? "" : "circle"
@@ -558,7 +558,7 @@ Rectangle {
                         risk: Theme.commandConfirm
                         enabled: root.bridge.canFormation
                         isExpanded: root.expandedForm === "linear"
-                        tag: enabled ? "▾" : qsTr("無線上機")
+                        tag: enabled ? "▾" : qsTr("需 2 台以上")
                         actionText: isExpanded ? "CONFIRM" : ""
                         isActionEnabled: linearSpacing.isDraftValid && linearHeight.isDraftValid
                         onClicked: root.expandedForm = isExpanded ? "" : "linear"
@@ -600,35 +600,51 @@ Rectangle {
                         }
                     }
 
+                    // 垂直一字暫不開放（Agent 仍支援 FORMATION_VERT_LINEAR，待驗證後再加回列表）
                     LskRow {
                         visible: root.isAll
-                        title: qsTr("垂直一字")
+                        title: qsTr("燕行編隊")
                         risk: Theme.commandConfirm
                         enabled: root.bridge.canFormation
-                        isExpanded: root.expandedForm === "vert"
-                        tag: enabled ? "▾" : qsTr("無線上機")
+                        isExpanded: root.expandedForm === "vshape"
+                        tag: enabled ? "▾" : qsTr("需 2 台以上")
                         actionText: isExpanded ? "CONFIRM" : ""
-                        isActionEnabled: vertSpacing.isDraftValid
-                        onClicked: root.expandedForm = isExpanded ? "" : "vert"
+                        isActionEnabled: vShapeSpacing.isDraftValid && vShapeHeight.isDraftValid
+                        onClicked: root.expandedForm = isExpanded ? "" : "vshape"
                         onActionClicked: {
-                            vertSpacing.commit()
-                            root.stage("FORMATION_VERT_LINEAR", [root.settings.formVertSpacing],
-                                       qsTr("垂直一字 S%1").arg(root.settings.formVertSpacing))
+                            vShapeSpacing.commit()
+                            vShapeHeight.commit()
+                            root.stage("FORMATION_V_SHAPE",
+                                       [root.settings.formVShapeSpacing, root.settings.formVShapeHeight],
+                                       qsTr("燕行編隊 S%1 H%2").arg(root.settings.formVShapeSpacing)
+                                                               .arg(root.settings.formVShapeHeight))
                         }
                     }
                     FormBox {
-                        visible: root.isAll && root.expandedForm === "vert" && root.bridge.canFormation
+                        visible: root.isAll && root.expandedForm === "vshape" && root.bridge.canFormation
 
                         FormField {
                             label: "SPACING"
                             InlineNumber {
-                                id: vertSpacing
-                                value: root.settings.formVertSpacing
-                                minimum: 1
+                                id: vShapeSpacing
+                                value: root.settings.formVShapeSpacing
+                                minimum: 2
                                 maximum: 200
                                 unit: "M"
-                                tooltip: qsTr("垂直一字編隊機距（公尺），各機之間的垂直間隔")
-                                onCommitted: (newValue) => root.settings.formVertSpacing = newValue
+                                tooltip: qsTr("燕行（V 字）編隊同一翼相鄰兩機距離（公尺），頂點朝北")
+                                onCommitted: (newValue) => root.settings.formVShapeSpacing = newValue
+                            }
+                        }
+                        FormField {
+                            label: "ALT"
+                            InlineNumber {
+                                id: vShapeHeight
+                                value: root.settings.formVShapeHeight
+                                minimum: 0.5
+                                maximum: 120
+                                unit: "M"
+                                tooltip: qsTr("編隊飛行高度（公尺）")
+                                onCommitted: (newValue) => root.settings.formVShapeHeight = newValue
                             }
                         }
                     }
@@ -638,7 +654,7 @@ Rectangle {
                         title: qsTr("取消編隊")
                         risk: Theme.commandConfirm
                         enabled: root.bridge.canFormation
-                        tag: root.rowTag(enabled, true, qsTr("無線上機"))
+                        tag: root.rowTag(enabled, true, qsTr("需 2 台以上"))
                         onClicked: root.stage("FORMATION_CANCEL", [], title)
                     }
                 }
