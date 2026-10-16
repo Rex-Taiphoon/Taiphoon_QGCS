@@ -26,6 +26,7 @@
 - DDS 使用 CycloneDDS 單播、`ParticipantIndex=auto`、`MaxAutoParticipantIndex=20`、
   `ManySocketsMode=false`。GCS 公告主機的設備網路 IPv4，明確映射所有單播接收埠。
   這是 GCS 程序的 participant 容量，與 Agent 數量無關。
+  （2026-10-16 已調整為 48，並確認此值同時決定 peer 探測範圍，見文末更新。）
 - 同機 Agent 占用低位 DDS 埠時，可用 `--participant-index` 指定固定 GCS 程序索引，
   XML、Docker 映射與 Windows 轉送皆使用該索引的兩個埠。domain 0、索引 100 使用
   7610／7611；索引保存於站點設定並納入容器名稱，不能在同容器額外執行共用索引的 ROS2 CLI。
@@ -64,3 +65,21 @@
 舊 WSL 設定會於 start 自動遷移並保留站點參數，不沿用跨 engine 的映像快取與容器識別。
 已移除 WSL Docker 呼叫路徑；--wsl 指定發行版會被拒絕，不再提供舊後端相容方式。
 前述 WSL 四台 Agent 驗證屬於當時環境，不作為目前 Docker Desktop 的驗證結論。
+
+## 2026-10-16 更新：`MaxAutoParticipantIndex` 調整為 48
+
+CycloneDDS 0.10.5 展開不含 port 的 peer 時，只探測 participant index 0 到
+`MaxAutoParticipantIndex - 1` 的單播 discovery 埠（`q_addrset.c` 的 `add_addresses_to_addrset_1()`）。
+因此此值不只是 GCS 程序的 participant 容量，也決定 peer 探測範圍，與 Agent 的埠段配置有關；
+固定 participant index 時同樣適用。
+
+Taiphoon_Agent 啟動器在 Docker Desktop 模擬時，4 台 Agent 共用主機 IPv4，各占 12 個 index
+（domain 0：7410-7433、7434-7457、7458-7481、7482-7505）。原值 20 只探測到 7410～7448，
+第 3、4 台 Agent 探測不到。改為 48 後探測範圍為 7410～7504，涵蓋全部 4 台。
+推導：Agent 4 最後一個 discovery 埠 `7400 + 82 + 2×11 = 7504`，`7410 + 2×47 = 7504`，故至少需要 48。
+
+- 不提供介面設定或存檔欄位；正確值由 Agent 部署配置決定，設錯時沒有錯誤訊息。
+- 實機（每台 Agent 不同 IP，index 0～5）原本就在範圍內，行為不變。
+- 每個不含 port 的 peer，每個 SPDP 週期送出的探測封包由 20 個增為 48 個。
+- 同機有 Docker 映射 7410～7505 時仍建議固定 index 50。
+- 啟動器的 Agent 數量或每台 index 數變更時，必須同步調整 `src/link/dds_config.hpp` 與 `test_dds_config`。

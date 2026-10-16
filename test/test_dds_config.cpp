@@ -35,7 +35,7 @@ TEST(DdsConfig, DefaultUsesMulticastAndAutoIndex)
     ASSERT_TRUE(xml.has_value());
     EXPECT_TRUE(contains(*xml, "<AllowMulticast>default</AllowMulticast>"));
     EXPECT_TRUE(contains(*xml, "<ParticipantIndex>auto</ParticipantIndex>"));
-    EXPECT_TRUE(contains(*xml, "<MaxAutoParticipantIndex>20</MaxAutoParticipantIndex>"));
+    EXPECT_TRUE(contains(*xml, "<MaxAutoParticipantIndex>48</MaxAutoParticipantIndex>"));
     EXPECT_TRUE(contains(*xml, "<ManySocketsMode>false</ManySocketsMode>"));
     EXPECT_TRUE(contains(*xml, "<MultipleReceiveThreads>false</MultipleReceiveThreads>"));
     EXPECT_FALSE(contains(*xml, "<Peers>"));
@@ -56,6 +56,22 @@ TEST(DdsConfig, UnicastSiteConfig)
     EXPECT_TRUE(contains(*xml, "<NetworkInterface address=\"192.168.0.20\"/>"));
     EXPECT_TRUE(contains(*xml, "<Peer Address=\"192.168.0.31\"/><Peer Address=\"192.168.0.32\"/>"));
     EXPECT_TRUE(contains(*xml, "<ParticipantIndex>100</ParticipantIndex>"));
+}
+
+TEST(DdsConfig, PeerProbeCoversDesktopSimulationAgents)
+{
+    // 對應 Taiphoon_Agent 啟動器：最多 4 台 Agent，每台 12 個 index，各占 meta／data 兩埠
+    constexpr uint32_t AGENT_COUNT = 4;
+    constexpr uint32_t INDEX_PER_AGENT = 12;
+    constexpr uint32_t PORT_STEP = 2;
+    constexpr uint32_t UNICAST_META_OFFSET = 10;
+    // 最後一台 Agent 最後一個 discovery 埠相對 domain base 的偏移（domain 0 為 7504）
+    constexpr uint32_t LAST_AGENT_META_OFFSET =
+        UNICAST_META_OFFSET + AGENT_COUNT * INDEX_PER_AGENT * PORT_STEP - PORT_STEP;
+    // 不含 port 的 peer 最後探測的 discovery 埠偏移（index 上限-1）
+    constexpr uint32_t LAST_PROBED_META_OFFSET = UNICAST_META_OFFSET + PORT_STEP * (MAX_AUTO_PARTICIPANT_INDEX - 1);
+    EXPECT_GE(LAST_PROBED_META_OFFSET, LAST_AGENT_META_OFFSET);
+    EXPECT_LT(MAX_AUTO_PARTICIPANT_INDEX, PARTICIPANT_INDEX_LIMIT);
 }
 
 TEST(DdsConfig, InterfaceNameAndEscaping)

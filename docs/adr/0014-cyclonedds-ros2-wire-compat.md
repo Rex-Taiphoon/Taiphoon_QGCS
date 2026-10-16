@@ -32,7 +32,7 @@ Taiphoon_Agent 以 **ROS2 Humble + `rmw_cyclonedds_cpp`** 執行。原 GCS 直�
 - 機隊發現改讀 DDS 內建 topic `DCPSPublication`，去除 `rt/` 前綴後沿用 `uav_{N}_agent/state` 規則。
 - Service 呼叫依 rmw_cyclonedds 格式在樣本前附加請求標頭（client GUID + sequence number），以 sequence number 比對回應。
 - CycloneDDS 設定由程式依站點設定產生 XML 字串，透過 `dds_create_domain()` 套用，
-  延續 ADR-0011 的單播、`ParticipantIndex=auto`、`MaxAutoParticipantIndex=20` 等參數；SITL 可使用 multicast。
+  延續 ADR-0011 的單播、`ParticipantIndex=auto`、`MaxAutoParticipantIndex=48`（2026-10-16 由 20 調整，見 ADR-0011）等參數；SITL 可使用 multicast。
 - 相容層位於 `src/link/`，對核心只提供 `IAgentLink` 介面（見 ADR-0015）。
 
 ## M1 必須驗證的項目

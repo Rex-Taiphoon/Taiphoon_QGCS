@@ -36,8 +36,13 @@ struct DdsNetworkConfig
     std::optional<uint32_t> participant_index;
 };
 
-/// 自動 participant index 上限；這是本機 participant 容量，與 Agent 數量無關（ADR-0011）
-inline constexpr uint32_t MAX_AUTO_PARTICIPANT_INDEX = 20;
+/// 自動 participant index 上限，CycloneDDS 同時用於：
+/// 1. 本程序 auto 時可選用的 index 範圍；
+/// 2. 不含 port 的 peer 要探測的單播 discovery 埠（index 0～上限-1）。
+/// Taiphoon_Agent 啟動器在 Docker Desktop 模擬時，4 台 Agent × 12 個 index 共用主機 IP，
+/// discovery 埠最高為 base+104（domain 0 為 7504，即 index 47），因此至少需要 48（ADR-0011）。
+/// 啟動器的 Agent 數量或每台 index 數變更時，必須同步調整此值與 test_dds_config。
+inline constexpr uint32_t MAX_AUTO_PARTICIPANT_INDEX = 48;
 
 /// CycloneDDS 允許的 participant index 上限（不含）
 inline constexpr uint32_t PARTICIPANT_INDEX_LIMIT = 120;
