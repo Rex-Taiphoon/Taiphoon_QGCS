@@ -140,12 +140,21 @@ GCS 以命令列參數啟動（只在本次有效，不寫入設定檔）：
     --no-multicast --peer <主機區網 IP> --participant-index 50
 ```
 
+不含 port 的 Agent 位址會探測 participant index 0～47 的 discovery 埠（domain 0 為 7410～7504），
+涵蓋 Taiphoon_Agent 啟動器模擬的 4 台 Agent 埠段，不必逐一填寫 port（ADR-0011 2026-10-16 更新）。
+QGCS 在其他電腦時改用 `--interface <本機 IP> --no-multicast --peer <模擬主機 IP> --participant-index 50`。
+
+`tools/gcs_headless` 接受相同的連線參數，可在無介面下輸出機隊與遙測，並以 `--command`＋`--allow-commands`
+經 Guard 送出命令。Taiphoon_Agent 以 QGCS 驗證操作功能的完整啟動標準見
+[docs/agents/qgcs-launch.md](docs/agents/qgcs-launch.md)。
+
 ## 文件
 
 - [開發規劃：需求、架構與路線](docs/qt-cross-platform-development.md)
 - [領域詞彙表](CONTEXT.md)
 - [架構決策記錄](docs/adr/)（Qt 版主要決策：ADR-0013～0017）
 - [開發規範 (AGENTS.md)](AGENTS.md)
+- [QGCS 啟動標準（供 Taiphoon_Agent 驗證）](docs/agents/qgcs-launch.md)
 - [程式碼規範 (CODE_CONSTRAINT.md)](CODE_CONSTRAINT.md)
 
 ## 授權

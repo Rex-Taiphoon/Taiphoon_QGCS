@@ -49,7 +49,7 @@ Taiphoon_QGCS/
 ├── packaging/                   # NSIS、macOS 打包與授權聲明
 ├── docs/
 │   ├── adr/                     # 架構決策記錄
-│   └── agents/issue-tracker.md  # issue 流程
+│   └── agents/                  # issue 流程、供 Taiphoon_Agent 的 QGCS 啟動標準
 └── .scratch/                    # 功能規格與 issue 檔案
 ```
 
@@ -149,6 +149,7 @@ Taiphoon_QGCS/
 - 除錯工具提供發布 topic 或呼叫 service 的功能。
 - 註解或文件使用中國用語。
 - 硬編碼 Agent 命名空間或無人機數量。
+- 未經同意改名、移除或改變 `docs/agents/qgcs-launch.md` 所列的啟動介面。
 - 略過單元測試發布安全關鍵程式碼變更。
 - 將單元測試程式碼放置在 `src/` 主程式邏輯中。
 - 未參考 Agent 介面文件即修改通訊介面。
@@ -185,6 +186,21 @@ cd build\windows-release; cpack -C Release                              # ZIP；
 `tools/gcs_headless` 以與桌面程式相同的核心連線 Agent 並輸出日誌（M3 驗證），命令一律經 Guard，
 且必須加 `--allow-commands`。
 
+### 啟動介面相容性
+
+Taiphoon_Agent 依 [`docs/agents/qgcs-launch.md`](docs/agents/qgcs-launch.md) 啟動 QGCS 驗證操作功能，
+該文件列出的內容是對外的**穩定啟動介面**，所有未來版本必須維持相容：
+
+- `Taiphoon_QGCS` 與 `gcs_headless` 的命令列參數名稱與語意（`--interface`、`--external-address`、
+  `--no-multicast`、`--peer`、`--participant-index`、`--domain`，以及文件列出的驗證與命令參數）。
+- 執行檔名稱與位置（`build/<preset>/bin/`、安裝目錄、ZIP 內的 `bin/`）與日誌檔路徑。
+- 文件列出的日誌片段、`gcs_headless` 輸出前綴（`[fleet]`、`[state]`、`[request]`、`[ack]`、`結束：`）與結束碼。
+- 預設連線 Docker Desktop 模擬的方式（`192.168.65.254`、固定 participant index 50）。
+
+只能新增參數或輸出欄位，不得改名、移除或改變既有語意。確有必要變更時，必須先取得使用者同意，
+保留舊參數至少一個版本，並同步更新 `docs/agents/qgcs-launch.md`、`README.md` 與 Taiphoon_Agent 端的對應說明。
+修改上述任一項目時，須依文件指令在 Agent 模擬環境實際驗證。
+
 `tools/dds_probe` 是 M1 互通驗證工具，不隨產品發布。它只能送出 Agent 無法解析的命令 `GCS_PROBE_NOOP`，
 shutdown 必須加上 `--confirm`；正式命令一律經 GuardModule。
 
@@ -212,5 +228,6 @@ shutdown 必須加上 `--confirm`；正式命令一律經 GuardModule。
 | `CONTEXT.md` | 領域詞彙與術語 | 動工前、使用專案術語時 |
 | `docs/adr/` | 架構決策記錄（0013～0016 為 Qt 版主要決策） | 修改模組、通訊層或架構前 |
 | `docs/agents/issue-tracker.md` | issue 流程規範 | 建立或更新 issue 時 |
+| `docs/agents/qgcs-launch.md` | 供 Taiphoon_Agent 驗證的 QGCS 啟動標準（穩定介面） | 修改命令列參數、日誌、打包路徑或 `gcs_headless` 時 |
 | `../Taiphoon_Agent_Interfaces/taiphoon-agent-interface.md` | Agent 通訊介面契約 | 修改或驗證 Agent 通訊介面時 |
 | `README.md` | 快速上手 | 不熟悉環境時 |
