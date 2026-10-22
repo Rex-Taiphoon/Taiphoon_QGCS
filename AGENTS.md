@@ -163,6 +163,9 @@ Taiphoon_QGCS/
 Windows 使用 MSVC（Qt `msvc2022_64` kit，本機為 VS 2026 Build Tools）；Qt 固定 6.11.2，
 CMake 會拒絕其他版本。第三方相依（CycloneDDS 0.10.5、GoogleTest v1.15.2）於首次 configure 時下載。
 
+環境需求：Qt 6.11.2 需含 Qt Location、Qt Positioning、Qt Shader Tools（Shader Tools 只在建置時編譯地圖 shader，
+執行期不需要）；CMake + Ninja（Qt 安裝目錄 `Tools` 內附）；Python 3（IDL 產生腳本）。
+
 ```powershell
 . .\tools\dev-env.ps1                  # 載入 MSVC 與 Qt；Qt 不在 D:\Qt 時先設定 QT_ROOT_DIR
 cmake --preset windows-debug
@@ -171,7 +174,7 @@ ctest --preset windows-debug
 ```
 
 其他 preset：`windows-release`、`macos-debug`、`macos-release`、`linux-debug`、`linux-release`（需先設定 `QT_ROOT_DIR`）；
-`ios-release` 為 macOS 上的交叉編譯，需先建置主機版 idlc（見 README 與 ADR-0017）。
+`ios-release` 為 macOS 上的交叉編譯，需先建置主機版 idlc（見下方「其他平台打包」與 ADR-0017）。
 
 打包（Release）：
 
@@ -181,7 +184,23 @@ cmake --build --preset windows-release
 cmake --install build\windows-release --component gcs --prefix <目錄>   # 部署測試
 cd build\windows-release; cpack -C Release                              # ZIP；有 NSIS 時另產生安裝程式
 ```
+產生 `Taiphoon_QGCS-v<版本>-Windows-AMD64.exe`（NSIS）與 `.zip`。
 無畫面環境驗證主視窗可載入：設定 `QT_QPA_PLATFORM=offscreen` 後執行 `Taiphoon_QGCS --smoke-test`。
+
+其他平台打包（在該平台上執行，或交給 GitHub Actions 的 `QGCS Build` workflow 手動觸發）：
+
+- macOS：`cmake --preset macos-release`、`cmake --build --preset macos-release`，於建置目錄執行 `cpack` 產生 DMG
+  （Universal Binary，目前僅 ad-hoc 簽章）。
+- Linux：`cmake --preset linux-release`、`cmake --build --preset linux-release`，於建置目錄執行 `cpack` 產生 TGZ。
+- iOS／iPadOS（macOS 上交叉編譯，需 Xcode 與 iOS 版 Qt，並設定 `QT_ROOT_DIR`、`QT_HOST_PATH`）：
+  先執行 `tools/build-host-idlc.sh <目錄>` 並把 `<目錄>/bin` 加入 PATH，
+  再執行 `cmake --preset ios-release`、`cmake --build --preset ios-release`。
+
+版本號記錄在根目錄 `VERSION`，格式為 `X.Y.Z`，會帶入安裝檔名稱、「新增或移除程式」的版本與啟動日誌。
+**每次發布或交給其他電腦安裝前都要遞增**（修正遞增 Z、新功能遞增 Y、不相容變更遞增 X），
+修改 `VERSION` 後須重新 configure，同一個版本號不可對應兩份不同內容的安裝檔。
+安裝程式以固定、不含版本號的登錄機碼 `Taiphoon_QGCS` 偵測已安裝的版本，詢問後先執行舊版的移除程式再安裝；
+安裝時會重建防火牆規則 `Taiphoon_QGCS DDS`，覆蓋安裝也不會產生重複規則。
 
 `tools/gcs_headless` 以與桌面程式相同的核心連線 Agent 並輸出日誌（M3 驗證），命令一律經 Guard，
 且必須加 `--allow-commands`。
@@ -230,4 +249,4 @@ shutdown 必須加上 `--confirm`；正式命令一律經 GuardModule。
 | `docs/agents/issue-tracker.md` | issue 流程規範 | 建立或更新 issue 時 |
 | `docs/agents/qgcs-launch.md` | 供 Taiphoon_Agent 驗證的 QGCS 啟動標準（穩定介面） | 修改命令列參數、日誌、打包路徑或 `gcs_headless` 時 |
 | `../Taiphoon_Agent_Interfaces/taiphoon-agent-interface.md` | Agent 通訊介面契約 | 修改或驗證 Agent 通訊介面時 |
-| `README.md` | 快速上手 | 不熟悉環境時 |
+| `README.md` | 給使用者的下載、安裝與操作說明（不放開發細節） | 修改操作流程、介面或發布格式時 |

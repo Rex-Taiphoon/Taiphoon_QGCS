@@ -40,7 +40,7 @@ cmake --preset windows-release
 cmake --build --preset windows-release
 ```
 
-macOS 改用 `macos-release` preset（需先設定 `QT_ROOT_DIR`）。建置細節以 `README.md` 為準。
+macOS 改用 `macos-release` preset（需先設定 `QT_ROOT_DIR`）。建置細節以 `AGENTS.md`「建置與驗證」為準。
 
 Windows 原始碼建置的執行檔需要 Qt DLL：請在已執行 `tools/dev-env.ps1` 的 PowerShell 中啟動，
 或改用安裝程式／ZIP 版（已附 Qt 與 VC 執行期）。

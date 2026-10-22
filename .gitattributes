@@ -19,5 +19,6 @@ CMakeLists.txt text eol=lf
 *.bat text eol=crlf
 *.nsi text eol=crlf
 *.png binary
+*.gif binary
 *.ico binary
 *.icns binary

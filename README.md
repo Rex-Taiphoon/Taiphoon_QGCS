@@ -1,161 +1,155 @@
-# Taiphoon_QGCS — Qt 原生地面控制站
+<p align="center">
+  <img src="docs/images/logo.svg" alt="Taiphoon QGCS — Ground Control Station">
+</p>
 
-搭配 Taiphoon_Agent 使用的桌面地面控制站，是 [Taiphoon_GCS](../Taiphoon_GCS)（網頁版）的 Qt 原生版本。
-目標是維持網頁版所有功能與 Agent 介面，並讓使用者**直接安裝即可執行**，不需安裝 Docker、ROS2 或處理 DDS 環境。
+<p align="center">
+  <a href="https://github.com/Rex-Taiphoon/Taiphoon_QGCS/releases/latest"><img src="https://img.shields.io/github/v/release/Rex-Taiphoon/Taiphoon_QGCS" alt="Latest Release"></a>
+  <a href="#下載"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-0078D6" alt="Platform: Windows | macOS"></a>
+  <a href="https://github.com/Rex-Taiphoon/Taiphoon_Agent"><img src="https://img.shields.io/badge/works%20with-Taiphoon__Agent-08203C" alt="Works with Taiphoon_Agent"></a>
+  <a href="#授權"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
+</p>
 
-> **目前狀態：功能開發完成，待現場驗收。** 介面、地圖、網路設定與除錯工具均已完成，
-> 並已連線 ROS2 Humble Agent 驗證；Windows 可攜式 ZIP 可用，NSIS 安裝程式、macOS 與 CI 尚待驗證。
-> 需求、架構與開發路線見 [開發規劃](docs/qt-cross-platform-development.md)。
+**Taiphoon QGCS** 是以 Qt 框架開發的地面站，與 Taiphoon_Agent 搭配組成機群控制系統。下載後即可執行，不需安裝 Docker 或 ROS2；在地圖上掌握每台無人機的位置與狀態，並對單機或整個機群下達起飛、移動、編隊與降落命令。
 
-## 平台與發布格式
+<p align="center">
+  <img src="docs/images/main.png" alt="Taiphoon QGCS 主畫面：四機環形編隊懸停中，選取 UAV_1 顯示移動控制面板與姿態儀">
+</p>
 
-| 平台 | 格式 | 狀態 |
-|------|------|------|
-| Windows 10／11 x64 | 可攜式 ZIP；NSIS 安裝程式 | ZIP 可用；安裝程式需建置環境安裝 NSIS |
-| macOS 12 以上（Apple Silicon／Intel） | DMG（Universal Binary） | CI 建置；僅 ad-hoc 簽章，待 Developer ID 簽章與公證 |
-| Linux（Ubuntu 24.04 x86_64） | TGZ | CI 建置；需系統 xcb 相依 |
-| iOS／iPadOS | IPA（未簽章） | CI 交叉編譯的測試版；需自行簽章、只能單播連線（[ADR-0017](docs/adr/0017-ios-ipados-cross-build.md)） |
+## 特色
 
-macOS 版下載後會被 Gatekeeper 阻擋：開啟一次後，到「系統設定 → 隱私權與安全性」按「強制打開」。
-Linux 版解壓縮後執行 `bin/Taiphoon_QGCS`；缺少系統相依時先安裝
-`sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libegl1`。
-iOS／iPadOS 版需以 Sideloadly 等工具用自己的 Apple ID 重新簽章後安裝（免費帳號 7 天後失效）；
-網路設定須關閉 multicast 並填入 Agent 位址，App 切到背景時會中斷連線。
+- **下載即用**：安裝或解壓縮後直接執行，不需安裝 Docker、ROS2，也不必另外設定通訊環境。
+- **機群自動上線**：Agent 啟動後自動出現在機群表，不需事先登錄機號或數量。
+- **全機群一鍵操作**：選取「全部機群」即可同時解鎖、起飛、返航、降落，或下達環形、水平一字、燕行編隊。
+- **防誤觸設計**：命令會依目前飛行狀態檢查是否可執行；解鎖需滑動，起飛、返航、降落與編隊需再按 EXEC 確認。
+- **一眼掌握狀態**：航電座艙風格的深色介面，狀態列、機群表與姿態儀即時顯示模式、電量與高度；按鈕顏色代表風險等級。
+- **跨平台**：支援 Windows 與 macOS。
+- **唯讀除錯工具**：查看各 Agent 的即時資料與事件紀錄，協助排查連線問題，不會對無人機送出任何指令。
 
-## 使用方式
+## 實際操作
 
-1. 解壓縮 ZIP（或執行安裝程式），開啟 `bin/Taiphoon_QGCS.exe`。
-2. 首次啟動會出現「網路設定」：填入 Agent 所在電腦的區網 IP（多台以換行分隔）。
-   同一台電腦或允許 multicast 的區網模擬時可留空。之後可在「進階設定 → 網路設定」修改，保存後立即重新連線。
-3. Windows 首次執行會詢問防火牆，需允許；未允許時收不到 Agent 資料。
-   使用安裝程式時會自動建立規則（只允許同一子網路的 UDP；Agent 需經路由器或 VPN 連線時需自行放寬）。
-4. 右上機群表選取單機或「全部」後，以左上紙飛機按鈕開啟飛行控制。
-   按鈕是否可用與 GCS 的防呆規則一致；Arm 需拖曳滑桿，Takeoff、RTL、Land、Disarm 與編隊需確認。
-   按鈕顏色只表示風險：白色為一般命令、琥珀色需確認、紅色為 Arm／Disarm；面板底部常駐顯示解鎖狀態。
-   單機移動的前後左右以機頭方向為準，不是東南西北。
-5. 頂部狀態列顯示選取單機的 Agent 任務階段（MODE）、PX4 飛行模式（PX4 MODE）與電量／電壓／電流；
-   機群表的 MODE 欄上行為 Agent 任務階段、下行為 PX4 飛行模式。右上 UTC 時間取自 GCS 電腦的系統時鐘。
-6. 命令送出、解鎖確認等成功訊息不彈出提示，只寫入日誌檔；Guard 拒絕、未解鎖、逾時等失敗與警告
-   仍會在飛行控制與機群面板之間彈出（同時寫入日誌）。飛控面板需確認的命令會在確認列顯示「是否執行？」，
-   按實心的 EXEC 才送出；編隊點選隊形後在同一列按閃爍的 CONFIRM 暫存。
-   編隊需選取「全部機群」且至少 2 台線上，提供環形、水平一字與燕行（V 字，頂點朝北）三種隊形；
-   垂直一字暫不開放。槽位分配與避碰由 Agent 端處理：以總移動距離最短分配槽位，有 Agent 離線時
-   存活成員自動重組，只剩 1 台時取消編隊並原地懸停。
-   Docker Desktop 模擬需使用含 `dds_peer_relay` 的 Taiphoon_Agent，否則各 Agent 互相看不到而無法編隊。
-7. 「進階設定」可調整自動跟隨、關閉單一 Agent、開啟唯讀除錯工具或結束 GCS。
-   結束 GCS 不會對無人機發送任何命令。
-8. 日誌檔位於 `%LOCALAPPDATA%\Taiphoon\Taiphoon_QGCS\logs\Taiphoon_QGCS_yyyyMMdd.log`
-   （macOS 為 `~/Library/Application Support/Taiphoon/Taiphoon_QGCS/logs/`），時間為 UTC，依本地日期分檔、不會自動刪除。
+### 解鎖與起飛
 
-## 與 Agent 的相容性
+<p align="center">
+  <img src="docs/images/takeoff.gif" alt="選取全部機群後滑動解鎖 ARM，按 TAKEOFF 與 EXEC，四台無人機同時起飛到 3 公尺">
+</p>
 
-- 程式內嵌 CycloneDDS，網路層與 **ROS2 Humble + `rmw_cyclonedds_cpp`** 相容，Agent 端不需修改。
-- Agent 必須使用 `rmw_cyclonedds_cpp`；使用 Fast DDS 時 shutdown service 無法互通。
-- 介面以 `../Taiphoon_Agent_Interfaces/` 為唯一權威來源，同步副本位於 `msg/`。
+選取「全部機群」，滑動解鎖 ARM 後按 TAKEOFF，再按 EXEC 確認，4 台無人機同時起飛到 3 公尺懸停。
 
-## 架構
+### 編隊飛行
 
-```
-┌──────────────────────────────────────────────┐
-│ QML：狀態列｜飛行控制｜地圖｜機群｜設定      │  主執行緒
-│ UiBridge、models                              │
-└──────────────────────┬───────────────────────┘
-                       │ Qt signal／slot（queued）
-┌──────────────────────▼───────────────────────┐
-│ Fleet｜Telemetry｜Guard｜Command｜Lifecycle   │  核心執行緒
-│ 連線集中於組裝根 gcs_wiring／ui_wiring        │
-└──────────────────────┬───────────────────────┘
-                       │ IAgentLink
-┌──────────────────────▼───────────────────────┐
-│ CycloneAgentLink（ROS2 線上相容層）           │  CycloneDDS
-└──────────────────────┬───────────────────────┘
-                       │ DDS／RTPS
-┌──────────────────────▼───────────────────────┐
-│ Taiphoon_Agent (uav_{N}_agent)                │
-└──────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="docs/images/formation.gif" alt="在 FORM 分頁設定環形編隊半徑後送出，接著切換為燕行編隊">
+</p>
 
-## 模組
+在 FORM 分頁選擇環形編隊、將半徑改為 15 公尺後按 CONFIRM 與 EXEC，接著切換為燕行編隊（V 字，頂點朝北）。各機的位置分配與避碰由 Agent 自動處理；畫面下方的倍速標示為剪輯時加速的段落。
 
-| 模組 | 功能 |
-|------|------|
-| FleetModule | DDS 發現、機隊線上／離線管理 |
-| TelemetryModule | 訂閱所有 Agent topic，聚合後提供給 UI |
-| GuardModule | 資料驅動狀態轉移表，命令發布前的唯一安全閘門 |
-| CommandModule | 將驗證通過的命令發布至 Agent command topic |
-| AgentLifecycleModule | 呼叫單機 Agent shutdown service，成功後通知機隊隔離 |
-| DiagnosticsController（app） | 唯讀除錯工具：DDS topic 清單、最新資料、事件紀錄；不提供發布 |
+### 更多畫面
 
-## Agent 遠端關閉
+| 網路設定 | 進階設定 | 唯讀除錯工具 |
+|:---:|:---:|:---:|
+| <img src="docs/images/network.png" alt="網路設定：Agent 位址、網卡、Domain ID 與 multicast"> | <img src="docs/images/settings.png" alt="進階設定：自動跟隨、網路設定、關閉 Agent 與除錯工具"> | <img src="docs/images/inspector.png" alt="唯讀除錯工具：topic 清單與即時狀態"> |
 
-沿用網頁版行為：只能選取單一線上 Agent 並需二次確認，直接呼叫 `/{agent_namespace}/shutdown`，**不要求授權碼**。
-此操作不會先要求 RTL 或降落，只能在確認目標已安全落地後執行；成功後 GCS 立即將目標從機隊與單機命令路由隔離，
-`/uav_all_agent/command` 仍供其他線上 Agent 接收全體命令。
+> 以上畫面取自 4 台模擬無人機（PX4 SITL）；地圖資料 © OpenStreetMap contributors。
 
-## 開發環境
+## 下載
 
-- Qt **6.11.2**（`msvc2022_64`、Qt Location、Qt Positioning、Qt Shader Tools），版本固定；
-  Shader Tools 只在建置時編譯地圖 shader，執行期不需要
-- Windows：VS Build Tools（MSVC），CMake + Ninja（Qt 安裝目錄 `Tools` 內附）
-- Python 3（IDL 產生腳本）
+選擇你的平台下載最新的穩定版本，或到 [Releases 頁面](https://github.com/Rex-Taiphoon/Taiphoon_QGCS/releases/latest)查看所有檔案：
 
-```powershell
-. .\tools\dev-env.ps1
-cmake --preset windows-debug
-cmake --build --preset windows-debug
-ctest --preset windows-debug
-```
+<p align="center">
+  <a href="https://github.com/Rex-Taiphoon/Taiphoon_QGCS/releases/latest"><img src="https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white" alt="Windows"></a>
+  <a href="https://github.com/Rex-Taiphoon/Taiphoon_QGCS/releases/latest"><img src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white" alt="macOS"></a>
+</p>
 
-打包：`cmake --preset windows-release`、`cmake --build --preset windows-release` 後，於 `build/windows-release`
-執行 `cpack -C Release`，產生 `Taiphoon_QGCS-v<版本>-Windows-AMD64.exe`（NSIS）與 `.zip`。詳見 [AGENTS.md](AGENTS.md#建置與驗證)。
+- **Windows 10／11 x64**：安裝程式（`.exe`）會自動建立防火牆規則；也可下載免安裝版（`.zip`）。
+- **macOS 12 以上（Apple Silicon／Intel）**：磁碟映像檔（`.dmg`），同一個檔案支援兩種晶片。
 
-版本號記錄在根目錄 `VERSION`，格式為 `X.Y.Z`，會帶入安裝檔名稱、「新增或移除程式」的版本與啟動日誌。
-**每次發布或交給其他電腦安裝前都要遞增**（修正遞增 Z、新功能遞增 Y、不相容變更遞增 X），
-修改 `VERSION` 後須重新 configure，同一個版本號不可對應兩份不同內容的安裝檔。
+<details>
+<summary>安裝注意事項</summary>
 
-升級安裝：安裝程式以固定、不含版本號的登錄機碼 `Taiphoon_QGCS` 偵測已安裝的版本，
-詢問後先執行舊版的移除程式再安裝；使用者設定位於 `HKCU\Software\Taiphoon\Taiphoon_QGCS`，不受影響。安裝時會重建防火牆規則
-`Taiphoon_QGCS DDS`，覆蓋安裝也不會產生重複規則。
+- **Windows**：偵測到舊版時，安裝程式會詢問後先移除舊版再安裝，原本的設定會保留。
+- **macOS**：下載後會被 Gatekeeper 阻擋。開啟一次後，到「系統設定 → 隱私權與安全性」按「強制打開」。
 
-其他平台（在該平台上執行，或交給 GitHub Actions 的 `QGCS Build` workflow 手動觸發）：
+</details>
 
-- macOS：`cmake --preset macos-release`、`cmake --build --preset macos-release`，於建置目錄執行 `cpack` 產生 DMG。
-- Linux：`cmake --preset linux-release`、`cmake --build --preset linux-release`，於建置目錄執行 `cpack` 產生 TGZ。
-- iOS／iPadOS（macOS 上交叉編譯，需 Xcode 與 iOS 版 Qt，並設定 `QT_ROOT_DIR`、`QT_HOST_PATH`）：
-  先執行 `tools/build-host-idlc.sh <目錄>` 並把 `<目錄>/bin` 加入 PATH，
-  再執行 `cmake --preset ios-release`、`cmake --build --preset ios-release`。
+## 快速開始
 
-開發用工具（不隨產品發布）：`tools/dds_probe`（DDS 互通驗證）、`tools/gcs_headless`（無介面整合驗證）。
+1. Windows 執行安裝程式，或解壓縮 ZIP 後開啟 `bin/Taiphoon_QGCS.exe`；macOS 開啟 DMG 後安裝 Taiphoon_QGCS。
+2. 首次啟動會出現「網路設定」：填入 Agent 所在電腦的區網 IP（多台以換行分隔）。同一台電腦或允許 multicast 的區網可留空。之後可在「進階設定 → 網路設定」修改，保存後立即重新連線。
+3. Windows 首次執行詢問防火牆時請允許，否則收不到 Agent 資料。安裝程式會自動建立規則（只允許同一子網路；Agent 需經路由器或 VPN 連線時需自行放寬）。
+4. 在右上機群表選取單機或「全部」，再以左上 FLT CTRL 飛行控制面板操作（視窗較窄時面板預設收合，點標題列展開）。
 
-### 連線本機 Docker Desktop 內的 Agent
+## 操作說明
 
-Agent 位於 Docker Desktop NAT 之後，需使用單播並讓 GCS 對外公告 `host.docker.internal`（192.168.65.254），
-容器回送封包才會經 Docker Desktop 轉送到主機。Agent 端設定見
-[開發規劃](docs/qt-cross-platform-development.md) 6.1 節
-（`ExternalNetworkAddress` 設為主機區網 IP、發布 UDP 7410 起的埠、Peer 加上 `192.168.65.254:7510`）。
-GCS 以命令列參數啟動（只在本次有效，不寫入設定檔）：
+### 基本流程
+
+1. 在機群表選取單機或「全部」。
+2. **MODE** 分頁按「OFFBOARD 模式」，讓 PX4 切換為 Offboard。
+3. **SAFETY** 分頁滑動「滑動以解鎖 ARM」。
+4. **MODE** 分頁按「TAKEOFF 起飛」，確認高度後按 EXEC。
+5. 單機以 **MOVE** 分頁移動與旋轉；選取「全部機群」時可用 **FORM** 分頁下達編隊。
+6. 完成後在 **MODE** 分頁按「RTL 返航」或「LAND 降落」，再按 EXEC。
+
+### 介面與提示
+
+- **確認列**：起飛、返航、降落、上鎖與編隊會先在確認列顯示「是否執行？」，按實心的 EXEC 才送出；編隊點選隊形後，在同一列按閃爍的 CONFIRM 暫存。按鈕停用時，右側會顯示原因。
+- **按鈕顏色**：只表示風險。白色為一般命令、琥珀色需確認、紅色為解鎖／上鎖；面板底部常駐顯示解鎖狀態。
+- **單機移動**：前後左右以機頭方向為準，不是東南西北。
+- **狀態列**：顯示選取單機的任務階段（MODE）、PX4 飛行模式（PX4 MODE）與電量／電壓／電流；機群表的 MODE 欄上行為任務階段、下行為 PX4 飛行模式。右上 UTC 時間取自本機系統時鐘。
+- **提示訊息**：成功訊息不彈出，只寫入日誌檔；命令被拒絕、未解鎖、逾時等失敗與警告會在畫面上彈出。
+
+### 編隊
+
+- 需選取「全部機群」且至少 2 台線上，提供環形、水平一字與燕行（V 字，頂點朝北）三種隊形。
+- 各機的位置分配與避碰由 Agent 自動處理：以總移動距離最短分配位置；有 Agent 離線時，其餘成員自動重組，只剩 1 台時取消編隊並原地懸停。
+
+### 進階設定
+
+- 可調整地圖是否自動跟隨選取的無人機、修改網路設定、開啟唯讀除錯工具或結束 QGCS。結束 QGCS 不會對無人機發送任何命令。
+- **關閉 Agent**：只能選取單一線上 Agent，並需再次確認。此操作不會先返航或降落，請在確認無人機已安全落地後再執行；關閉後該 Agent 會從機群中移除，其他 Agent 仍可接收全機群命令。
+
+### 日誌檔
+
+- Windows：`%LOCALAPPDATA%\Taiphoon\Taiphoon_QGCS\logs\Taiphoon_QGCS_yyyyMMdd.log`
+- macOS：`~/Library/Application Support/Taiphoon/Taiphoon_QGCS/logs/`
+
+時間為 UTC，依本地日期分檔，不會自動刪除。
+
+## 搭配模擬環境試用
+
+沒有實機時，可以用 Taiphoon_Agent 啟動器在同一台電腦的 Docker Desktop 啟動模擬機群（sim 模式，1～4 台）。啟動器完成後會印出 QGCS 的啟動指令，照著執行即可，例如：
 
 ```powershell
-.\build\windows-debug\bin\Taiphoon_QGCS.exe --interface <主機區網 IP> --external-address 192.168.65.254 `
-    --no-multicast --peer <主機區網 IP> --participant-index 50
+Taiphoon_QGCS.exe --interface <主機區網 IP> --external-address 192.168.65.254 --no-multicast --peer <主機區網 IP> --participant-index 50
 ```
 
-不含 port 的 Agent 位址會探測 participant index 0～47 的 discovery 埠（domain 0 為 7410～7504），
-涵蓋 Taiphoon_Agent 啟動器模擬的 4 台 Agent 埠段，不必逐一填寫 port（ADR-0011 2026-10-16 更新）。
-QGCS 在其他電腦時改用 `--interface <本機 IP> --no-multicast --peer <模擬主機 IP> --participant-index 50`。
+這些參數只在該次執行有效，不會改動「網路設定」。完整說明見 [QGCS 啟動說明](docs/agents/qgcs-launch.md)。
 
-`tools/gcs_headless` 接受相同的連線參數，可在無介面下輸出機隊與遙測，並以 `--command`＋`--allow-commands`
-經 Guard 送出命令。Taiphoon_Agent 以 QGCS 驗證操作功能的完整啟動標準見
-[docs/agents/qgcs-launch.md](docs/agents/qgcs-launch.md)。
+## 系統架構
 
-## 文件
+```mermaid
+flowchart LR
+    subgraph QGCS["Taiphoon QGCS"]
+        direction TB
+        UI["操作介面<br/>地圖・機群表・飛行控制"]
+        Guard["安全檢查<br/>依飛行狀態確認命令可執行"]
+        UI -- 命令 --> Guard
+    end
 
-- [開發規劃：需求、架構與路線](docs/qt-cross-platform-development.md)
-- [領域詞彙表](CONTEXT.md)
-- [架構決策記錄](docs/adr/)（Qt 版主要決策：ADR-0013～0017）
-- [開發規範 (AGENTS.md)](AGENTS.md)
-- [QGCS 啟動標準（供 Taiphoon_Agent 驗證）](docs/agents/qgcs-launch.md)
-- [程式碼規範 (CODE_CONSTRAINT.md)](CODE_CONSTRAINT.md)
+    Guard -- 命令 --> LAN(["區網／Wi-Fi"])
+    LAN -- 狀態・位置・姿態 --> UI
+
+    LAN <--> U1["無人機 1<br/>Taiphoon_Agent + PX4"]
+    LAN <--> U2["無人機 2<br/>Taiphoon_Agent + PX4"]
+    LAN <--> UN["無人機 N<br/>Taiphoon_Agent + PX4"]
+```
+
+每台無人機上的 Taiphoon_Agent 負責與 PX4 飛控溝通，並處理任務規劃、編隊與避碰。QGCS 透過區網自動發現所有 Agent，所有命令送出前都會先經過安全檢查。
+
+## 連結
+
+- [下載最新版本](https://github.com/Rex-Taiphoon/Taiphoon_QGCS/releases/latest)
+- [QGCS 啟動說明](docs/agents/qgcs-launch.md)：命令列參數、日誌與結束方式
+- [Taiphoon_Agent](https://github.com/Rex-Taiphoon/Taiphoon_Agent)：搭配使用的無人機端程式
 
 ## 授權
 
