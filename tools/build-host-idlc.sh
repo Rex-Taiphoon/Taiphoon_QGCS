@@ -7,7 +7,9 @@
 #
 # 交叉編譯時 CycloneDDS 不編 idlc，idlc_generate 會從 PATH 尋找主機版 idlc。
 # CycloneDDS 版本取自 cmake/Dependencies.cmake，確保與目標平台的 ddsc 一致。
-# idlc 以靜態方式連結，不需另外設定動態函式庫路徑。
+# ddsc 以靜態方式連結；IDL 剖析函式庫 libcycloneddsidl 在 CycloneDDS 中固定為動態函式庫，
+# 因此一併安裝到 <安裝目錄>/lib，並以 CycloneDDS 的安裝 rpath（@loader_path/../lib、$ORIGIN/../lib）
+# 直接建置 idlc：建置時即由連結器簽章，之後不再修改執行檔（Apple Silicon 修改後簽章失效會被終止）。
 #
 # 用法：tools/build-host-idlc.sh <安裝目錄>
 #       完成後將 <安裝目錄>/bin 加入 PATH，再 configure 目標平台。
@@ -39,6 +41,7 @@ cmake -S "${work_dir}/src" -B "${work_dir}/build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="${install_dir}" \
     -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
     -DBUILD_IDLC=ON \
     -DBUILD_TESTING=OFF \
     -DBUILD_DDSPERF=OFF \
@@ -49,7 +52,12 @@ cmake -S "${work_dir}/src" -B "${work_dir}/build" -G Ninja \
     -DENABLE_SHM=OFF \
     -DENABLE_ICEORYX=OFF
 cmake --build "${work_dir}/build" --target idlc
-install -d "${install_dir}/bin"
+install -d "${install_dir}/bin" "${install_dir}/lib"
 install "$(find "${work_dir}/build" -type f -name idlc -perm -u+x | head -n 1)" "${install_dir}/bin/idlc"
+# 保留版本符號連結（libcycloneddsidl.dylib → .0.dylib → .0.10.5.dylib）
+cp -P "${work_dir}/build/lib/"libcycloneddsidl* "${install_dir}/lib/"
+
+# 建置目錄會在結束時刪除；在此確認安裝後的 idlc 可以獨立執行
+"${install_dir}/bin/idlc" -v
 
 echo "主機版 idlc（CycloneDDS ${version}）：${install_dir}/bin/idlc"
