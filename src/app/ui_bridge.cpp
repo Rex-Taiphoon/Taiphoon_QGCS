@@ -34,6 +34,8 @@ const QString SHUTDOWN_COMMAND = QStringLiteral("AGENT_SHUTDOWN");
 constexpr int SHUTDOWN_UI_TIMEOUT_MS = 6000;
 /// 編隊最少線上台數：單機沒有隊形，Agent 端也會拒絕少於 2 台的編隊
 constexpr int MIN_FORMATION_AGENT_COUNT = 2;
+/// 回報位置文字的小數位數：1e-7 度約 1 公分，與設定頁的座標格式一致
+constexpr int REPORTED_POSITION_DECIMALS = 7;
 
 /**
  * @brief 組合待回應鍵
@@ -314,6 +316,12 @@ void UiBridge::set_link_status(bool is_connected, const QString& message)
     emit linkStatusChanged();
 }
 
+void UiBridge::set_display_origin(const ui::DisplayOrigin& origin)
+{
+    display_origin_ = origin;
+    mark_dirty();
+}
+
 void UiBridge::mark_dirty()
 {
     is_dirty_ = true;
@@ -331,7 +339,7 @@ void UiBridge::refresh()
 void UiBridge::refresh_now()
 {
     is_dirty_ = false;
-    fleet_model_.update(online_agents_, views_, selected_agent_);
+    fleet_model_.update(online_agents_, views_, selected_agent_, display_origin_);
     rebuild_summary();
     rebuild_trajectories();
     recompute_availability();
@@ -411,9 +419,17 @@ void UiBridge::rebuild_summary()
                                                       .arg(ui::format_signed_number(state.position_ned[0], 1),
                                                            ui::format_signed_number(state.position_ned[1], 1),
                                                            ui::format_signed_number(state.position_ned[2], 1)));
-        summary.insert(QStringLiteral("hasPosition"), ui::has_valid_global_position(state.position_global));
-        summary.insert(QStringLiteral("latitude"), state.position_global[0]);
-        summary.insert(QStringLiteral("longitude"), state.position_global[1]);
+        const auto display_position = ui::to_display_position(state.position_global, display_origin_);
+        summary.insert(QStringLiteral("hasPosition"), ui::has_valid_global_position(display_position));
+        summary.insert(QStringLiteral("latitude"), display_position[0]);
+        summary.insert(QStringLiteral("longitude"), display_position[1]);
+        // 未換算的回報位置，供設定顯示原點時帶入「原始座標」
+        summary.insert(QStringLiteral("reportedPositionText"),
+                       ui::has_valid_global_position(state.position_global)
+                           ? QStringLiteral("%1, %2")
+                                 .arg(state.position_global[0], 0, 'f', REPORTED_POSITION_DECIMALS)
+                                 .arg(state.position_global[1], 0, 'f', REPORTED_POSITION_DECIMALS)
+                           : QString());
     }
     if (it != views_.cend() && it->has_attitude)
     {
@@ -443,13 +459,13 @@ void UiBridge::rebuild_trajectories()
         QVariantList path;
         for (size_t i = 0; i + VALUES_PER_CONTROL_POINT - 1 < points.size(); i += VALUES_PER_CONTROL_POINT)
         {
-            const std::array<double, 3> position = {points[i], points[i + 1], points[i + 2]};
+            const auto position = ui::to_display_position({points[i], points[i + 1], points[i + 2]}, display_origin_);
             if (!ui::has_valid_global_position(position))
             {
                 continue;
             }
-            path.append(QVariantMap{{QStringLiteral("latitude"), points[i]},
-                                    {QStringLiteral("longitude"), points[i + 1]}});
+            path.append(QVariantMap{{QStringLiteral("latitude"), position[0]},
+                                    {QStringLiteral("longitude"), position[1]}});
         }
         if (path.size() < 2)
         {

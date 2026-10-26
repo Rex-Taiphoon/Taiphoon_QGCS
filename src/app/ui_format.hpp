@@ -25,6 +25,21 @@ struct EulerDegrees
 };
 
 /**
+ * @brief 地圖顯示原點：把 Agent 回報的 WGS84 位置平移到實際場地，只影響畫面
+ *
+ * 兩組座標指同一個參考點：source 是它在 Agent 回報座標中的位置（例如 Nooploop UWB 固定在深圳的原點），
+ * display 是它在地圖上應顯示的位置。
+ */
+struct DisplayOrigin
+{
+    bool is_enabled = false;
+    double source_latitude = 0.0;
+    double source_longitude = 0.0;
+    double display_latitude = 0.0;
+    double display_longitude = 0.0;
+};
+
+/**
  * @brief 任務階段中文名稱
  * @param flight_mode AgentState.flight_mode
  * @return 中文名稱；未定義的值顯示「模式 N」
@@ -102,5 +117,15 @@ QString format_battery_current(float current_a);
  * @return 緯經度皆有限且在合法範圍內
  */
 bool has_valid_global_position(const std::array<double, 3>& position);
+
+/**
+ * @brief 將 Agent 回報的 WGS84 位置換算成地圖顯示位置
+ *
+ * 相對參考點的北／東位移（公尺）保持不變，因此距離與形狀不變；只平移、不旋轉，高度不變。
+ * @param position [緯度, 經度, 高度]
+ * @param origin 顯示原點
+ * @return 顯示用位置；未啟用或位置無效時原樣傳回
+ */
+std::array<double, 3> to_display_position(const std::array<double, 3>& position, const DisplayOrigin& origin);
 
 }  // namespace gcs::ui

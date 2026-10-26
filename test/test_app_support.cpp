@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QLoggingCategory>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 
 #include <gtest/gtest.h>
@@ -24,6 +25,32 @@ using namespace gcs;
 namespace
 {
 constexpr double EPSILON = 1e-6;
+/// 經緯度比較容許誤差（度），約 0.1 毫米
+constexpr double COORDINATE_EPSILON = 1e-9;
+/// 每度緯度對應的距離（公尺，球體近似），只用於驗證位移不變
+constexpr double METERS_PER_DEGREE = 111319.49;
+constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
+
+/// 相對參考點的北／東位移（公尺）
+struct NorthEast
+{
+    double north = 0.0;
+    double east = 0.0;
+};
+
+/**
+ * @brief 計算位置相對參考點的北／東位移
+ * @param latitude 位置緯度
+ * @param longitude 位置經度
+ * @param reference_latitude 參考點緯度
+ * @param reference_longitude 參考點經度
+ * @return 位移（公尺）
+ */
+NorthEast offset_from(double latitude, double longitude, double reference_latitude, double reference_longitude)
+{
+    return {(latitude - reference_latitude) * METERS_PER_DEGREE,
+            (longitude - reference_longitude) * METERS_PER_DEGREE * std::cos(reference_latitude * DEGREES_TO_RADIANS)};
+}
 }  // namespace
 
 TEST(AppSettingsTest, DefaultsAndRangeValidation)
@@ -102,6 +129,54 @@ TEST(AppSettingsTest, RejectsInvalidSite)
     EXPECT_TRUE(settings.saveSite(0, QString(), {QStringLiteral("agent-host.local")}, true, -1).isEmpty());
 }
 
+TEST(AppSettingsTest, DisplayOriginValidationAndPersistence)
+{
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("d.ini"));
+    const QString display_text = QStringLiteral("25.0339640, 121.5644680");
+    {
+        AppSettings settings(path);
+        EXPECT_FALSE(settings.is_display_origin_enabled());
+        EXPECT_TRUE(settings.source_origin_text().isEmpty());
+        EXPECT_FALSE(settings.display_origin().is_enabled);
+
+        // 啟用時兩組都必填；格式錯誤、多一個值或緯經度顛倒（緯度超出 ±85）一律拒絕且不保存
+        EXPECT_FALSE(settings.saveDisplayOrigin(true, QString(), display_text).isEmpty());
+        EXPECT_FALSE(settings.saveDisplayOrigin(true, QStringLiteral("abc"), display_text).isEmpty());
+        EXPECT_FALSE(settings.saveDisplayOrigin(true, QStringLiteral("22.5, 113.9, 10"), display_text).isEmpty());
+        EXPECT_FALSE(settings.saveDisplayOrigin(true, QStringLiteral("113.9364040, 22.5430960"), display_text).isEmpty());
+        EXPECT_TRUE(settings.source_origin_text().isEmpty());
+        EXPECT_FALSE(settings.is_display_origin_enabled());
+
+        // 逗號或空白分隔皆可，前後空白忽略
+        QSignalSpy spy(&settings, &AppSettings::displayOriginChanged);
+        EXPECT_TRUE(settings
+                        .saveDisplayOrigin(true, QStringLiteral(" 22.5430960 113.9364040 "),
+                                           QStringLiteral("25.0339640,121.5644680"))
+                        .isEmpty());
+        EXPECT_EQ(spy.count(), 1);
+        // 恢復預設值只重設介面設定，不清除顯示原點
+        settings.resetUiSettings();
+    }
+
+    AppSettings reloaded(path);
+    const ui::DisplayOrigin origin = reloaded.display_origin();
+    EXPECT_TRUE(origin.is_enabled);
+    EXPECT_NEAR(origin.source_latitude, 22.5430960, COORDINATE_EPSILON);
+    EXPECT_NEAR(origin.source_longitude, 113.9364040, COORDINATE_EPSILON);
+    EXPECT_NEAR(origin.display_latitude, 25.0339640, COORDINATE_EPSILON);
+    EXPECT_NEAR(origin.display_longitude, 121.5644680, COORDINATE_EPSILON);
+    EXPECT_EQ(reloaded.source_origin_text(), QStringLiteral("22.5430960, 113.9364040"));
+    EXPECT_EQ(reloaded.display_origin_text(), display_text);
+
+    // 停用時座標可留空並保留原值，下次啟用不必重填
+    EXPECT_TRUE(reloaded.saveDisplayOrigin(false, QString(), QString()).isEmpty());
+    EXPECT_FALSE(reloaded.is_display_origin_enabled());
+    EXPECT_FALSE(reloaded.display_origin().is_enabled);
+    EXPECT_EQ(reloaded.display_origin_text(), display_text);
+}
+
 TEST(UiFormatTest, HeadingFromQuaternion)
 {
     // 繞 Z 軸 90 度：航向 90（東）
@@ -149,6 +224,45 @@ TEST(UiFormatTest, LabelsAndNumbers)
     EXPECT_FALSE(ui::has_valid_global_position({std::numeric_limits<double>::quiet_NaN(), 121.5, 0.0}));
     EXPECT_FALSE(ui::has_valid_global_position({95.0, 121.5, 0.0}));
     EXPECT_TRUE(ui::has_valid_global_position({25.0, 121.5, 0.0}));
+}
+
+TEST(UiFormatTest, DisplayPositionKeepsOffsetFromReference)
+{
+    ui::DisplayOrigin origin;
+    origin.source_latitude = 22.5430960;
+    origin.source_longitude = 113.9364040;
+    origin.display_latitude = 25.0339640;
+    origin.display_longitude = 121.5644680;
+    // 參考點東北方約 11 公尺、10 公尺
+    const std::array<double, 3> reported = {22.5431960, 113.9365040, 35.0};
+
+    // 未啟用時原樣傳回
+    const auto unchanged = ui::to_display_position(reported, origin);
+    EXPECT_NEAR(unchanged[0], reported[0], COORDINATE_EPSILON);
+    EXPECT_NEAR(unchanged[1], reported[1], COORDINATE_EPSILON);
+
+    origin.is_enabled = true;
+    const auto reference = ui::to_display_position({origin.source_latitude, origin.source_longitude, 0.0}, origin);
+    EXPECT_NEAR(reference[0], origin.display_latitude, COORDINATE_EPSILON);
+    EXPECT_NEAR(reference[1], origin.display_longitude, COORDINATE_EPSILON);
+
+    // 相對參考點的北／東距離不變（兩地緯度不同，經度差會依緯度縮放），高度不變
+    const auto shifted = ui::to_display_position(reported, origin);
+    const NorthEast before = offset_from(reported[0], reported[1], origin.source_latitude, origin.source_longitude);
+    const NorthEast after = offset_from(shifted[0], shifted[1], origin.display_latitude, origin.display_longitude);
+    EXPECT_NEAR(after.north, before.north, EPSILON);
+    EXPECT_NEAR(after.east, before.east, EPSILON);
+    EXPECT_NEAR(shifted[2], 35.0, EPSILON);
+
+    // 無效位置不換算，仍由 has_valid_global_position 擋下
+    const auto invalid = ui::to_display_position({std::numeric_limits<double>::quiet_NaN(), 113.9, 0.0}, origin);
+    EXPECT_FALSE(ui::has_valid_global_position(invalid));
+
+    // 顯示位置跨越 180 度經線時折返到 -180～180
+    origin.display_longitude = 179.9999990;
+    const auto wrapped = ui::to_display_position(reported, origin);
+    EXPECT_TRUE(ui::has_valid_global_position(wrapped));
+    EXPECT_LT(wrapped[1], -179.9);
 }
 
 TEST(DiagnosticsTest, ReadOnlyCommands)

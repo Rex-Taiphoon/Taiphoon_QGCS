@@ -19,6 +19,9 @@ namespace
 /// 四元數範數低於此值視為無效姿態
 constexpr double MIN_QUATERNION_NORM = 1e-6;
 constexpr double RADIANS_TO_DEGREES = 180.0 / 3.14159265358979323846;
+constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
+/// 經度縮放因子（緯度的 cos）低於此值時接近極點，不做顯示換算
+constexpr double MIN_LONGITUDE_SCALE = 1e-6;
 constexpr double FULL_TURN_DEGREES = 360.0;
 constexpr double QUARTER_TURN_DEGREES = 90.0;
 constexpr double MAX_LATITUDE_DEGREES = 90.0;
@@ -202,6 +205,28 @@ bool has_valid_global_position(const std::array<double, 3>& position)
     const double longitude = position[1];
     return std::isfinite(latitude) && std::isfinite(longitude) && std::abs(latitude) <= MAX_LATITUDE_DEGREES
            && std::abs(longitude) <= MAX_LONGITUDE_DEGREES;
+}
+
+std::array<double, 3> to_display_position(const std::array<double, 3>& position, const DisplayOrigin& origin)
+{
+    if (!origin.is_enabled || !has_valid_global_position(position))
+    {
+        return position;
+    }
+    // 局部平面近似：同一經度差在不同緯度代表的東向距離不同，先依參考點緯度換成距離、
+    // 再依顯示位置緯度換回經度；深圳與台北緯度相差約 2.5 度，直接加減經度的東西向距離會差約 2%
+    const double source_scale = std::cos(origin.source_latitude * DEGREES_TO_RADIANS);
+    const double display_scale = std::cos(origin.display_latitude * DEGREES_TO_RADIANS);
+    if (source_scale < MIN_LONGITUDE_SCALE || display_scale < MIN_LONGITUDE_SCALE)
+    {
+        return position;
+    }
+    // 經度差與結果都折返到 ±180 度內，跨越換日線時不會繞地球一圈
+    const double delta_longitude = std::remainder(position[1] - origin.source_longitude, FULL_TURN_DEGREES);
+    const double latitude = origin.display_latitude + (position[0] - origin.source_latitude);
+    const double longitude = std::remainder(
+        origin.display_longitude + delta_longitude * source_scale / display_scale, FULL_TURN_DEGREES);
+    return {latitude, longitude, position[2]};
 }
 
 }  // namespace gcs::ui

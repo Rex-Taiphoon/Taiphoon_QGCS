@@ -6,6 +6,7 @@
  */
 #pragma once
 
+#include "app/ui_format.hpp"
 #include "core/agent_types.hpp"
 
 #include <QAbstractListModel>
@@ -70,8 +71,10 @@ public:
      * @param online 線上 Agent（已排序）
      * @param views Agent → 資料
      * @param selected_agent 目前選取
+     * @param display_origin 地圖顯示原點，只套用在經緯度角色
      */
-    void update(const QStringList& online, const QHash<QString, AgentView>& views, const QString& selected_agent);
+    void update(const QStringList& online, const QHash<QString, AgentView>& views, const QString& selected_agent,
+                const ui::DisplayOrigin& display_origin);
 
 signals:
     void countChanged();
@@ -80,6 +83,7 @@ private:
     QStringList agents_;
     QHash<QString, AgentView> views_;
     QString selected_agent_;
+    ui::DisplayOrigin display_origin_;
 };
 
 }  // namespace gcs

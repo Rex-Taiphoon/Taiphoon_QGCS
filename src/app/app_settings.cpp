@@ -7,8 +7,10 @@
 #include "app/app_settings.hpp"
 
 #include <QHostAddress>
+#include <QRegularExpression>
 
 #include <cmath>
+#include <optional>
 
 namespace gcs
 {
@@ -34,6 +36,11 @@ const QString KEY_INTERFACE = QStringLiteral("site/network_interface");
 const QString KEY_PEERS = QStringLiteral("site/peers");
 const QString KEY_MULTICAST = QStringLiteral("site/multicast");
 const QString KEY_PARTICIPANT_INDEX = QStringLiteral("site/participant_index");
+const QString KEY_ORIGIN_ENABLED = QStringLiteral("site/display_origin/enabled");
+const QString KEY_ORIGIN_SOURCE_LATITUDE = QStringLiteral("site/display_origin/source_latitude");
+const QString KEY_ORIGIN_SOURCE_LONGITUDE = QStringLiteral("site/display_origin/source_longitude");
+const QString KEY_ORIGIN_DISPLAY_LATITUDE = QStringLiteral("site/display_origin/display_latitude");
+const QString KEY_ORIGIN_DISPLAY_LONGITUDE = QStringLiteral("site/display_origin/display_longitude");
 
 // 預設值與範圍沿用網頁版
 constexpr bool DEFAULT_AUTO_FOLLOW = true;
@@ -56,6 +63,89 @@ constexpr NumberSpec V_SHAPE_SPACING{5.0, 2.0, 200.0};
 
 /// ROS_DOMAIN_ID 上限（CycloneDDS 埠號計算可用範圍）
 constexpr int MAX_DOMAIN_ID = 232;
+
+/// 顯示原點緯度上限（度）：OSM 地圖（Web Mercator）只能顯示到約 ±85.05 度
+constexpr double MAX_ORIGIN_LATITUDE_DEGREES = 85.0;
+constexpr double MAX_ORIGIN_LONGITUDE_DEGREES = 180.0;
+/// 座標文字的小數位數：1e-7 度約 1 公分，與 PX4 GPS 精度相當
+constexpr int COORDINATE_DECIMALS = 7;
+
+/// 緯度、經度
+struct Coordinate
+{
+    double latitude = 0.0;
+    double longitude = 0.0;
+};
+
+/**
+ * @brief 由兩個數值組成座標並檢查範圍
+ * @param latitude 緯度
+ * @param is_latitude_number 緯度是否為數值
+ * @param longitude 經度
+ * @param is_longitude_number 經度是否為數值
+ * @return 座標；任一值無效或超出範圍時為 std::nullopt
+ */
+std::optional<Coordinate> make_coordinate(double latitude, bool is_latitude_number, double longitude,
+                                          bool is_longitude_number)
+{
+    const bool is_valid = is_latitude_number && is_longitude_number && std::isfinite(latitude)
+                          && std::isfinite(longitude) && std::abs(latitude) <= MAX_ORIGIN_LATITUDE_DEGREES
+                          && std::abs(longitude) <= MAX_ORIGIN_LONGITUDE_DEGREES;
+    return is_valid ? std::optional<Coordinate>(Coordinate{latitude, longitude}) : std::nullopt;
+}
+
+/**
+ * @brief 解析「緯度, 經度」文字；逗號與空白皆可作為分隔
+ * @param text 座標文字
+ * @return 座標；格式錯誤或超出範圍時為 std::nullopt
+ */
+std::optional<Coordinate> parse_coordinate(const QString& text)
+{
+    static const QRegularExpression SEPARATOR(QStringLiteral("[,\\s]+"));
+    const QStringList parts = text.trimmed().split(SEPARATOR, Qt::SkipEmptyParts);
+    if (parts.size() != 2)
+    {
+        return std::nullopt;
+    }
+    bool is_latitude_number = false;
+    bool is_longitude_number = false;
+    const double latitude = parts.at(0).toDouble(&is_latitude_number);
+    const double longitude = parts.at(1).toDouble(&is_longitude_number);
+    return make_coordinate(latitude, is_latitude_number, longitude, is_longitude_number);
+}
+
+/**
+ * @brief 讀取保存的座標
+ * @param settings 設定
+ * @param latitude_key 緯度鍵
+ * @param longitude_key 經度鍵
+ * @return 座標；未保存或無效時為 std::nullopt
+ */
+std::optional<Coordinate> read_coordinate(const QSettings& settings, const QString& latitude_key,
+                                          const QString& longitude_key)
+{
+    bool is_latitude_number = false;
+    bool is_longitude_number = false;
+    const double latitude = settings.value(latitude_key).toDouble(&is_latitude_number);
+    const double longitude = settings.value(longitude_key).toDouble(&is_longitude_number);
+    return make_coordinate(latitude, is_latitude_number, longitude, is_longitude_number);
+}
+
+/**
+ * @brief 座標轉為「緯度, 經度」文字
+ * @param coordinate 座標
+ * @return 文字；沒有座標時為空字串
+ */
+QString format_coordinate(const std::optional<Coordinate>& coordinate)
+{
+    if (!coordinate.has_value())
+    {
+        return QString();
+    }
+    return QStringLiteral("%1, %2")
+        .arg(coordinate->latitude, 0, 'f', COORDINATE_DECIMALS)
+        .arg(coordinate->longitude, 0, 'f', COORDINATE_DECIMALS);
+}
 
 }  // namespace
 
@@ -297,6 +387,73 @@ link::DdsNetworkConfig AppSettings::network_config() const
         config.participant_index = static_cast<uint32_t>(index);
     }
     return config;
+}
+
+bool AppSettings::is_display_origin_enabled() const
+{
+    return display_origin().is_enabled;
+}
+
+QString AppSettings::source_origin_text() const
+{
+    return format_coordinate(read_coordinate(*settings_, KEY_ORIGIN_SOURCE_LATITUDE, KEY_ORIGIN_SOURCE_LONGITUDE));
+}
+
+QString AppSettings::display_origin_text() const
+{
+    return format_coordinate(read_coordinate(*settings_, KEY_ORIGIN_DISPLAY_LATITUDE, KEY_ORIGIN_DISPLAY_LONGITUDE));
+}
+
+ui::DisplayOrigin AppSettings::display_origin() const
+{
+    const auto source = read_coordinate(*settings_, KEY_ORIGIN_SOURCE_LATITUDE, KEY_ORIGIN_SOURCE_LONGITUDE);
+    const auto display = read_coordinate(*settings_, KEY_ORIGIN_DISPLAY_LATITUDE, KEY_ORIGIN_DISPLAY_LONGITUDE);
+    ui::DisplayOrigin origin;
+    if (!source.has_value() || !display.has_value())
+    {
+        return origin;
+    }
+    origin.is_enabled = settings_->value(KEY_ORIGIN_ENABLED, false).toBool();
+    origin.source_latitude = source->latitude;
+    origin.source_longitude = source->longitude;
+    origin.display_latitude = display->latitude;
+    origin.display_longitude = display->longitude;
+    return origin;
+}
+
+QString AppSettings::saveDisplayOrigin(bool is_enabled, const QString& source_text, const QString& display_text)
+{
+    const bool has_source = !source_text.trimmed().isEmpty();
+    const bool has_display = !display_text.trimmed().isEmpty();
+    const auto source = parse_coordinate(source_text);
+    const auto display = parse_coordinate(display_text);
+    if (has_source && !source.has_value())
+    {
+        return QStringLiteral("原始座標格式錯誤：請輸入「緯度, 經度」，緯度需介於 ±85 度");
+    }
+    if (has_display && !display.has_value())
+    {
+        return QStringLiteral("地圖座標格式錯誤：請輸入「緯度, 經度」，緯度需介於 ±85 度");
+    }
+    if (is_enabled && (!has_source || !has_display))
+    {
+        return QStringLiteral("啟用前請填入原始座標與地圖座標");
+    }
+
+    if (source.has_value())
+    {
+        settings_->setValue(KEY_ORIGIN_SOURCE_LATITUDE, source->latitude);
+        settings_->setValue(KEY_ORIGIN_SOURCE_LONGITUDE, source->longitude);
+    }
+    if (display.has_value())
+    {
+        settings_->setValue(KEY_ORIGIN_DISPLAY_LATITUDE, display->latitude);
+        settings_->setValue(KEY_ORIGIN_DISPLAY_LONGITUDE, display->longitude);
+    }
+    settings_->setValue(KEY_ORIGIN_ENABLED, is_enabled);
+    settings_->sync();
+    emit displayOriginChanged();
+    return QString();
 }
 
 void AppSettings::resetUiSettings()

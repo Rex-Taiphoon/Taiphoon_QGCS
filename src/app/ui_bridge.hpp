@@ -13,6 +13,7 @@
 
 #include "app/fleet_model.hpp"
 #include "app/toast_model.hpp"
+#include "app/ui_format.hpp"
 #include "core/agent_types.hpp"
 #include "core/command_protocol.hpp"
 
@@ -119,6 +120,12 @@ public:
      */
     void refresh_now();
 
+    /**
+     * @brief 設定地圖顯示原點；只改變地圖、機群與軌跡的經緯度，快取的遙測與命令不受影響
+     * @param origin 顯示原點
+     */
+    void set_display_origin(const ui::DisplayOrigin& origin);
+
 public slots:
     void on_state_updated(const QString& agent_ns, const gcs::AgentStateData& state);
     void on_attitude_updated(const QString& agent_ns, const gcs::AgentAttitudeData& attitude);
@@ -205,6 +212,7 @@ private:
     QVariantMap selected_summary_;
     QVariantList trajectories_;
     QHash<CmdType, bool> availability_;
+    ui::DisplayOrigin display_origin_;
     bool is_link_connected_ = false;
     QString link_message_;
 

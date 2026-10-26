@@ -86,11 +86,12 @@ QVariant FleetModel::data(const QModelIndex& index, int role) const
         // NED 的 Z 向下為正，取反以顯示向上為正的相對高度
         return ui::format_number(-static_cast<double>(state.position_ned[2]), 1);
     case HasPositionRole:
-        return view.has_state && ui::has_valid_global_position(state.position_global);
+        return view.has_state
+               && ui::has_valid_global_position(ui::to_display_position(state.position_global, display_origin_));
     case LatitudeRole:
-        return state.position_global[0];
+        return ui::to_display_position(state.position_global, display_origin_)[0];
     case LongitudeRole:
-        return state.position_global[1];
+        return ui::to_display_position(state.position_global, display_origin_)[1];
     case HasHeadingRole:
         return view.has_attitude && ui::heading_degrees(view.attitude.q).has_value();
     case HeadingRole:
@@ -107,10 +108,11 @@ QVariant FleetModel::data(const QModelIndex& index, int role) const
 }
 
 void FleetModel::update(const QStringList& online, const QHash<QString, AgentView>& views,
-                        const QString& selected_agent)
+                        const QString& selected_agent, const ui::DisplayOrigin& display_origin)
 {
     views_ = views;
     selected_agent_ = selected_agent;
+    display_origin_ = display_origin;
     if (online != agents_)
     {
         beginResetModel();

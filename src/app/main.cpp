@@ -153,6 +153,11 @@ int main(int argc, char* argv[])
     gcs::DiagnosticsController diagnostics;
     gcs::NetworkController network(&settings, &runtime, &bridge);
 
+    // 地圖顯示原點只影響畫面座標；除錯工具與核心模組仍使用 Agent 回報的原始位置
+    bridge.set_display_origin(settings.display_origin());
+    QObject::connect(&settings, &gcs::AppSettings::displayOriginChanged, &bridge,
+                     [&settings, &bridge]() { bridge.set_display_origin(settings.display_origin()); });
+
     diagnostics.set_topic_source(
         [&runtime]()
         {

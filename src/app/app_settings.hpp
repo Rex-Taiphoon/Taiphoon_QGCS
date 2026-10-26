@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include "app/ui_format.hpp"
 #include "link/dds_config.hpp"
 
 #include <QObject>
@@ -47,6 +48,10 @@ class AppSettings : public QObject
     Q_PROPERTY(QStringList peers READ peers NOTIFY siteChanged)
     Q_PROPERTY(bool isMulticastAllowed READ is_multicast_allowed NOTIFY siteChanged)
     Q_PROPERTY(int participantIndex READ participant_index NOTIFY siteChanged)
+    // 地圖顯示原點（站點設定，只影響畫面；變更不會重新連線）
+    Q_PROPERTY(bool isDisplayOriginEnabled READ is_display_origin_enabled NOTIFY displayOriginChanged)
+    Q_PROPERTY(QString sourceOriginText READ source_origin_text NOTIFY displayOriginChanged)
+    Q_PROPERTY(QString displayOriginText READ display_origin_text NOTIFY displayOriginChanged)
 
 public:
     /// participant index 使用 auto
@@ -108,7 +113,31 @@ public:
      */
     link::DdsNetworkConfig network_config() const;
 
-    /** @brief 介面設定恢復預設值（網頁版「恢復預設值」，不含站點設定） */
+    bool is_display_origin_enabled() const;
+    /** @brief 參考點的原始座標文字「緯度, 經度」；未設定時為空字串 */
+    QString source_origin_text() const;
+    /** @brief 參考點在地圖上的顯示座標文字「緯度, 經度」；未設定時為空字串 */
+    QString display_origin_text() const;
+
+    /**
+     * @brief 目前的地圖顯示原點；座標未設定或無效時視為未啟用
+     * @return 顯示原點
+     */
+    ui::DisplayOrigin display_origin() const;
+
+    /**
+     * @brief 保存地圖顯示原點
+     *
+     * 座標文字格式為「緯度, 經度」，可直接貼上地圖服務複製的座標。
+     * 停用時座標可留空，留空的一組保留原值，下次啟用不必重填。
+     * @param is_enabled 是否啟用
+     * @param source_text 參考點的原始座標
+     * @param display_text 參考點在地圖上的顯示座標
+     * @return 錯誤訊息；空字串表示成功
+     */
+    Q_INVOKABLE QString saveDisplayOrigin(bool is_enabled, const QString& source_text, const QString& display_text);
+
+    /** @brief 介面設定恢復預設值（網頁版「恢復預設值」，不含站點設定與地圖顯示原點） */
     Q_INVOKABLE void resetUiSettings();
 
 signals:
@@ -116,6 +145,8 @@ signals:
     void changed();
     /** @brief 站點設定改變 */
     void siteChanged();
+    /** @brief 地圖顯示原點改變 */
+    void displayOriginChanged();
 
 private:
     double read_double(const QString& key, double fallback, double min, double max) const;

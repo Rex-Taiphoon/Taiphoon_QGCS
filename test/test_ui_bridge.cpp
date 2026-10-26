@@ -1,7 +1,7 @@
 /**
  * @file test_ui_bridge.cpp
  * @brief UiBridge 與 UI 組裝：命令仍須經 Guard、按鈕狀態與 Guard 一致、待回應防重複、選取調整、
- *        成功只寫日誌而失敗與警告彈出提示
+ *        成功只寫日誌而失敗與警告彈出提示、地圖顯示原點只改變畫面座標
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
@@ -302,6 +302,56 @@ TEST_F(UiBridgeTest, TrajectoriesForValidPathsOnly)
     emit link_.trajectory_received(AGENT_1, trajectory);
     bridge_->refresh_now();
     EXPECT_TRUE(bridge_->trajectories().isEmpty());
+}
+
+TEST_F(UiBridgeTest, DisplayOriginShiftsMapPositionsOnly)
+{
+    constexpr double COORDINATE_EPSILON = 1e-9;
+    AgentStateData state = make_state(FlightState::HOVER, true, false);
+    // 參考點正北 0.0001 度（約 11 公尺）
+    state.position_global = {22.5431960, 113.9364040, 10.0};
+    bring_online(AGENT_1, state);
+    bridge_->selectAgent(AGENT_1);
+    AgentTrajectoryData trajectory;
+    trajectory.is_valid = true;
+    trajectory.control_points = {22.5430960, 113.9364040, 10.0, 22.5431960, 113.9364040, 10.0};
+    emit link_.trajectory_received(AGENT_1, trajectory);
+
+    ui::DisplayOrigin origin{true, 22.5430960, 113.9364040, 25.0339640, 121.5644680};
+    bridge_->set_display_origin(origin);
+    bridge_->refresh_now();
+
+    // 選取摘要（自動跟隨）、機群標記與軌跡都改用顯示位置
+    const QVariantMap summary = bridge_->selected_summary();
+    EXPECT_TRUE(summary.value(QStringLiteral("hasPosition")).toBool());
+    EXPECT_NEAR(summary.value(QStringLiteral("latitude")).toDouble(), 25.0340640, COORDINATE_EPSILON);
+    EXPECT_NEAR(summary.value(QStringLiteral("longitude")).toDouble(), 121.5644680, COORDINATE_EPSILON);
+    // 供「帶入選取機位置」使用的回報位置維持原始座標
+    EXPECT_EQ(summary.value(QStringLiteral("reportedPositionText")).toString(),
+              QStringLiteral("22.5431960, 113.9364040"));
+
+    auto* model = static_cast<FleetModel*>(bridge_->fleet_model());
+    ASSERT_EQ(model->rowCount(), 1);
+    const QModelIndex index = model->index(0);
+    EXPECT_NEAR(model->data(index, FleetModel::LatitudeRole).toDouble(), 25.0340640, COORDINATE_EPSILON);
+    EXPECT_NEAR(model->data(index, FleetModel::LongitudeRole).toDouble(), 121.5644680, COORDINATE_EPSILON);
+
+    ASSERT_EQ(bridge_->trajectories().size(), 1);
+    const QVariantList path = bridge_->trajectories().at(0).toMap().value(QStringLiteral("path")).toList();
+    ASSERT_EQ(path.size(), 2);
+    EXPECT_NEAR(path.at(0).toMap().value(QStringLiteral("latitude")).toDouble(), 25.0339640, COORDINATE_EPSILON);
+    EXPECT_NEAR(path.at(1).toMap().value(QStringLiteral("latitude")).toDouble(), 25.0340640, COORDINATE_EPSILON);
+
+    // 按鈕狀態由遙測狀態決定，不受顯示原點影響
+    EXPECT_TRUE(bridge_->can_move());
+
+    // 停用後恢復原始位置
+    origin.is_enabled = false;
+    bridge_->set_display_origin(origin);
+    bridge_->refresh_now();
+    EXPECT_NEAR(bridge_->selected_summary().value(QStringLiteral("latitude")).toDouble(), 22.5431960,
+                COORDINATE_EPSILON);
+    EXPECT_NEAR(model->data(index, FleetModel::LongitudeRole).toDouble(), 113.9364040, COORDINATE_EPSILON);
 }
 
 TEST_F(UiBridgeTest, NonArmCommandShownAsSentWithoutConfirmation)

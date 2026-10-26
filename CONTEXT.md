@@ -55,3 +55,7 @@ _Avoid_：safety level（防呆是 UI 互動概念，safety 是後端驗證概�
 **站點設定 (Site Config)**：
 連線現場 Agent 所需的網路參數：Agent 探索入口、網卡、Domain ID、participant index 與是否使用 multicast。由首次設定精靈建立並保存，用於產生 CycloneDDS 設定。
 _Avoid_：設定檔（未特指時）、config
+
+**地圖顯示位置 (Display Origin)**：
+把 Agent 回報的 WGS84 位置平移到實際場地的顯示設定，用於 UWB 定位原點固定在別處的情況。只影響地圖、軌跡與機群顯示；命令、Guard 與除錯工具一律使用回報座標。
+_Avoid_：GPS 偏移、修改 GPS（實際位置沒有改變）
