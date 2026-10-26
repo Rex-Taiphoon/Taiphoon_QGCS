@@ -1,6 +1,6 @@
 /**
  * @file CommandPanel.qml
- * @brief 飛行控制面板（MCDU 列式）：SAFETY／MODE／MOVE／FORM 四頁，L1 命令經面板內確認列 EXEC 後送出
+ * @brief 飛行控制面板（MCDU 列式）：SAFETY／MODE／MOVE／FORM／MISSION 五頁，L1 命令經面板內確認列 EXEC 後送出
  * @author Taiphoon GCS Team
  * @date 2026-10-15
  *
@@ -10,6 +10,8 @@
  *     確認列在選取目標改變、命令不再可用或逾時後自動清除，EXEC 時再核對目標與可用狀態。
  *     編隊點選隊形後展開參數，同一列右側出現閃爍的 CONFIRM，按下即暫存到確認列。
  * L2：Arm 需滑桿。面板底部常駐顯示解鎖狀態與 DISARM。
+ * MISSION：單機航點任務與語音口令；開始任務（按鈕或說「請執行任務」）一樣先進確認列，
+ *          按 EXEC 或說「確認」才開始，狀態與規則皆取自 MissionController。
  */
 import QtQuick
 import QtQuick.Controls
@@ -20,11 +22,14 @@ Rectangle {
 
     required property var bridge
     required property var settings
+    required property var mission
+    required property var voice
 
     /// 面板是否展開；收合時只保留標題列
     property bool isOpen: true
-    /// 目前分頁：0 SAFETY、1 MODE、2 MOVE、3 FORM
+    /// 目前分頁：0 SAFETY、1 MODE、2 MOVE、3 FORM、4 MISSION
     property int activeTab: 0
+    readonly property int missionTab: 4
     /// 確認列暫存的 L1 命令：{ command, params, label, target }；null 表示沒有待確認命令
     property var pending: null
     /// 移動距離（不保存，與網頁版相同預設 3 m）
@@ -150,6 +155,15 @@ Rectangle {
         }
     }
 
+    // 語音「請執行任務」也會出現確認列：展開面板並切到任務頁，讓操作人員看到要確認的內容
+    Connections {
+        target: root.mission
+        function onConfirmRequested() {
+            root.isOpen = true
+            root.activeTab = root.missionTab
+        }
+    }
+
     Flickable {
         anchors.fill: parent
         anchors.margins: 1
@@ -223,7 +237,7 @@ Rectangle {
                 Layout.fillWidth: true
 
                 Repeater {
-                    model: ["SAFETY", "MODE", "MOVE", "FORM"]
+                    model: ["SAFETY", "MODE", "MOVE", "FORM", "MISSION"]
                     delegate: AbstractButton {
                         id: tabButton
 
@@ -658,6 +672,174 @@ Rectangle {
                         onClicked: root.stage("FORMATION_CANCEL", [], title)
                     }
                 }
+
+                // MISSION：單機航點任務與語音口令
+                ColumnLayout {
+                    spacing: 0
+
+                    Label {
+                        visible: !root.isSingle
+                        text: qsTr("航點任務只支援單機，請在機群面板選取一台無人機")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontSmall
+                        wrapMode: Text.WordWrap
+                        padding: Theme.spaceLg
+                        Layout.fillWidth: true
+                    }
+                    LskRow {
+                        visible: root.isSingle
+                        title: root.mission.isEditing ? qsTr("EDIT 結束編輯") : qsTr("EDIT 編輯航點")
+                        enabled: root.mission.canEdit
+                        tag: root.mission.isEditing ? qsTr("點地圖新增") : (enabled ? "" : qsTr("任務執行中"))
+                        tooltip: qsTr("在地圖上點選位置新增航點，高度預設為目前高度")
+                        onClicked: root.mission.isEditing = !root.mission.isEditing
+                    }
+
+                    // 航點清單：編號、與前一點的距離、可修改的高度、刪除
+                    Repeater {
+                        model: root.isSingle ? root.mission.waypoints : []
+                        delegate: RowLayout {
+                            id: waypointRow
+
+                            required property var modelData
+
+                            spacing: Theme.spaceSm
+                            Layout.fillWidth: true
+                            Layout.leftMargin: Theme.spaceLg
+                            Layout.rightMargin: Theme.spaceSm
+                            Layout.preferredHeight: 34
+
+                            Label {
+                                text: "WP" + (waypointRow.modelData.index + 1)
+                                color: Theme.accent
+                                font.family: Theme.fontMono
+                                font.pixelSize: Theme.fontSmall
+                                Layout.preferredWidth: 40
+                            }
+                            Label {
+                                text: waypointRow.modelData.distanceText
+                                color: Theme.textMuted
+                                font.family: Theme.fontMono
+                                font.pixelSize: Theme.fontLabel
+                            }
+                            Item { Layout.fillWidth: true }
+                            FieldLabel { text: "ALT" }
+                            InlineNumber {
+                                value: waypointRow.modelData.altitude
+                                minimum: 1
+                                maximum: 120
+                                unit: "M"
+                                isActive: root.mission.canEdit
+                                enabled: root.mission.canEdit
+                                tooltip: qsTr("航點相對高度（公尺）")
+                                onCommitted: (newValue) => root.mission.setWaypointAltitude(waypointRow.modelData.index,
+                                                                                            newValue)
+                            }
+                            ActionButton {
+                                iconName: "close"
+                                accentColor: Theme.textMuted
+                                enabled: root.mission.canEdit
+                                implicitWidth: 28
+                                implicitHeight: 28
+                                padding: 0
+                                background: Item {}
+                                tooltip: qsTr("刪除這個航點")
+                                Accessible.name: qsTr("刪除航點 %1").arg(waypointRow.modelData.index + 1)
+                                onClicked: root.mission.removeWaypoint(waypointRow.modelData.index)
+                            }
+                        }
+                    }
+                    Label {
+                        visible: root.isSingle && root.mission.waypointCount === 0
+                        text: qsTr("尚無航點：按「EDIT 編輯航點」後在地圖上點選")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontLabel
+                        Layout.leftMargin: Theme.spaceLg
+                        Layout.bottomMargin: Theme.spaceSm
+                    }
+                    LskRow {
+                        visible: root.isSingle && root.mission.waypointCount > 0
+                        title: qsTr("CLR 清除航點")
+                        enabled: root.mission.canEdit
+                        onClicked: root.mission.clearWaypoints()
+                    }
+                    Divider { visible: root.isSingle }
+                    LskRow {
+                        visible: root.isSingle
+                        title: qsTr("EXECUTE 執行任務")
+                        risk: Theme.commandConfirm
+                        enabled: root.mission.canStart
+                        tag: enabled ? "CONFIRM" : (root.isWaitingForFlightController ? qsTr("等待飛控")
+                                                                                       : root.mission.startBlockReason)
+                        tooltip: qsTr("依序飛往各航點，每點停留 3 秒，最後一點懸停；需在懸停狀態")
+                        onClicked: root.mission.requestStart()
+                    }
+                    LskRow {
+                        visible: root.isSingle
+                        title: qsTr("STOP 停止任務")
+                        enabled: root.mission.isRunning
+                        tag: enabled ? qsTr("停在原地") : qsTr("未執行")
+                        tooltip: qsTr("停止航點任務，要求無人機停在目前位置懸停（也可說「停止任務」）")
+                        onClicked: root.mission.stopMission()
+                    }
+                    Label {
+                        visible: root.isSingle && root.mission.statusText.length > 0
+                        text: root.mission.statusText
+                        color: root.mission.isRunning ? Theme.normal : Theme.textMuted
+                        font.pixelSize: Theme.fontLabel
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.spaceLg
+                        Layout.rightMargin: Theme.spaceLg
+                        Layout.topMargin: Theme.spaceXs
+                        Layout.bottomMargin: Theme.spaceSm
+                    }
+                    Divider {}
+
+                    // 語音口令：按住 PTT 或 F2 說話，放開後辨識
+                    RowLayout {
+                        spacing: Theme.spaceSm
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.spaceLg
+                        Layout.rightMargin: Theme.spaceMd
+                        Layout.preferredHeight: 44
+
+                        FieldLabel { text: "VOICE" }
+                        Label {
+                            text: !root.voice.isAvailable ? qsTr("不可用")
+                                                          : (root.voice.isListening ? qsTr("聆聽中…")
+                                                                                    : (root.voice.lastResult
+                                                                                       || qsTr("按住 F2 或 PTT 說話")))
+                            color: !root.voice.isAvailable ? Theme.textDim
+                                                           : (root.voice.isListening ? Theme.caution : Theme.textBody)
+                            font.pixelSize: Theme.fontSmall
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                            ToolTip.visible: voiceHover.hovered && !root.voice.isAvailable
+                            ToolTip.text: root.voice.unavailableReason
+                            HoverHandler { id: voiceHover }
+                        }
+                        ScratchButton {
+                            text: "PTT"
+                            accentColor: root.voice.isListening ? Theme.background : Theme.accent
+                            isFilled: root.voice.isListening
+                            fillColor: Theme.caution
+                            enabled: root.voice.isAvailable
+                            tooltip: qsTr("按住說出口令（也可按住 F2）")
+                            Accessible.name: qsTr("按住說話")
+                            onPressed: root.voice.beginListening()
+                            onReleased: root.voice.endListening()
+                            onCanceled: root.voice.endListening()
+                        }
+                    }
+                    Label {
+                        text: qsTr("口令：請執行任務 → 確認／取消；停止任務")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontLabel
+                        Layout.leftMargin: Theme.spaceLg
+                        Layout.bottomMargin: Theme.spaceSm
+                    }
+                }
             }
 
             // 確認列（MCDU scratchpad）：L1 命令暫存於此，按 EXEC 才送出
@@ -699,6 +881,47 @@ Rectangle {
                         tooltip: qsTr("送出確認列的命令")
                         Accessible.name: root.pending === null ? text : qsTr("執行 %1").arg(root.pending.label)
                         onClicked: root.executePending()
+                    }
+                }
+            }
+
+            // 航點任務確認列：按鈕或語音「請執行任務」暫存於此，按 EXEC 或說「確認」才開始，10 秒未確認自動取消
+            Rectangle {
+                visible: root.mission.isConfirmPending
+                color: Theme.cautionInset
+                implicitHeight: 44
+                Layout.fillWidth: true
+
+                Rectangle { width: parent.width; height: 1; color: Qt.alpha(Theme.caution, 0.35) }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.spaceLg
+                    anchors.rightMargin: Theme.spaceMd
+                    spacing: Theme.spaceSm
+
+                    Label {
+                        text: root.mission.confirmText
+                        color: Theme.caution
+                        font.family: Theme.fontMono
+                        font.pixelSize: Theme.fontSmall
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+                    ScratchButton {
+                        text: "CLR"
+                        accentColor: Theme.textMuted
+                        tooltip: qsTr("取消航點任務（或說「取消」）")
+                        onClicked: root.mission.cancelStart()
+                    }
+                    ScratchButton {
+                        text: "EXEC"
+                        accentColor: Theme.background
+                        isFilled: true
+                        fillColor: Theme.caution
+                        tooltip: qsTr("開始航點任務（或說「確認」）")
+                        Accessible.name: qsTr("執行航點任務")
+                        onClicked: root.mission.confirmStart()
                     }
                 }
             }

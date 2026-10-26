@@ -14,6 +14,8 @@ ApplicationWindow {
     required property var settings
     required property var network
     required property var diagnostics
+    required property var mission
+    required property var voice
     /// 是否允許顯示首次設定精靈（命令列指定網路時為 false）
     property bool isFirstRunAllowed: true
     /// 啟動時展開飛行控制；窄視窗預設收合，開發驗證畫面可強制展開
@@ -56,6 +58,7 @@ ApplicationWindow {
             anchors.fill: parent
             bridge: window.bridge
             settings: window.settings
+            mission: window.mission
         }
 
         CommandPanel {
@@ -67,6 +70,8 @@ ApplicationWindow {
             isOpen: !window.isNarrow || window.isCommandPanelInitiallyOpen
             bridge: window.bridge
             settings: window.settings
+            mission: window.mission
+            voice: window.voice
         }
 
         FleetPanel {

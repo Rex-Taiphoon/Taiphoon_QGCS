@@ -31,6 +31,8 @@ add_library(gcs_core STATIC
     ${GCS_MODULES_DIR}/guard/guard_rules.cpp
     ${GCS_MODULES_DIR}/lifecycle/agent_lifecycle_module.hpp
     ${GCS_MODULES_DIR}/lifecycle/agent_lifecycle_module.cpp
+    ${GCS_MODULES_DIR}/mission/mission_module.hpp
+    ${GCS_MODULES_DIR}/mission/mission_module.cpp
     ${GCS_MODULES_DIR}/telemetry/telemetry_module.hpp
     ${GCS_MODULES_DIR}/telemetry/telemetry_module.cpp
 )

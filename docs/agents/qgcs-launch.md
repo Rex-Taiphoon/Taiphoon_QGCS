@@ -135,8 +135,21 @@ Windows 版是視窗程式，`--help`、`--version` 會跳出對話框而非輸�
 | `--duration <秒>` | 執行秒數後結束，預設 20 |
 | `--warmup <秒>` | 第一個命令前的等待時間，預設 8，讓機隊與 Guard 收到狀態 |
 | `--command <agent>:<命令>[:p1,p2,...]` | 可重複，依序每 3 秒送出一個；`<agent>` 為 `uav_N_agent` 或 `all` |
-| `--allow-commands` | 確認允許送出 `--command`／`--shutdown` |
+| `--allow-commands` | 確認允許送出 `--command`／`--shutdown`／航點任務 |
 | `--shutdown <uav_N_agent>` | 最後呼叫該 Agent 的 shutdown service；會終止 Agent 程序，非必要不要使用 |
+| `--mission <uav_N_agent>:<緯度>,<經度>,<高度>[;...]` | 在 `--command` 之後開始單機航點任務（Agent 回報的 WGS84、相對高度公尺）；需 `--allow-commands`，Agent 須在懸停 |
+| `--mission-relative <uav_N_agent>:<北>,<東>,<高度>[;...]` | 同上，航點以開始時位置的北向、東向公尺表示；與 `--mission` 擇一 |
+| `--voice-wav <檔案.wav>` | 改由語音檔觸發航點任務：航點載入後每 3 秒辨識一個 16 位元 PCM WAV，可重複；口令與桌面程式相同，需先說「請執行任務」再說「確認」 |
+
+航點任務的每一段 `MOVE_POINT` 都經 GuardModule；`--voice-wav` 需建置目錄的 `bin/voice/`（sherpa-onnx 與模型）。
+測試用口令音檔位於 `test/data/voice/`（start、confirm、cancel、stop、negative）。例如懸停中的 uav_1 以語音飛三個航點：
+
+```powershell
+& "<bin 目錄>\gcs_headless.exe" --interface <主機IP> --external-address 192.168.65.254 `
+    --no-multicast --peer <主機IP> --participant-index 51 --warmup 5 --duration 110 `
+    --mission-relative "uav_1_agent:15,0,6;15,15,6;0,15,5" `
+    --voice-wav test\data\voice\start.wav --voice-wav test\data\voice\confirm.wav --allow-commands
+```
 
 命令名稱與參數以 `../Taiphoon_Agent_Interfaces/taiphoon-agent-interface.md` 的命令協定為準；
 Guard 依目前飛行狀態拒絕不允許的命令時，會輸出失敗的 `[ack]`。編隊命令（`FORMATION_*`）只接受 `all`。
@@ -179,6 +192,9 @@ Guard 依目前飛行狀態拒絕不允許的命令時，會輸出失敗的 `[ac
 | `[state] uav_N_agent n=... mode=... armed=... landed=... alt=...` | 每 2 秒一次的遙測摘要 |
 | `[request] uav_N_agent COMMAND` | 已交給 GuardModule 的命令 |
 | `[ack] uav_N_agent COMMAND 成功/失敗 <訊息>` | Guard 拒絕或 Agent 回報結果 |
+| `[mission] uav_N_agent <MOVING／DWELLING／COMPLETED／ABORTED／REJECTED> i/N <說明>` | 航點任務進度；`已載入 N 個航點` 表示等待語音口令 |
+| `[voice] <檔名> → <口令>` | 語音檔辨識結果；未辨識到時為「（未辨識到口令）」 |
+| `[notice] <標題>：<說明>` | 與桌面程式彈出相同的警告，例如不在懸停時說「請執行任務」 |
 | `結束：收到 N 台 Agent 的狀態，失敗回報 M 筆` | 最後一行摘要 |
 
 結束碼：至少收到 1 台 Agent 的狀態為 0，否則為 1（核心啟動失敗、命令格式錯誤、未加 `--allow-commands` 也是 1）。

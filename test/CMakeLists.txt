@@ -27,6 +27,7 @@ set(GCS_CORE_TESTS
     test_fleet_module
     test_telemetry_module
     test_agent_lifecycle_module
+    test_mission_module
     test_gcs_wiring
 )
 
@@ -76,6 +77,7 @@ set(GCS_UI_TESTS
     test_ui_bridge
     test_app_support
     test_network_controller
+    test_mission_controller
 )
 
 foreach(test_name IN LISTS GCS_UI_TESTS)
@@ -83,6 +85,16 @@ foreach(test_name IN LISTS GCS_UI_TESTS)
     target_link_libraries(${test_name} PRIVATE gcs_test_support gcs_ui)
     gtest_discover_tests(${test_name} DISCOVERY_MODE PRE_TEST)
 endforeach()
+
+# 語音口令：以建置目錄 bin/voice 的 sherpa-onnx 與模型辨識 test/data/voice 的音檔
+add_executable(test_keyword_spotter test_keyword_spotter.cpp)
+target_link_libraries(test_keyword_spotter PRIVATE gcs_test_support gcs_ui gcs_voice)
+target_compile_definitions(test_keyword_spotter PRIVATE
+    GCS_VOICE_RUNTIME_DIR="${GCS_VOICE_RUNTIME_DIR}"
+    GCS_TEST_VOICE_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/voice"
+    $<$<BOOL:${GCS_HAS_SHERPA_ONNX}>:GCS_HAS_SHERPA_ONNX>
+)
+gtest_discover_tests(test_keyword_spotter DISCOVERY_MODE PRE_TEST)
 
 # QML 互動（以真實的 QQuickWindow 事件傳遞驗證安全相關操作）
 if(GCS_BUILD_APP)

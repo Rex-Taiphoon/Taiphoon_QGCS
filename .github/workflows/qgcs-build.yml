@@ -40,7 +40,8 @@ permissions:
 
 env:
   QT_VERSION: "6.11.2"
-  QT_MODULES: "qtlocation qtpositioning qtshadertools"
+  # qtmultimedia：語音口令收音（ADR-0018）；iOS 沒有語音口令，程式不會連結它
+  QT_MODULES: "qtlocation qtpositioning qtshadertools qtmultimedia"
 
 jobs:
   windows:
@@ -163,7 +164,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 \
-            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libegl1
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libegl1 libpulse0
 
       - name: 安裝 Qt
         uses: jurplel/install-qt-action@v4

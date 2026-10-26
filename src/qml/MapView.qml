@@ -1,6 +1,7 @@
 /**
  * @file MapView.qml
- * @brief 全幅地圖：反相深色 OSM 底圖、透明疊圖層上的航向箭頭與名稱、EGO-Swarm 軌跡、自動跟隨（ADR-0016）
+ * @brief 全幅地圖：反相深色 OSM 底圖、透明疊圖層上的航向箭頭與名稱、EGO-Swarm 軌跡、航點任務路線與點選新增、
+ *        自動跟隨（ADR-0016）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
@@ -15,6 +16,7 @@ Item {
 
     required property var bridge
     required property var settings
+    required property var mission
 
     /// 尚未取得有效 GPS 時的預設中心（台北），與網頁版相同
     readonly property var defaultCenter: QtPositioning.coordinate(25.03997, 121.51195)
@@ -205,6 +207,50 @@ Item {
             }
         }
 
+        // 航點任務路線：選取機為青色，其他機淡化；位於無人機標記下方
+        MapItemView {
+            model: root.mission.routes
+            delegate: MapPolyline {
+                required property var modelData
+
+                line.width: modelData.isSelected ? 2 : 1
+                line.color: modelData.isSelected ? Theme.accent : Qt.alpha(Theme.accent, 0.35)
+                path: modelData.points.map(p => QtPositioning.coordinate(p.latitude, p.longitude))
+            }
+        }
+
+        // 航點編號；目前要前往的航點以實心標示
+        MapItemView {
+            model: root.mission.waypointMarkers
+            delegate: MapQuickItem {
+                id: waypointMarker
+
+                required property var modelData
+
+                coordinate: QtPositioning.coordinate(modelData.latitude, modelData.longitude)
+                anchorPoint.x: sourceItem.width / 2
+                anchorPoint.y: sourceItem.height / 2
+                opacity: modelData.isSelected ? 1 : 0.45
+
+                sourceItem: Rectangle {
+                    width: 20
+                    height: 20
+                    radius: width / 2
+                    color: waypointMarker.modelData.isCurrent ? Theme.accent : Theme.background
+                    border.color: Theme.accent
+                    border.width: 1.5
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: waypointMarker.modelData.index + 1
+                        color: waypointMarker.modelData.isCurrent ? Theme.background : Theme.accent
+                        font.family: Theme.fontMono
+                        font.pixelSize: 11
+                    }
+                }
+            }
+        }
+
         MapItemView {
             model: root.bridge.fleetModel
             delegate: MapQuickItem {
@@ -343,6 +389,18 @@ Item {
             target: map
             rotationScale: 1 / 120
             property: "zoomLevel"
+        }
+        // 航點編輯：點選地圖新增航點（拖曳仍為平移），游標改為十字
+        TapHandler {
+            enabled: root.mission.isEditing
+            onTapped: (eventPoint, button) => {
+                const coordinate = overlay.toCoordinate(eventPoint.position, false)
+                root.mission.addWaypoint(coordinate.latitude, coordinate.longitude)
+            }
+        }
+        HoverHandler {
+            enabled: root.mission.isEditing
+            cursorShape: Qt.CrossCursor
         }
         DragHandler {
             id: drag

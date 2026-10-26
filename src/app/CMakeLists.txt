@@ -30,6 +30,8 @@ add_library(gcs_ui STATIC
     fleet_model.cpp
     log_file.hpp
     log_file.cpp
+    mission_controller.hpp
+    mission_controller.cpp
     network_controller.hpp
     network_controller.cpp
     toast_model.hpp
@@ -51,9 +53,28 @@ find_package(Qt6 ${GCS_QT_VERSION} EXACT REQUIRED
     COMPONENTS Gui Qml Quick QuickControls2 Location Positioning ShaderTools
 )
 
+# 按住說話的收音：獨立成函式庫（與其他 QObject 類別相同由函式庫的 AUTOMOC 處理；
+# 執行檔目標的 autogen 步驟不會為後來加入的標頭產生 moc）。
+# 收音需要 Qt Multimedia；未安裝或沒有 sherpa-onnx（例如 iOS）時不連結，語音口令顯示為不可用。
+add_library(gcs_voice_capture STATIC
+    voice_controller.hpp
+    voice_controller.cpp
+)
+target_link_libraries(gcs_voice_capture PUBLIC gcs_voice Qt6::Gui)
+if(GCS_HAS_SHERPA_ONNX)
+    find_package(Qt6Multimedia ${GCS_QT_VERSION} EXACT QUIET)
+endif()
+if(GCS_HAS_SHERPA_ONNX AND Qt6Multimedia_FOUND)
+    target_link_libraries(gcs_voice_capture PRIVATE Qt6::Multimedia)
+    target_compile_definitions(gcs_voice_capture PRIVATE GCS_HAS_QT_MULTIMEDIA)
+else()
+    message(STATUS "未包含 Qt Multimedia 或 sherpa-onnx，語音口令停用")
+endif()
+
 qt_add_executable(Taiphoon_QGCS WIN32 MACOSX_BUNDLE
     main.cpp
 )
+target_link_libraries(Taiphoon_QGCS PRIVATE gcs_voice_capture)
 
 # 程式圖示（tools/make_icons.ps1 產生）：Windows 以資源檔嵌入 exe，macOS 放入 bundle Resources；
 # iOS 需 asset catalog，尚未提供（ADR-0017）

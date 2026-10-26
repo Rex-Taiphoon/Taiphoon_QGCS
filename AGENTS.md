@@ -41,8 +41,9 @@ Taiphoon_QGCS/
 ├── tools/                       # msg2idl.py 等建置工具
 ├── src/
 │   ├── core/                    # GcsModule、ModuleManager、共用型別、IAgentLink、命令協定
-│   ├── modules/                 # fleet / telemetry / guard / command / lifecycle / inspector
+│   ├── modules/                 # fleet / telemetry / guard / command / lifecycle / mission / inspector
 │   ├── link/                    # CycloneDDS ROS2 相容層
+│   ├── voice/                   # 語音口令辨識（sherpa-onnx 執行期載入，ADR-0018）
 │   ├── app/                     # main、組裝根 gcs_wiring、UiBridge、models、設定
 │   └── qml/                     # QML 檢視
 ├── test/                        # 單元測試（Google Test + QtTest，禁止混入主程式）

@@ -128,4 +128,12 @@ bool has_valid_global_position(const std::array<double, 3>& position);
  */
 std::array<double, 3> to_display_position(const std::array<double, 3>& position, const DisplayOrigin& origin);
 
+/**
+ * @brief to_display_position 的反向換算：地圖上的位置換回 Agent 回報座標（例如地圖點選的航點）
+ * @param position 地圖顯示位置 [緯度, 經度, 高度]
+ * @param origin 顯示原點
+ * @return Agent 回報座標；未啟用或位置無效時原樣傳回
+ */
+std::array<double, 3> to_reported_position(const std::array<double, 3>& position, const DisplayOrigin& origin);
+
 }  // namespace gcs::ui

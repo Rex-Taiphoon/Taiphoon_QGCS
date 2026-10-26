@@ -14,6 +14,7 @@
 #include "modules/fleet/fleet_module.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
+#include "modules/mission/mission_module.hpp"
 #include "modules/telemetry/telemetry_module.hpp"
 
 #include <QSignalSpy>
@@ -70,7 +71,8 @@ protected:
         ASSERT_TRUE(guard_.init());
         ASSERT_TRUE(command_.init());
         ASSERT_TRUE(lifecycle_.init());
-        const CoreModules modules{&fleet_, &telemetry_, &guard_, &command_, &lifecycle_};
+        ASSERT_TRUE(mission_.init());
+        const CoreModules modules{&fleet_, &telemetry_, &guard_, &command_, &lifecycle_, &mission_};
         ASSERT_TRUE(wire_core_modules(modules));
         ASSERT_TRUE(wire_ui(modules, bridge_.get()));
         bridge_->set_link_status(true, QStringLiteral("測試"));
@@ -123,6 +125,7 @@ protected:
     GuardModule guard_;
     CommandModule command_{&link_};
     AgentLifecycleModule lifecycle_{&link_};
+    MissionModule mission_;
 };
 
 }  // namespace

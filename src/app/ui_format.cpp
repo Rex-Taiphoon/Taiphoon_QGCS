@@ -229,4 +229,15 @@ std::array<double, 3> to_display_position(const std::array<double, 3>& position,
     return {latitude, longitude, position[2]};
 }
 
+std::array<double, 3> to_reported_position(const std::array<double, 3>& position, const DisplayOrigin& origin)
+{
+    // 交換來源與顯示參考點即為反向換算
+    DisplayOrigin inverse = origin;
+    inverse.source_latitude = origin.display_latitude;
+    inverse.source_longitude = origin.display_longitude;
+    inverse.display_latitude = origin.source_latitude;
+    inverse.display_longitude = origin.source_longitude;
+    return to_display_position(position, inverse);
+}
+
 }  // namespace gcs::ui

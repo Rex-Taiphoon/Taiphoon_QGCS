@@ -12,6 +12,7 @@ namespace gcs
 {
 
 class DiagnosticsController;
+class MissionController;
 class UiBridge;
 
 /**
@@ -34,5 +35,17 @@ bool wire_ui(const CoreModules& modules, UiBridge* bridge);
  * @return 是否成功
  */
 bool wire_diagnostics(const CoreModules& modules, DiagnosticsController* diagnostics);
+
+/**
+ * @brief 連接航點任務介面與 MissionModule
+ *
+ * 介面只送出「開始」與「停止」兩種任務請求；任務中的每一個命令都由 MissionModule
+ * 交給 GuardModule 驗證，介面不會直接產生 Agent 命令。
+ *
+ * @param modules 核心模組
+ * @param controller 航點任務介面
+ * @return 是否成功
+ */
+bool wire_mission(const CoreModules& modules, MissionController* controller);
 
 }  // namespace gcs

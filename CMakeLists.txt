@@ -5,7 +5,8 @@
 # @date 2026-10-12
 #
 # 目標：gcs_core（核心與模組，只依賴 QtCore）、gcs_link（CycloneDDS 相容層）、
-# gcs_wiring（組裝根）、Taiphoon_QGCS（桌面程式）；架構見 docs/qt-cross-platform-development.md。
+# gcs_voice（語音口令辨識）、gcs_wiring（組裝根）、Taiphoon_QGCS（桌面程式）；
+# 架構見 docs/qt-cross-platform-development.md。
 # =============================================================================
 cmake_minimum_required(VERSION 3.25)
 
@@ -45,6 +46,7 @@ qt_standard_project_setup(REQUIRES ${GCS_QT_VERSION})
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(Dependencies)
+include(Voice)
 
 # 放在第三方相依之後，只影響本專案目標：windows.h 的 ERROR、min、max 巨集
 # 會與介面規格的 FlightState::ERROR 及標準函式庫衝突。
@@ -56,6 +58,7 @@ add_subdirectory(idl)
 
 add_subdirectory(src/core)
 add_subdirectory(src/link)
+add_subdirectory(src/voice)
 add_subdirectory(src/app)
 
 if(GCS_BUILD_TOOLS)

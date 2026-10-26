@@ -14,6 +14,7 @@
 #include "modules/fleet/fleet_module.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
+#include "modules/mission/mission_module.hpp"
 #include "modules/telemetry/telemetry_module.hpp"
 
 #include <QLoggingCategory>
@@ -59,7 +60,8 @@ bool CoreRuntime::start(const link::DdsNetworkConfig& config, QString* error)
     guard_ = manager_->register_module(std::make_unique<GuardModule>());
     command_ = manager_->register_module(std::make_unique<CommandModule>(link_.get()));
     lifecycle_ = manager_->register_module(std::make_unique<AgentLifecycleModule>(link_.get()));
-    if (!wire_core_modules({fleet_, telemetry_, guard_, command_, lifecycle_}))
+    mission_ = manager_->register_module(std::make_unique<MissionModule>());
+    if (!wire_core_modules({fleet_, telemetry_, guard_, command_, lifecycle_, mission_}))
     {
         if (error != nullptr)
         {
@@ -142,6 +144,7 @@ void CoreRuntime::stop()
     guard_ = nullptr;
     command_ = nullptr;
     lifecycle_ = nullptr;
+    mission_ = nullptr;
     manager_.reset();
     link_.reset();
     core_thread_.reset();

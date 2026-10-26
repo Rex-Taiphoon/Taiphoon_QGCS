@@ -19,6 +19,8 @@ void register_core_metatypes()
     qRegisterMetaType<CommandRequest>();
     qRegisterMetaType<CommandAck>();
     qRegisterMetaType<FleetSnapshot>();
+    qRegisterMetaType<MissionPlan>();
+    qRegisterMetaType<MissionStatus>();
 }
 
 }  // namespace gcs

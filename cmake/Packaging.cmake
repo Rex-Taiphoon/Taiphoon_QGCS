@@ -67,6 +67,24 @@ else()
     set_target_properties(Taiphoon_QGCS PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
 endif()
 
+# -----------------------------------------------------------------------------
+# 語音口令：sherpa-onnx 動態函式庫與關鍵詞模型（程式以 QLibrary 執行期載入，ADR-0018）
+# macOS bundle 的程式碼須放 Frameworks 才能一併簽章，模型屬資料放 Resources；其他平台放執行檔旁的 voice/
+# -----------------------------------------------------------------------------
+if(GCS_HAS_SHERPA_ONNX)
+    if(APPLE)
+        set(GCS_VOICE_LIB_INSTALL_DIR "Taiphoon_QGCS.app/Contents/Frameworks")
+        set(GCS_VOICE_MODEL_INSTALL_DIR "Taiphoon_QGCS.app/Contents/Resources/voice/model")
+    else()
+        set(GCS_VOICE_LIB_INSTALL_DIR "${CMAKE_INSTALL_BINDIR}/voice")
+        set(GCS_VOICE_MODEL_INSTALL_DIR "${CMAKE_INSTALL_BINDIR}/voice/model")
+    endif()
+    install(FILES ${GCS_SHERPA_ONNX_RUNTIME_LIBS}
+        DESTINATION ${GCS_VOICE_LIB_INSTALL_DIR} COMPONENT ${GCS_INSTALL_COMPONENT})
+    install(FILES ${GCS_KWS_MODEL_FILES}
+        DESTINATION ${GCS_VOICE_MODEL_INSTALL_DIR} COMPONENT ${GCS_INSTALL_COMPONENT})
+endif()
+
 set(GCS_DEPLOY_ARGS
     TARGET Taiphoon_QGCS
     OUTPUT_SCRIPT GCS_DEPLOY_SCRIPT
@@ -98,7 +116,7 @@ if(MSVC)
 endif()
 
 # -----------------------------------------------------------------------------
-# 授權聲明（Qt 以 LGPL 動態連結；CycloneDDS 為 EPL-2.0／EDL-1.0）
+# 授權聲明（Qt 以 LGPL 動態連結；CycloneDDS 為 EPL-2.0／EDL-1.0；語音口令元件見 THIRD_PARTY_NOTICES）
 # -----------------------------------------------------------------------------
 set(GCS_LICENSE_DIR "${CMAKE_INSTALL_DATADIR}/licenses")
 if(APPLE)
@@ -116,6 +134,13 @@ install(FILES "${PROJECT_SOURCE_DIR}/resources/fonts/OFL.txt" DESTINATION ${GCS_
 # Noto Sans TC 字型（OFL-1.1）內嵌於程式資源，授權條文另附
 install(FILES "${PROJECT_SOURCE_DIR}/resources/fonts/NotoSansTC-OFL.txt" DESTINATION ${GCS_LICENSE_DIR}/noto-sans-tc
     RENAME OFL.txt COMPONENT ${GCS_INSTALL_COMPONENT})
+# 語音口令：sherpa-onnx（Apache-2.0）與 ONNX Runtime（MIT）
+if(GCS_HAS_SHERPA_ONNX)
+    install(FILES "${PROJECT_SOURCE_DIR}/packaging/licenses/sherpa-onnx-LICENSE.txt"
+        DESTINATION ${GCS_LICENSE_DIR}/sherpa-onnx RENAME LICENSE.txt COMPONENT ${GCS_INSTALL_COMPONENT})
+    install(FILES "${PROJECT_SOURCE_DIR}/packaging/licenses/onnxruntime-LICENSE.txt"
+        DESTINATION ${GCS_LICENSE_DIR}/onnxruntime RENAME LICENSE.txt COMPONENT ${GCS_INSTALL_COMPONENT})
+endif()
 get_filename_component(GCS_QT_LICENSE_DIR "${QT6_INSTALL_PREFIX}/../../Licenses" ABSOLUTE)
 if(EXISTS "${GCS_QT_LICENSE_DIR}")
     install(DIRECTORY "${GCS_QT_LICENSE_DIR}/" DESTINATION ${GCS_LICENSE_DIR}/qt COMPONENT ${GCS_INSTALL_COMPONENT})

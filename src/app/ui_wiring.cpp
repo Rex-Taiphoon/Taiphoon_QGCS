@@ -7,11 +7,13 @@
 #include "app/ui_wiring.hpp"
 
 #include "app/diagnostics_controller.hpp"
+#include "app/mission_controller.hpp"
 #include "app/ui_bridge.hpp"
 #include "modules/command/command_module.hpp"
 #include "modules/fleet/fleet_module.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
+#include "modules/mission/mission_module.hpp"
 #include "modules/telemetry/telemetry_module.hpp"
 
 #include <QLoggingCategory>
@@ -74,6 +76,24 @@ bool wire_diagnostics(const CoreModules& modules, DiagnosticsController* diagnos
                      &DiagnosticsController::on_command_acked);
     QObject::connect(modules.lifecycle, &AgentLifecycleModule::command_acked, diagnostics,
                      &DiagnosticsController::on_command_acked);
+    return true;
+}
+
+bool wire_mission(const CoreModules& modules, MissionController* controller)
+{
+    if (controller == nullptr || modules.telemetry == nullptr || modules.mission == nullptr)
+    {
+        qCCritical(lc_ui_wiring) << "航點任務組裝參數不完整，未建立任何連線";
+        return false;
+    }
+    QObject::connect(controller, &MissionController::mission_start_requested, modules.mission,
+                     &MissionModule::start_mission);
+    QObject::connect(controller, &MissionController::mission_stop_requested, modules.mission,
+                     &MissionModule::stop_mission);
+    QObject::connect(modules.mission, &MissionModule::mission_status_changed, controller,
+                     &MissionController::on_mission_status);
+    QObject::connect(modules.telemetry, &TelemetryModule::state_updated, controller,
+                     &MissionController::on_state_updated);
     return true;
 }
 

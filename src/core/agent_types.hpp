@@ -150,6 +150,50 @@ struct FleetSnapshot
     QStringList offline;
 };
 
+/// 航點任務的單一航點；經緯度為 Agent 回報的 WGS84 座標，不是地圖顯示座標
+struct MissionWaypoint
+{
+    double latitude = 0.0;
+    double longitude = 0.0;
+    /// 相對高度（公尺，向上為正），與機群面板的高度相同，即 -position_ned[2]
+    double altitude_m = 0.0;
+};
+
+/// 航點任務：單機依序飛往各航點
+struct MissionPlan
+{
+    /// uav_{N}_agent；航點任務不支援全體目標
+    QString agent;
+    QVector<MissionWaypoint> waypoints;
+};
+
+/// 航點任務階段
+enum class MissionPhase : uint8_t
+{
+    IDLE,
+    /// 已送出航點命令，前往目前航點
+    MOVING,
+    /// 已到達目前航點，停留中
+    DWELLING,
+    /// 最後一個航點已到達，Agent 懸停
+    COMPLETED,
+    /// 執行中被中止
+    ABORTED,
+    /// 開始條件不符，未送出任何命令
+    REJECTED
+};
+
+/// 航點任務狀態回報
+struct MissionStatus
+{
+    QString agent;
+    MissionPhase phase = MissionPhase::IDLE;
+    /// 目前航點（0 起算）；尚未開始時為 -1
+    int waypoint_index = -1;
+    int waypoint_count = 0;
+    QString message;
+};
+
 /**
  * @brief 註冊所有跨執行緒傳遞的核心型別
  *
@@ -167,3 +211,5 @@ Q_DECLARE_METATYPE(gcs::AgentTrajectoryData)
 Q_DECLARE_METATYPE(gcs::CommandRequest)
 Q_DECLARE_METATYPE(gcs::CommandAck)
 Q_DECLARE_METATYPE(gcs::FleetSnapshot)
+Q_DECLARE_METATYPE(gcs::MissionPlan)
+Q_DECLARE_METATYPE(gcs::MissionStatus)

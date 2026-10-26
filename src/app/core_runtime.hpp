@@ -25,6 +25,7 @@ class AgentLifecycleModule;
 class CommandModule;
 class FleetModule;
 class GuardModule;
+class MissionModule;
 class ModuleManager;
 class TelemetryModule;
 
@@ -75,6 +76,7 @@ public:
     GuardModule* guard() const { return guard_; }
     CommandModule* command() const { return command_; }
     AgentLifecycleModule* lifecycle() const { return lifecycle_; }
+    MissionModule* mission() const { return mission_; }
     link::CycloneAgentLink* agent_link() const { return link_.get(); }
 
 private:
@@ -94,6 +96,7 @@ private:
     GuardModule* guard_ = nullptr;
     CommandModule* command_ = nullptr;
     AgentLifecycleModule* lifecycle_ = nullptr;
+    MissionModule* mission_ = nullptr;
 };
 
 }  // namespace gcs

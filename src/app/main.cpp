@@ -4,17 +4,20 @@
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  *
- * 建立設定、核心執行環境、UiBridge 與除錯工具，完成 UI 組裝後載入 QML。
+ * 建立設定、核心執行環境、UiBridge、航點任務、語音口令與除錯工具，完成 UI 組裝後載入 QML。
  * 結束程式只停止 GCS，不對 Agent 發送任何命令（F-12）。
  */
 #include "app/app_settings.hpp"
 #include "app/core_runtime.hpp"
 #include "app/diagnostics_controller.hpp"
 #include "app/log_file.hpp"
+#include "app/mission_controller.hpp"
 #include "app/network_controller.hpp"
 #include "app/ui_bridge.hpp"
 #include "app/ui_wiring.hpp"
+#include "app/voice_controller.hpp"
 #include "link/cyclone_agent_link.hpp"
+#include "voice/keyword_spotter.hpp"
 
 #include <QCommandLineParser>
 #include <QFont>
@@ -154,9 +157,25 @@ int main(int argc, char* argv[])
     gcs::NetworkController network(&settings, &runtime, &bridge);
 
     // 地圖顯示原點只影響畫面座標；除錯工具與核心模組仍使用 Agent 回報的原始位置
+    gcs::MissionController mission;
+    mission.set_toast_model(&bridge.toasts());
     bridge.set_display_origin(settings.display_origin());
+    mission.set_display_origin(settings.display_origin());
     QObject::connect(&settings, &gcs::AppSettings::displayOriginChanged, &bridge,
-                     [&settings, &bridge]() { bridge.set_display_origin(settings.display_origin()); });
+                     [&settings, &bridge, &mission]()
+                     {
+                         bridge.set_display_origin(settings.display_origin());
+                         mission.set_display_origin(settings.display_origin());
+                     });
+    QObject::connect(&bridge, &gcs::UiBridge::selectionChanged, &mission,
+                     [&bridge, &mission]() { mission.set_selected_agent(bridge.selected_agent()); });
+
+    // 語音口令：只在按住 F2 或畫面按鈕時收音，口令交給 MissionController 處理
+    gcs::VoiceController voice;
+    voice.initialize(gcs::voice::KeywordSpotter::default_voice_dir());
+    app.installEventFilter(&voice);
+    QObject::connect(&voice, &gcs::VoiceController::keyword_detected, &mission,
+                     &gcs::MissionController::on_voice_keyword);
 
     diagnostics.set_topic_source(
         [&runtime]()
@@ -174,12 +193,13 @@ int main(int argc, char* argv[])
 
     // 核心每次（重新）建立時，模組都是新物件，必須重新組裝 UI 連線
     QObject::connect(&network, &gcs::NetworkController::runtimeStarted, &app,
-                     [&runtime, &bridge, &diagnostics]()
+                     [&runtime, &bridge, &diagnostics, &mission]()
                      {
-                         const gcs::CoreModules modules{runtime.fleet(), runtime.telemetry(), runtime.guard(),
-                                                        runtime.command(), runtime.lifecycle()};
+                         const gcs::CoreModules modules{runtime.fleet(),   runtime.telemetry(), runtime.guard(),
+                                                        runtime.command(), runtime.lifecycle(), runtime.mission()};
                          gcs::wire_ui(modules, &bridge);
                          gcs::wire_diagnostics(modules, &diagnostics);
+                         gcs::wire_mission(modules, &mission);
                      });
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, [&runtime]() { runtime.stop(); });
 
@@ -201,6 +221,8 @@ int main(int argc, char* argv[])
         {QStringLiteral("settings"), QVariant::fromValue(&settings)},
         {QStringLiteral("network"), QVariant::fromValue(&network)},
         {QStringLiteral("diagnostics"), QVariant::fromValue(&diagnostics)},
+        {QStringLiteral("mission"), QVariant::fromValue(&mission)},
+        {QStringLiteral("voice"), QVariant::fromValue(&voice)},
         // 命令列已指定網路時不顯示首次設定精靈
         {QStringLiteral("isFirstRunAllowed"), !has_network_override},
         {QStringLiteral("isCommandPanelInitiallyOpen"), parser.isSet(QStringLiteral("open-command-panel"))},

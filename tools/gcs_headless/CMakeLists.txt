@@ -5,4 +5,5 @@
 # @date 2026-10-12
 # =============================================================================
 add_executable(gcs_headless main.cpp)
-target_link_libraries(gcs_headless PRIVATE gcs_runtime)
+# 航點任務與語音口令使用與桌面程式相同的 MissionController 與辨識器（皆只依賴 QtCore／QtNetwork）
+target_link_libraries(gcs_headless PRIVATE gcs_runtime gcs_ui gcs_voice)

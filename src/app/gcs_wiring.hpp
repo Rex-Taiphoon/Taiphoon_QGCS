@@ -16,6 +16,7 @@ class AgentLifecycleModule;
 class CommandModule;
 class FleetModule;
 class GuardModule;
+class MissionModule;
 class TelemetryModule;
 
 /// 需要互相連線的核心模組
@@ -26,6 +27,7 @@ struct CoreModules
     GuardModule* guard = nullptr;
     CommandModule* command = nullptr;
     AgentLifecycleModule* lifecycle = nullptr;
+    MissionModule* mission = nullptr;
 };
 
 /**

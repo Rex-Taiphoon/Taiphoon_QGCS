@@ -5,7 +5,8 @@
  * @date 2026-10-12
  *
  * 以真實模組與 FakeAgentLink 組成核心，模擬 UI 只能使用的兩個入口：
- * GuardModule::request_command 與 AgentLifecycleModule::request_shutdown。
+ * GuardModule::request_command 與 AgentLifecycleModule::request_shutdown；
+ * 航點任務模組的命令同樣必須經 Guard。
  */
 #include "app/gcs_wiring.hpp"
 #include "fakes/fake_agent_link.hpp"
@@ -13,11 +14,15 @@
 #include "modules/fleet/fleet_module.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
+#include "modules/mission/mission_module.hpp"
 #include "modules/telemetry/telemetry_module.hpp"
 
 #include <QSignalSpy>
+#include <QTest>
 
 #include <gtest/gtest.h>
+
+#include <cmath>
 
 using namespace gcs;
 using gcs::test::FakeAgentLink;
@@ -29,6 +34,31 @@ namespace
 
 const QString AGENT_1 = QStringLiteral("uav_1_agent");
 const QString AGENT_2 = QStringLiteral("uav_2_agent");
+
+/** @brief 縮短的航點任務時間參數 */
+MissionTiming fast_mission_timing()
+{
+    MissionTiming timing;
+    timing.dwell_ms = 30;
+    timing.tick_ms = 10;
+    timing.hover_settle_ms = 30;
+    timing.leg_base_timeout_ms = 1000;
+    return timing;
+}
+
+/**
+ * @brief 有 GPS 位置的懸停狀態
+ * @param latitude 緯度
+ * @param is_px4_state_valid PX4 狀態是否有效
+ * @return AgentState
+ */
+AgentStateData hover_at(double latitude, bool is_px4_state_valid = true)
+{
+    AgentStateData state = make_state(FlightState::HOVER, true, false, PX4_NAV_STATE_OFFBOARD, is_px4_state_valid);
+    state.position_global = {latitude, 121.5, 50.0};
+    state.position_ned = {0.0F, 0.0F, -5.0F};
+    return state;
+}
 
 /**
  * @class GcsWiringTest
@@ -44,7 +74,20 @@ protected:
         ASSERT_TRUE(guard_.init());
         ASSERT_TRUE(command_.init());
         ASSERT_TRUE(lifecycle_.init());
-        ASSERT_TRUE(wire_core_modules({&fleet_, &telemetry_, &guard_, &command_, &lifecycle_}));
+        ASSERT_TRUE(mission_.init());
+        ASSERT_TRUE(wire_core_modules({&fleet_, &telemetry_, &guard_, &command_, &lifecycle_, &mission_}));
+    }
+
+    /**
+     * @brief 讓 Agent 懸停上線並送出姿態，可開始航點任務
+     * @param latitude 目前緯度
+     */
+    void bring_online_hovering(double latitude)
+    {
+        bring_online(AGENT_1, hover_at(latitude));
+        AgentAttitudeData attitude;
+        attitude.q = {1.0F, 0.0F, 0.0F, 0.0F};
+        emit link_.attitude_received(AGENT_1, attitude);
     }
 
     /**
@@ -68,13 +111,68 @@ protected:
     GuardModule guard_;
     CommandModule command_{&link_};
     AgentLifecycleModule lifecycle_{&link_};
+    MissionModule mission_{fast_mission_timing()};
 };
 
 }  // namespace
 
 TEST_F(GcsWiringTest, RejectsIncompleteModules)
 {
-    EXPECT_FALSE(wire_core_modules({&fleet_, &telemetry_, nullptr, &command_, &lifecycle_}));
+    EXPECT_FALSE(wire_core_modules({&fleet_, &telemetry_, nullptr, &command_, &lifecycle_, &mission_}));
+    EXPECT_FALSE(wire_core_modules({&fleet_, &telemetry_, &guard_, &command_, &lifecycle_, nullptr}));
+}
+
+TEST_F(GcsWiringTest, MissionLegsReachLinkThroughGuard)
+{
+    constexpr double START = 25.0;
+    constexpr double STEP = 0.0001;
+    bring_online_hovering(START);
+    MissionPlan plan;
+    plan.agent = AGENT_1;
+    plan.waypoints = {{START + STEP, 121.5, 5.0}, {START + 2 * STEP, 121.5, 5.0}};
+
+    mission_.start_mission(plan);
+    ASSERT_EQ(link_.published_commands.size(), 1U);
+    EXPECT_EQ(link_.published_commands[0].target, AGENT_1);
+    EXPECT_TRUE(link_.published_commands[0].command_line.startsWith(QStringLiteral("MOVE_POINT ")));
+    EXPECT_TRUE(mission_.is_running(AGENT_1));
+
+    // 到達第一個航點後，PX4 狀態暫時無效：任務不中止，但 Guard 必須擋下第二段
+    AgentStateData moving = hover_at(START + STEP);
+    moving.flight_mode = static_cast<uint8_t>(FlightState::MOVING);
+    emit link_.state_received(AGENT_1, moving);
+    emit link_.state_received(AGENT_1, hover_at(START + STEP));
+    emit link_.state_received(AGENT_1, hover_at(START + STEP, false));
+    QTRY_VERIFY_WITH_TIMEOUT(!mission_.is_running(AGENT_1), 1000);
+    EXPECT_EQ(link_.published_commands.size(), 1U);
+}
+
+TEST_F(GcsWiringTest, MissionStopGoesThroughGuard)
+{
+    bring_online_hovering(25.0);
+    MissionPlan plan;
+    plan.agent = AGENT_1;
+    plan.waypoints = {{25.0001, 121.5, 5.0}};
+    mission_.start_mission(plan);
+    mission_.stop_mission(AGENT_1);
+
+    // 停在目前位置 (0, 0, -5)、機頭 0 度
+    ASSERT_EQ(link_.published_commands.size(), 2U);
+    EXPECT_EQ(link_.published_commands[1].command_line, QStringLiteral("MOVE_POINT 0 0 -5 0"));
+    EXPECT_FALSE(mission_.is_running(AGENT_1));
+}
+
+TEST_F(GcsWiringTest, OperatorCommandThroughGuardAbortsMission)
+{
+    bring_online_hovering(25.0);
+    MissionPlan plan;
+    plan.agent = AGENT_1;
+    plan.waypoints = {{25.0001, 121.5, 5.0}};
+    mission_.start_mission(plan);
+    ASSERT_TRUE(mission_.is_running(AGENT_1));
+
+    guard_.request_command(make_request(AGENT_1, QStringLiteral("MODE_RTL")));
+    EXPECT_FALSE(mission_.is_running(AGENT_1));
 }
 
 TEST_F(GcsWiringTest, DiscoveryCreatesTelemetrySubscription)
