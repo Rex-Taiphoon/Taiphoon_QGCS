@@ -241,11 +241,16 @@ jobs:
       - name: Build
         run: cmake --build --preset ios-release -- -sdk iphoneos -quiet
 
-      # IPA 即 Payload/<App>.app 的 ZIP；未簽章，安裝前需由使用者以自己的 Apple ID 重新簽章
+      # IPA 即 Payload/<App>.app 的 ZIP；未簽章，安裝前需由使用者以自己的 Apple ID 重新簽章。
+      # 輸出目錄固定為 bin/ 時，Xcode 產生器不一定加上 -iphoneos 後綴；本工作只以 -sdk iphoneos 建置實機版，
+      # 因此搜尋整個建置目錄並印出位置、架構與版本，方便核對
       - name: 打包（IPA，未簽章）
         run: |
-          app="$(find build/ios-release -type d -name Taiphoon_QGCS.app -path '*Release-iphoneos*' | head -n 1)"
+          app="$(find build/ios-release -type d -name Taiphoon_QGCS.app -prune | head -n 1)"
           test -n "$app"
+          echo "App：$app"
+          lipo -archs "$app/Taiphoon_QGCS"
+          plutil -p "$app/Info.plist" | grep -E 'CFBundleIdentifier|CFBundleShortVersionString'
           version="$(tr -d '[:space:]' < VERSION)"
           mkdir -p ipa/Payload
           cp -R "$app" ipa/Payload/
