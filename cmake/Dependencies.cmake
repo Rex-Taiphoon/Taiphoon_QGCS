@@ -11,12 +11,20 @@ include(FetchContent)
 # -----------------------------------------------------------------------------
 set(GCS_CYCLONEDDS_VERSION "0.10.5")
 
+# iOS SDK 沒有 net/if_media.h，CycloneDDS 介面類型判斷的 Apple 分支無法編譯；只在 iOS 建置時修補（ADR-0017）
+set(GCS_CYCLONEDDS_PATCH "")
+if(IOS)
+    set(GCS_CYCLONEDDS_PATCH
+        PATCH_COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_LIST_DIR}/patches/cyclonedds-ios-ifaddrs.cmake")
+endif()
+
 FetchContent_Declare(cyclonedds
     GIT_REPOSITORY https://github.com/eclipse-cyclonedds/cyclonedds.git
     GIT_TAG        ${GCS_CYCLONEDDS_VERSION}
     GIT_SHALLOW    TRUE
     # 原始碼內部分安全性測試檔路徑超過 Windows 預設長度限制。
     GIT_CONFIG     core.longpaths=true
+    ${GCS_CYCLONEDDS_PATCH}
 )
 
 # 只需要 C 函式庫與 idlc；安全性、共享記憶體與範例不使用。
