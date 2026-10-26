@@ -25,6 +25,12 @@
 - 未取得 multicast entitlement 前，iOS 只能以單播連線（關閉 multicast，輸入 Agent 位址）。
 - 授權聲明以檔案放入 App bundle 的 `licenses/`，不使用 install／CPack。
 - 桌面三平台的決策（ADR-0013）不變；行動版介面與觸控操作不在本 ADR 範圍。
+- 2026-10-26 補充（iOS 首次在 CI 建置成功）：
+  - CycloneDDS 的 IDL 剖析函式庫 `libcycloneddsidl` 固定為動態函式庫，`build-host-idlc.sh` 一併安裝到
+    `<目錄>/lib`，並以安裝 rpath 建置 `idlc`，建置目錄刪除後仍可執行。
+  - iOS SDK 沒有 `net/if_media.h`，CycloneDDS 0.10.5 的網卡類型判斷無法編譯；只在 iOS 建置時以
+    `cmake/patches/cyclonedds-ios-ifaddrs.cmake` 改用「類型未知」分支（iOS 只用單播，影響可忽略），其他平台不修補。
+  - 輸出目錄固定為 `bin/` 時，Xcode 產生器的 App 位於 `bin/Release/`（沒有 `-iphoneos` 後綴）。
 
 ## 替代方案
 
