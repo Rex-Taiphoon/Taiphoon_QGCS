@@ -22,8 +22,9 @@ Item {
     readonly property var defaultCenter: QtPositioning.coordinate(25.03997, 121.51195)
     readonly property real defaultZoom: 16
     /// 縮放上限：OSM 圖磚只到 19 級，之後放大既有圖磚；兩層地圖共用此上限，
-    /// 否則疊圖層停在 19 級而底圖繼續放大，機體間距不再隨縮放改變且與底圖錯位
-    readonly property real maximumZoom: 22
+    /// 否則疊圖層停在上限而底圖繼續放大，機體間距不再隨縮放改變且與底圖錯位。
+    /// 24 級約 1 公尺 118 像素（緯度 25 度），近距離編隊仍能分辨各機與航點
+    readonly property real maximumZoom: 24
 
     /**
      * @brief 將縮放層級限制在可用範圍
@@ -146,9 +147,10 @@ Item {
         center: root.defaultCenter
         zoomLevel: root.defaultZoom
         copyrightsVisible: false
-        // 滾輪直接寫入 zoomLevel 不受圖磚上限限制，在此統一夾住
-        onZoomLevelChanged: if (zoomLevel !== root.clampZoom(zoomLevel)) {
-            zoomLevel = root.clampZoom(zoomLevel)
+        // 滾輪直接寫入 zoomLevel 不受圖磚上限限制，在此統一夾住。必須寫 map.zoomLevel：
+        // 處理器內的 zoomLevel 是訊號參數，指派給它不會改到屬性，底圖會繼續放大而與疊圖層錯位
+        onZoomLevelChanged: if (map.zoomLevel !== root.clampZoom(map.zoomLevel)) {
+            map.zoomLevel = root.clampZoom(map.zoomLevel)
         }
         // 背景色經 shader 反相後才是畫面上的顏色：取 OSM 陸地色，圖磚載入前就呈現與底圖一致的深色
         color: "#f2efe9"
