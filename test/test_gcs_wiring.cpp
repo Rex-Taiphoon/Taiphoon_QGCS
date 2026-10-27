@@ -175,6 +175,31 @@ TEST_F(GcsWiringTest, OperatorCommandThroughGuardAbortsMission)
     EXPECT_FALSE(mission_.is_running(AGENT_1));
 }
 
+TEST_F(GcsWiringTest, StaleAgentAbortsMissionWithoutFurtherCommands)
+{
+    bring_online_hovering(25.0);
+    MissionPlan plan;
+    plan.agent = AGENT_1;
+    plan.waypoints = {{25.0001, 121.5, 5.0}, {25.0002, 121.5, 5.0}};
+    mission_.start_mission(plan);
+    ASSERT_TRUE(mission_.is_running(AGENT_1));
+    ASSERT_EQ(link_.published_commands.size(), 1U);
+
+    // topic 仍在、資料停滯超過 STALE_TIMEOUT：不會發出 agent_offline，但畫面已列為離線
+    QSignalSpy offline(&fleet_, &FleetModule::agent_offline);
+    fleet_.scan_at(FleetModule::Clock::now() + FleetModule::STALE_TIMEOUT + std::chrono::seconds(1));
+    EXPECT_EQ(offline.count(), 0);
+    EXPECT_FALSE(mission_.is_running(AGENT_1));
+
+    // 資料恢復後也不會接著送出下一段
+    AgentStateData moving = hover_at(25.0001);
+    moving.flight_mode = static_cast<uint8_t>(FlightState::MOVING);
+    emit link_.state_received(AGENT_1, moving);
+    emit link_.state_received(AGENT_1, hover_at(25.0001));
+    QTest::qWait(200);
+    EXPECT_EQ(link_.published_commands.size(), 1U);
+}
+
 TEST_F(GcsWiringTest, DiscoveryCreatesTelemetrySubscription)
 {
     bring_online(AGENT_1, make_state(FlightState::IDLE));

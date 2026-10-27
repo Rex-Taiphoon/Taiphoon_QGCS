@@ -464,6 +464,33 @@ void MissionController::on_mission_status(const MissionStatus& status)
     emit changed();
 }
 
+void MissionController::on_fleet_changed(const FleetSnapshot& snapshot)
+{
+    // 與 UiBridge 相同以顯示清單判斷離線：飛機從地圖消失時，航點與任務一併移除
+    bool is_changed = false;
+    for (const QString& agent : snapshot.offline)
+    {
+        const bool has_mission = waypoints_.remove(agent);
+        const bool has_status = statuses_.remove(agent);
+        const bool has_state = states_.remove(agent);
+        if (has_mission || has_status)
+        {
+            qCInfo(lc_mission_ui) << agent << "已離線，清除航點與任務狀態";
+        }
+        if (pending_.has_value() && pending_->plan.agent == agent)
+        {
+            pending_.reset();
+            confirm_timer_.stop();
+            is_changed = true;
+        }
+        is_changed = is_changed || has_mission || has_status || has_state;
+    }
+    if (is_changed)
+    {
+        emit changed();
+    }
+}
+
 void MissionController::on_voice_keyword(const QString& keyword)
 {
     qCInfo(lc_mission_ui).noquote() << "語音口令：" << keyword;

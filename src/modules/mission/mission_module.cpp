@@ -10,8 +10,10 @@
 
 #include <QLoggingCategory>
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
+#include <utility>
 
 namespace
 {
@@ -38,6 +40,8 @@ constexpr double MIN_QUATERNION_NORM = 1e-6;
 /// 命令參數四捨五入到公分與 0.1 度，避免命令列出現過長的小數
 constexpr double CENTIMETERS_PER_METER = 100.0;
 constexpr double TENTHS_PER_DEGREE = 10.0;
+/// Agent 狀態預設 10 Hz；同一批到達的樣本以此間隔估算速度，避免網路抖動被當成定位跳動
+constexpr qint64 NOMINAL_STATE_INTERVAL_MS = 100;
 const QString MOVE_POINT = QStringLiteral("MOVE_POINT");
 const QString HOLD = QStringLiteral("HOLD");
 
@@ -150,6 +154,7 @@ void MissionModule::shutdown()
     tick_timer_.stop();
     missions_.clear();
     states_.clear();
+    state_received_ms_.clear();
     attitudes_.clear();
     is_initialized_ = false;
 }
@@ -199,6 +204,10 @@ QString MissionModule::validate_start(const MissionPlan& plan, double* heading_d
     if (state_it == states_.cend() || !state_it->is_px4_state_valid)
     {
         return QStringLiteral("尚未收到有效的飛控狀態");
+    }
+    if (!is_state_fresh(plan.agent, now_ms()))
+    {
+        return QStringLiteral("飛控狀態超過 %1 秒未更新").arg(timing_.state_fresh_ms / MS_PER_SECOND);
     }
     if (state_it->flight_mode != static_cast<uint8_t>(FlightState::HOVER))
     {
@@ -288,8 +297,8 @@ void MissionModule::send_leg(const QString& agent_ns)
     it->start_ned = current;
     it->phase = LegPhase::AWAITING_ACK;
     it->has_departed = false;
-    it->settle_anchor_ned = current;
-    it->settle_since_ms = now_ms();
+    it->is_paused_for_stale = false;
+    restart_arrival_timing(&*it, current, now_ms());
     it->leg_started_ms = now_ms();
     it->leg_timeout_ms = static_cast<qint64>(timing_.leg_base_timeout_ms
                                              + distance_between(current, target) / timing_.min_expected_speed_mps
@@ -349,7 +358,13 @@ void MissionModule::on_command_acked(const CommandAck& ack)
 
 void MissionModule::on_state_updated(const QString& agent_ns, const AgentStateData& state)
 {
+    const qint64 now = now_ms();
+    const auto previous = states_.constFind(agent_ns);
+    const std::optional<std::array<double, 3>> previous_ned =
+        previous == states_.cend() ? std::nullopt : std::make_optional(position_of(*previous));
+    const qint64 previous_ms = state_received_ms_.value(agent_ns, now);
     states_.insert(agent_ns, state);
+    state_received_ms_.insert(agent_ns, now);
     if (!missions_.contains(agent_ns) || !state.is_px4_state_valid)
     {
         // PX4 狀態暫時無效不中止；若持續無效，逾時檢查仍會結束任務
@@ -362,7 +377,70 @@ void MissionModule::on_state_updated(const QString& agent_ns, const AgentStateDa
                QStringLiteral("飛行狀態已離開懸停／移動（flight_mode=%1），任務中止").arg(state.flight_mode));
         return;
     }
+    if (previous_ned.has_value())
+    {
+        check_continuity(agent_ns, *previous_ned, now - previous_ms);
+    }
     evaluate_arrival(agent_ns);
+}
+
+void MissionModule::check_continuity(const QString& agent_ns, const std::array<double, 3>& previous_ned,
+                                     qint64 elapsed_ms)
+{
+    const auto it = missions_.find(agent_ns);
+    if (it == missions_.end())
+    {
+        return;
+    }
+    const std::array<double, 3> current = position_of(states_.value(agent_ns));
+    const double moved = distance_between(previous_ned, current);
+    const double interval_s = static_cast<double>(std::max(elapsed_ms, NOMINAL_STATE_INTERVAL_MS)) / MS_PER_SECOND;
+    const bool is_jump = moved > timing_.max_plausible_speed_mps * interval_s;
+    const bool is_resumed = elapsed_ms > timing_.state_fresh_ms;
+    const bool was_paused = std::exchange(it->is_paused_for_stale, false);
+    if (!is_jump && !is_resumed && !was_paused)
+    {
+        return;
+    }
+    if (is_jump)
+    {
+        // 跳動不是飛行距離：起點跟著平移，「已離開起點」只反映實際移動。
+        // 目標不變，Agent 仍以已送出的座標為目標
+        for (std::size_t axis = 0; axis < current.size(); ++axis)
+        {
+            it->start_ned[axis] += current[axis] - previous_ned[axis];
+        }
+        qCWarning(lc_mission) << agent_ns << "定位跳動" << moved << "公尺（" << elapsed_ms << "毫秒內），重新判斷到達";
+    }
+    else
+    {
+        qCInfo(lc_mission) << agent_ns << "狀態恢復更新，重新判斷到達";
+    }
+    // 中斷或跳動前後的觀測不連續，接近與停止的持續時間都從現在算起
+    restart_arrival_timing(&*it, current, now_ms());
+}
+
+bool MissionModule::is_state_fresh(const QString& agent_ns, qint64 now) const
+{
+    const auto received = state_received_ms_.constFind(agent_ns);
+    return received != state_received_ms_.cend() && now - *received <= timing_.state_fresh_ms;
+}
+
+void MissionModule::pause_for_stale(const QString& agent_ns, ActiveMission* mission) const
+{
+    if (mission->is_paused_for_stale)
+    {
+        return;
+    }
+    mission->is_paused_for_stale = true;
+    qCWarning(lc_mission) << agent_ns << "狀態超過" << timing_.state_fresh_ms << "毫秒未更新，暫停到達判斷與下一段命令";
+}
+
+void MissionModule::restart_arrival_timing(ActiveMission* mission, const std::array<double, 3>& position, qint64 now)
+{
+    mission->settle_anchor_ned = position;
+    mission->settle_since_ms = now;
+    mission->near_since_ms.reset();
 }
 
 void MissionModule::on_attitude_updated(const QString& agent_ns, const AgentAttitudeData& attitude)
@@ -377,10 +455,16 @@ void MissionModule::evaluate_arrival(const QString& agent_ns)
     {
         return;
     }
+    const qint64 now = now_ms();
+    // 資料中斷時最後一筆位置不再變動，看起來像已停止；不能拿來判斷
+    if (!is_state_fresh(agent_ns, now))
+    {
+        pause_for_stale(agent_ns, &*it);
+        return;
+    }
     const AgentStateData state = states_.value(agent_ns);
     const std::array<double, 3> position = position_of(state);
     const bool is_moving_state = static_cast<FlightState>(state.flight_mode) == FlightState::MOVING;
-    const qint64 now = now_ms();
     if (is_moving_state || distance_between(position, it->start_ned) > timing_.departure_distance_m)
     {
         it->has_departed = true;
@@ -390,18 +474,28 @@ void MissionModule::evaluate_arrival(const QString& agent_ns)
         it->settle_anchor_ned = position;
         it->settle_since_ms = now;
     }
+    const double distance = distance_between(position, it->target_ned);
+    const bool is_within_tolerance = distance <= timing_.arrival_tolerance_m;
+    if (is_moving_state || !is_within_tolerance)
+    {
+        it->near_since_ms.reset();
+    }
+    else if (!it->near_since_ms.has_value())
+    {
+        it->near_since_ms = now;
+    }
     if (is_moving_state)
     {
         return;
     }
-    const double distance = distance_between(position, it->target_ned);
-    const bool is_near = distance <= timing_.arrival_tolerance_m;
+    // 接近需持續 near_hold_ms，單筆定位跳動到航點附近不算到達
+    const bool is_near = it->near_since_ms.has_value() && now - *it->near_since_ms >= timing_.near_hold_ms;
     const bool is_settled = it->has_departed && now - it->settle_since_ms >= timing_.hover_settle_ms;
     if (!is_near && !is_settled)
     {
         return;
     }
-    if (!is_near)
+    if (!is_within_tolerance)
     {
         qCWarning(lc_mission) << agent_ns << "已停止移動，但與預期位置相差" << distance
                               << "公尺（Agent planner 原點可能與 PX4 local 原點不同）";
@@ -436,6 +530,12 @@ void MissionModule::on_tick()
         }
         if (it->phase == LegPhase::DWELLING)
         {
+            // 下一段的目標以目前位置換算；狀態未更新時不送
+            if (!is_state_fresh(agent, now))
+            {
+                pause_for_stale(agent, &*it);
+                continue;
+            }
             if (now - it->dwell_started_ms >= timing_.dwell_ms)
             {
                 ++it->index;
@@ -491,10 +591,27 @@ void MissionModule::stop_mission(const QString& agent_ns)
 void MissionModule::on_agent_offline(const QString& agent_ns)
 {
     states_.remove(agent_ns);
+    state_received_ms_.remove(agent_ns);
     attitudes_.remove(agent_ns);
     if (missions_.contains(agent_ns))
     {
         finish(agent_ns, MissionPhase::ABORTED, QStringLiteral("Agent 離線，任務中止"));
+    }
+}
+
+void MissionModule::on_fleet_changed(const FleetSnapshot& snapshot)
+{
+    // 資料停滯時 topic 仍在，不會收到 agent_offline；畫面已移除該機與航點，
+    // 任務若繼續，資料恢復後會在操作人員看不到任務時送出下一段命令
+    for (const QString& agent : snapshot.offline)
+    {
+        states_.remove(agent);
+        state_received_ms_.remove(agent);
+        attitudes_.remove(agent);
+        if (missions_.contains(agent))
+        {
+            finish(agent, MissionPhase::ABORTED, QStringLiteral("Agent 資料停滯，已視為離線，任務中止"));
+        }
     }
 }
 

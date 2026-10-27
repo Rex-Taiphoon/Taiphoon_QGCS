@@ -7,7 +7,7 @@
  * 位於主執行緒。航點以 Agent 回報的 WGS84 座標保存，提供給 QML 時才依地圖顯示原點換算；
  * 地圖點選的位置先反向換算再保存，任務不受顯示原點影響。
  * 開始任務只能經確認：按鈕或語音「請執行任務」先暫存，10 秒內按確認或說「確認」才送給 MissionModule。
- * 只支援單機；航點不保存，關閉程式即清除。
+ * 只支援單機；航點不保存，關閉程式或該機離線即清除。
  */
 #pragma once
 
@@ -138,6 +138,12 @@ public slots:
 
     /** @brief 任務狀態 @param status MissionModule 回報 */
     void on_mission_status(const gcs::MissionStatus& status);
+
+    /**
+     * @brief 機隊清單更新：離線（含資料停滯）的 Agent 清除航點、任務狀態與待確認的任務
+     * @param snapshot FleetModule 回報
+     */
+    void on_fleet_changed(const gcs::FleetSnapshot& snapshot);
 
     /**
      * @brief 語音辨識到的口令

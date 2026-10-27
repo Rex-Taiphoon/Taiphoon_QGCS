@@ -1,6 +1,6 @@
 /**
  * @file test_mission_module.cpp
- * @brief 航點任務模組：開始條件、逐段 MOVE_POINT、到達與停留、各種中止條件
+ * @brief 航點任務模組：開始條件、逐段 MOVE_POINT、到達與停留（含定位跳動與資料中斷）、各種中止條件
  * @author Taiphoon GCS Team
  * @date 2026-10-26
  *
@@ -44,6 +44,20 @@ MissionTiming fast_timing()
     timing.hover_settle_ms = 60;
     timing.leg_base_timeout_ms = 200;
     timing.min_expected_speed_mps = 1000.0;
+    timing.near_hold_ms = 30;
+    // 多數測試以單筆狀態模擬整段移動；跳點判斷另以實際參數測試
+    timing.max_plausible_speed_mps = 1000.0;
+    return timing;
+}
+
+/**
+ * @brief 判斷到達用的時間參數：逾時放寬，只測到達與暫停
+ * @return 時間參數
+ */
+MissionTiming arrival_timing()
+{
+    MissionTiming timing = fast_timing();
+    timing.leg_base_timeout_ms = 5000;
     return timing;
 }
 
@@ -88,6 +102,23 @@ MissionPlan north_plan(int count, double altitude = 8.0)
         plan.waypoints.append({START_LATITUDE + NORTH_STEP_DEGREES * i, START_LONGITUDE, altitude});
     }
     return plan;
+}
+
+/**
+ * @brief 初始化模組並送入懸停狀態與姿態
+ * @param mission 模組
+ */
+void prepare(MissionModule* mission)
+{
+    EXPECT_TRUE(mission->init());
+    mission->on_state_updated(AGENT_1, hover_state());
+    mission->on_attitude_updated(AGENT_1, east_attitude());
+}
+
+/** @brief 最後一筆任務狀態 */
+MissionStatus last_of(const QSignalSpy& statuses)
+{
+    return statuses.last().at(0).value<MissionStatus>();
 }
 
 /**
@@ -203,7 +234,7 @@ TEST_F(MissionModuleTest, VisitsEachWaypointWithDwellThenCompletes)
     ack_ok(MOVE_POINT);
 
     fly_to(10.0 + NORTH_STEP_METERS, NORTH_STEP_DEGREES);
-    EXPECT_EQ(last_status().phase, MissionPhase::DWELLING);
+    QTRY_COMPARE_WITH_TIMEOUT(last_status().phase, MissionPhase::DWELLING, WAIT_MS);
     EXPECT_EQ(commands_.count(), 1);
 
     // 停留結束後才送第二段，且以目前位置換算
@@ -213,8 +244,8 @@ TEST_F(MissionModuleTest, VisitsEachWaypointWithDwellThenCompletes)
     ack_ok(MOVE_POINT);
 
     fly_to(10.0 + 2 * NORTH_STEP_METERS, 2 * NORTH_STEP_DEGREES);
+    QTRY_VERIFY_WITH_TIMEOUT(!mission_.is_running(AGENT_1), WAIT_MS);
     EXPECT_EQ(last_status().phase, MissionPhase::COMPLETED);
-    EXPECT_FALSE(mission_.is_running(AGENT_1));
 
     // 完成後懸停，不再送任何命令
     QTest::qWait(WAIT_MS);
@@ -259,6 +290,113 @@ TEST_F(MissionModuleTest, ArrivalWithoutMovingStateWhenStoppedAwayFromStart)
                                                    WAYPOINT_DOWN));
     QTRY_VERIFY_WITH_TIMEOUT(!mission_.is_running(AGENT_1), WAIT_MS);
     EXPECT_EQ(last_status().phase, MissionPhase::COMPLETED);
+}
+
+TEST(MissionArrivalTest, NearWaypointMustPersistBeforeArrival)
+{
+    MissionTiming timing = arrival_timing();
+    timing.near_hold_ms = 200;
+    // 只測接近：停止判斷放寬到測試期間不會成立
+    timing.hover_settle_ms = 5000;
+    MissionModule mission{timing};
+    prepare(&mission);
+    QSignalSpy statuses(&mission, &MissionModule::mission_status_changed);
+    mission.start_mission(north_plan(1));
+    mission.on_command_acked({AGENT_1, MOVE_POINT, true, QString()});
+
+    // 定位單筆跳到航點，下一筆又回到原處：不算到達
+    constexpr double WAYPOINT_DOWN = -8.0;
+    const AgentStateData at_waypoint =
+        hover_state(10.0 + NORTH_STEP_METERS, NORTH_STEP_DEGREES, FlightState::HOVER, WAYPOINT_DOWN);
+    mission.on_state_updated(AGENT_1, at_waypoint);
+    mission.on_state_updated(AGENT_1, hover_state());
+    QTest::qWait(WAIT_MS);
+    EXPECT_TRUE(mission.is_running(AGENT_1));
+
+    // 持續在航點範圍內才算到達
+    mission.on_state_updated(AGENT_1, at_waypoint);
+    EXPECT_TRUE(mission.is_running(AGENT_1));
+    QTRY_VERIFY_WITH_TIMEOUT(!mission.is_running(AGENT_1), WAIT_MS);
+    EXPECT_EQ(last_of(statuses).phase, MissionPhase::COMPLETED);
+}
+
+TEST(MissionArrivalTest, PositionJumpIsNotDeparture)
+{
+    MissionTiming timing = arrival_timing();
+    timing.max_plausible_speed_mps = 10.0;
+    MissionModule mission{timing};
+    prepare(&mission);
+    QSignalSpy statuses(&mission, &MissionModule::mission_status_changed);
+    mission.start_mission(north_plan(1));
+    mission.on_command_acked({AGENT_1, MOVE_POINT, true, QString()});
+
+    // 原地懸停時定位跳 5 公尺（超過離開起點的 2 公尺）：不算已離開，停在那裡也不算到達
+    mission.on_state_updated(AGENT_1, hover_state(15.0));
+    QTest::qWait(WAIT_MS);
+    EXPECT_TRUE(mission.is_running(AGENT_1));
+    EXPECT_EQ(last_of(statuses).phase, MissionPhase::MOVING);
+
+    // 之後以合理速度實際移動 3 公尺並停下，才以停止判斷到達
+    constexpr double STEP_METERS = 0.5;
+    for (double north = 15.0 + STEP_METERS; north <= 18.0; north += STEP_METERS)
+    {
+        mission.on_state_updated(AGENT_1, hover_state(north));
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(!mission.is_running(AGENT_1), WAIT_MS);
+    EXPECT_EQ(last_of(statuses).phase, MissionPhase::COMPLETED);
+}
+
+TEST(MissionArrivalTest, StaleStatePausesArrivalAndNextLeg)
+{
+    // 與預設值相同的關係：狀態有效時間短於停止判斷時間
+    MissionTiming timing = arrival_timing();
+    timing.state_fresh_ms = 100;
+    timing.hover_settle_ms = 200;
+    timing.dwell_ms = 150;
+    MissionModule mission{timing};
+    prepare(&mission);
+    QSignalSpy commands(&mission, &MissionModule::command_requested);
+    QSignalSpy statuses(&mission, &MissionModule::mission_status_changed);
+    mission.start_mission(north_plan(2));
+    mission.on_command_acked({AGENT_1, MOVE_POINT, true, QString()});
+
+    // SITL 實測：飛離起點 4 公尺後資料中斷，最後一筆位置不再變動，不能當成已停止
+    mission.on_state_updated(AGENT_1, hover_state(14.0));
+    QTest::qWait(WAIT_MS);
+    EXPECT_EQ(last_of(statuses).phase, MissionPhase::MOVING);
+    EXPECT_EQ(commands.count(), 1);
+
+    // 資料恢復且在航點：重新計時後到達
+    constexpr double WAYPOINT_DOWN = -8.0;
+    const AgentStateData at_waypoint =
+        hover_state(10.0 + NORTH_STEP_METERS, NORTH_STEP_DEGREES, FlightState::HOVER, WAYPOINT_DOWN);
+    mission.on_state_updated(AGENT_1, at_waypoint);
+    QTRY_COMPARE_WITH_TIMEOUT(last_of(statuses).phase, MissionPhase::DWELLING, WAIT_MS);
+
+    // 停留時間到了但資料又中斷：不送下一段
+    QTest::qWait(WAIT_MS);
+    EXPECT_EQ(commands.count(), 1);
+
+    // 恢復後才以目前位置換算並送出下一段
+    mission.on_state_updated(AGENT_1, at_waypoint);
+    QTRY_COMPARE_WITH_TIMEOUT(commands.count(), 2, WAIT_MS);
+    EXPECT_NEAR(commands.last().at(0).value<CommandRequest>().params[0], 10.0 + 2 * NORTH_STEP_METERS, 0.01);
+}
+
+TEST(MissionArrivalTest, RejectsStartWithStaleState)
+{
+    MissionTiming timing = arrival_timing();
+    timing.state_fresh_ms = 100;
+    MissionModule mission{timing};
+    prepare(&mission);
+    QSignalSpy commands(&mission, &MissionModule::command_requested);
+    QSignalSpy statuses(&mission, &MissionModule::mission_status_changed);
+
+    QTest::qWait(WAIT_MS);
+    mission.start_mission(north_plan(1));
+    EXPECT_EQ(commands.count(), 0);
+    EXPECT_EQ(last_of(statuses).phase, MissionPhase::REJECTED);
+    EXPECT_TRUE(last_of(statuses).message.contains(QStringLiteral("未更新")));
 }
 
 TEST_F(MissionModuleTest, GuardRejectionAbortsMission)
@@ -343,6 +481,30 @@ TEST_F(MissionModuleTest, AgentOfflineAbortsMission)
     mission_.on_agent_offline(AGENT_1);
     EXPECT_FALSE(mission_.is_running(AGENT_1));
     EXPECT_EQ(last_status().phase, MissionPhase::ABORTED);
+}
+
+TEST_F(MissionModuleTest, StaleAgentInFleetSnapshotAbortsWithoutCommands)
+{
+    mission_.start_mission(north_plan(2));
+    ack_ok(MOVE_POINT);
+
+    FleetSnapshot snapshot;
+    snapshot.online = QStringList{AGENT_1};
+    mission_.on_fleet_changed(snapshot);
+    EXPECT_TRUE(mission_.is_running(AGENT_1));
+
+    // topic 仍在、只是資料停滯：不會收到 agent_offline，以顯示清單的離線為準
+    snapshot.online.clear();
+    snapshot.offline = QStringList{AGENT_1};
+    mission_.on_fleet_changed(snapshot);
+    EXPECT_FALSE(mission_.is_running(AGENT_1));
+    EXPECT_EQ(last_status().phase, MissionPhase::ABORTED);
+    EXPECT_EQ(commands_.count(), 1);
+
+    // 停滯前的狀態已清除，資料恢復前不能以舊位置開始任務
+    mission_.start_mission(north_plan(1));
+    EXPECT_EQ(last_status().phase, MissionPhase::REJECTED);
+    EXPECT_EQ(commands_.count(), 1);
 }
 
 TEST_F(MissionModuleTest, RejectsSecondStartWhileRunning)

@@ -211,6 +211,55 @@ TEST_F(MissionControllerTest, VoiceCancelAndStop)
     EXPECT_EQ(stopped_.takeFirst().at(0).toString(), AGENT_1);
 }
 
+TEST_F(MissionControllerTest, OfflineAgentLosesWaypointsStatusAndPendingStart)
+{
+    controller_.addWaypoint(25.0001, 121.5);
+    MissionStatus status;
+    status.agent = AGENT_1;
+    status.phase = MissionPhase::MOVING;
+    status.waypoint_index = 0;
+    status.waypoint_count = 1;
+    status.message = QStringLiteral("前往第 1/1 個航點");
+    controller_.on_mission_status(status);
+
+    controller_.on_state_updated(AGENT_2, state_at(FlightState::HOVER));
+    controller_.set_selected_agent(AGENT_2);
+    controller_.addWaypoint(25.0002, 121.5);
+    controller_.requestStart();
+    ASSERT_TRUE(controller_.is_confirm_pending());
+    ASSERT_EQ(controller_.routes().size(), 2);
+
+    // 待確認的那台離線：航點與待確認的任務一起清除，另一台不受影響
+    QSignalSpy changed(&controller_, &MissionController::changed);
+    FleetSnapshot snapshot;
+    snapshot.online = QStringList{AGENT_1};
+    snapshot.offline = QStringList{AGENT_2};
+    controller_.on_fleet_changed(snapshot);
+    EXPECT_EQ(changed.count(), 1);
+    EXPECT_FALSE(controller_.is_confirm_pending());
+    EXPECT_EQ(controller_.waypoint_count(), 0);
+    ASSERT_EQ(controller_.routes().size(), 1);
+    EXPECT_EQ(controller_.routes().at(0).toMap().value(QStringLiteral("agent")).toString(), AGENT_1);
+    controller_.confirmStart();
+    EXPECT_EQ(started_.count(), 0);
+
+    // 執行中的那台離線：地圖上不再有任何航點，重新選取也沒有任務狀態
+    snapshot.online.clear();
+    snapshot.offline = QStringList{AGENT_1, AGENT_2};
+    controller_.on_fleet_changed(snapshot);
+    EXPECT_TRUE(controller_.routes().isEmpty());
+    EXPECT_TRUE(controller_.waypoint_markers().isEmpty());
+    controller_.set_selected_agent(AGENT_1);
+    EXPECT_FALSE(controller_.is_running());
+    EXPECT_TRUE(controller_.status_text().isEmpty());
+    EXPECT_EQ(controller_.waypoint_count(), 0);
+
+    // 停滯期間每次掃描都會重複回報離線，已清除就不再通知畫面
+    const int count = static_cast<int>(changed.count());
+    controller_.on_fleet_changed(snapshot);
+    EXPECT_EQ(changed.count(), count);
+}
+
 TEST_F(MissionControllerTest, AbortAndRejectArePoppedUp)
 {
     MissionStatus status;

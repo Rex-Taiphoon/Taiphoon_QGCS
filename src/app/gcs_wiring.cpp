@@ -9,7 +9,8 @@
  *   agent_online／offline   Fleet → Telemetry、Guard
  *   cmd_validated           Guard.command_validated → Command.publish_validated（唯一路徑）
  *   agent_shutdown_accepted Lifecycle.shutdown_accepted → Fleet
- * 航點任務（Qt 版新增）：Mission.command_requested → Guard.request_command，與 UI 命令走同一道閘門。
+ * 航點任務（Qt 版新增）：Mission.command_requested → Guard.request_command，與 UI 命令走同一道閘門；
+ * Fleet.agent_offline 與 fleet_changed 的離線清單（含資料停滯）→ Mission 中止該機任務。
  * UI（UiBridge）的連線於 M4 加入；UI 只能連到 Guard.request_command 與 Lifecycle.request_shutdown。
  */
 #include "app/gcs_wiring.hpp"
@@ -71,6 +72,9 @@ bool wire_core_modules(const CoreModules& modules)
     QObject::connect(modules.telemetry, &TelemetryModule::attitude_updated, modules.mission,
                      &MissionModule::on_attitude_updated, DIRECT);
     QObject::connect(modules.fleet, &FleetModule::agent_offline, modules.mission, &MissionModule::on_agent_offline,
+                     DIRECT);
+    // 資料停滯不會發出 agent_offline；以顯示清單判斷，與畫面移除該機的時機一致
+    QObject::connect(modules.fleet, &FleetModule::fleet_changed, modules.mission, &MissionModule::on_fleet_changed,
                      DIRECT);
     // 兩種回報都要接：Guard 拒絕與 CommandModule 發布結果；其他成功命令代表操作人員介入
     QObject::connect(modules.guard, &GuardModule::command_acked, modules.mission, &MissionModule::on_command_acked,

@@ -81,7 +81,7 @@ bool wire_diagnostics(const CoreModules& modules, DiagnosticsController* diagnos
 
 bool wire_mission(const CoreModules& modules, MissionController* controller)
 {
-    if (controller == nullptr || modules.telemetry == nullptr || modules.mission == nullptr)
+    if (controller == nullptr || modules.fleet == nullptr || modules.telemetry == nullptr || modules.mission == nullptr)
     {
         qCCritical(lc_ui_wiring) << "航點任務組裝參數不完整，未建立任何連線";
         return false;
@@ -94,6 +94,8 @@ bool wire_mission(const CoreModules& modules, MissionController* controller)
                      &MissionController::on_mission_status);
     QObject::connect(modules.telemetry, &TelemetryModule::state_updated, controller,
                      &MissionController::on_state_updated);
+    // 須在 gcs_wiring 的 Fleet → Mission 之後連線：任務中止的回報先送達，再清除該機的任務
+    QObject::connect(modules.fleet, &FleetModule::fleet_changed, controller, &MissionController::on_fleet_changed);
     return true;
 }
 
