@@ -81,6 +81,8 @@ MissionController::MissionController(int confirm_timeout_ms, int auto_start_dela
 {
     clock_.start();
     confirm_timer_.setSingleShot(true);
+    // 倒數秒數取自剩餘時間；Linux 的粗略計時器可能把到期時間延後最多 5%，5 秒倒數會先顯示 6
+    confirm_timer_.setTimerType(Qt::PreciseTimer);
     connect(&confirm_timer_, &QTimer::timeout, this, &MissionController::on_confirm_timeout);
     countdown_timer_.setInterval(COUNTDOWN_TICK_MS);
     connect(&countdown_timer_, &QTimer::timeout, this, &MissionController::on_countdown_tick);
