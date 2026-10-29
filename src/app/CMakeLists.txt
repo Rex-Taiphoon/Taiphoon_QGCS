@@ -55,9 +55,15 @@ find_package(Qt6 ${GCS_QT_VERSION} EXACT REQUIRED
     COMPONENTS Gui Qml Quick QuickControls2 Location Positioning ShaderTools
 )
 
-# Qt Multimedia：語音收音與影像串流共用；iOS 兩者都不提供（ADR-0018、ADR-0019）
+# Qt Multimedia：語音收音與影像串流共用；iOS 兩者都不提供（ADR-0018、ADR-0019）。
+# 以自己的旗標判斷：iOS 靜態 Qt 在尋找 QML 外掛時會順帶載入 Qt6Multimedia，Qt6Multimedia_FOUND 不可靠，
+# 誤用會把 FFmpeg 外掛連結進 iOS 版而連結失敗
+set(GCS_HAS_QT_MULTIMEDIA OFF)
 if(NOT IOS)
     find_package(Qt6Multimedia ${GCS_QT_VERSION} EXACT QUIET)
+    if(Qt6Multimedia_FOUND)
+        set(GCS_HAS_QT_MULTIMEDIA ON)
+    endif()
 endif()
 
 # 按住說話的收音：獨立成函式庫（與其他 QObject 類別相同由函式庫的 AUTOMOC 處理；
@@ -68,15 +74,15 @@ add_library(gcs_voice_capture STATIC
     voice_controller.cpp
 )
 target_link_libraries(gcs_voice_capture PUBLIC gcs_voice Qt6::Gui)
-if(GCS_HAS_SHERPA_ONNX AND Qt6Multimedia_FOUND)
+if(GCS_HAS_SHERPA_ONNX AND GCS_HAS_QT_MULTIMEDIA)
     target_link_libraries(gcs_voice_capture PRIVATE Qt6::Multimedia)
     target_compile_definitions(gcs_voice_capture PRIVATE GCS_HAS_QT_MULTIMEDIA)
 else()
     message(STATUS "未包含 Qt Multimedia 或 sherpa-onnx，語音口令停用")
 endif()
 
-# 影像串流播放（ADR-0019）：同樣獨立成函式庫；沒有 Qt Multimedia 時不建置，影像面板與設定顯示為不支援
-if(Qt6Multimedia_FOUND)
+# 影像串流播放（ADR-0019）：同樣獨立成函式庫；沒有 Qt Multimedia 時不建置，不顯示影像面板與右鍵設定
+if(GCS_HAS_QT_MULTIMEDIA)
     add_library(gcs_video_playback STATIC
         video_player.hpp
         video_player.cpp
