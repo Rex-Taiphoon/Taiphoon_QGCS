@@ -90,7 +90,7 @@ void handle_message(QtMsgType type, const QMessageLogContext& context, const QSt
         previous = g_state.previous_handler;
         if (type != QtDebugMsg && g_state.is_installed && ensure_file_open())
         {
-            // 時間以 UTC 記錄，與狀態列時鐘及飛控日誌對照
+            // 時間以 UTC 記錄，與飛控日誌對照（狀態列時鐘為 UTC+8）
             const QString line = QStringLiteral("%1 [%2] %3: %4\n")
                                      .arg(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
                                           level_name(type),

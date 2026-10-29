@@ -1,6 +1,6 @@
 /**
  * @file StatusBar.qml
- * @brief 頂部狀態列：品牌、選取目標的遙測儀表格（含 PX4 飛行模式）、DDS 連線、UTC 時鐘與設定入口（網頁版 StatusBar）
+ * @brief 頂部狀態列：品牌、選取目標的遙測儀表格（含 PX4 飛行模式）、DDS 連線、UTC+8 時鐘與設定入口（網頁版 StatusBar）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  *
@@ -156,12 +156,16 @@ Rectangle {
             Accessible.role: Accessible.Indicator
             Accessible.name: tooltip
         }
-        // UTC 時鐘：GCS 電腦系統時間換算為 UTC，與飛控日誌、Agent 時間戳對照用
+        // UTC+8 時鐘（台灣時間）：GCS 電腦系統時間換算為 UTC 後固定加 8 小時，不受電腦時區設定影響
         Cell {
             id: clockCell
 
-            label: "UTC"
+            /// 相對 UTC 的固定時差（小時）
+            readonly property int utcOffsetHours: 8
+
+            label: "UTC+" + utcOffsetHours
             value: "--:--:--"
+            tooltip: qsTr("台灣時間（UTC+8），取自本機系統時鐘；日誌檔時間為 UTC")
             Layout.fillHeight: true
 
             Timer {
@@ -169,7 +173,10 @@ Rectangle {
                 running: true
                 repeat: true
                 triggeredOnStart: true
-                onTriggered: clockCell.value = new Date().toISOString().substr(11, 8)
+                onTriggered: {
+                    const shifted = new Date(Date.now() + clockCell.utcOffsetHours * 3600 * 1000)
+                    clockCell.value = shifted.toISOString().substr(11, 8)
+                }
             }
         }
 
