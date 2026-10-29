@@ -1,6 +1,6 @@
 /**
  * @file test_mission_controller.cpp
- * @brief 航點任務介面：航點編輯、顯示原點換算、開始前確認與語音口令
+ * @brief 航點任務介面：航點編輯、顯示原點換算、開始前確認、語音倒數與語音口令
  * @author Taiphoon GCS Team
  * @date 2026-10-26
  */
@@ -24,8 +24,12 @@ namespace
 const QString AGENT_1 = QStringLiteral("uav_1_agent");
 const QString AGENT_2 = QStringLiteral("uav_2_agent");
 constexpr double COORDINATE_EPSILON = 1e-9;
-/// 測試用確認時限（毫秒）
-constexpr int SHORT_CONFIRM_MS = 1500;
+/// 測試用確認時限（毫秒）；比倒數長，才能區分按鈕確認與語音倒數
+constexpr int SHORT_CONFIRM_MS = 2500;
+/// 測試用語音倒數（毫秒）
+constexpr int SHORT_AUTO_START_MS = 1000;
+/// 等待計時器到期的餘裕（毫秒）
+constexpr int TIMER_MARGIN_MS = 1000;
 
 /**
  * @brief 指定任務階段與高度的狀態
@@ -62,7 +66,7 @@ protected:
     MissionPlan started_plan() { return started_.last().at(0).value<MissionPlan>(); }
 
     ToastModel toasts_;
-    MissionController controller_{SHORT_CONFIRM_MS};
+    MissionController controller_{SHORT_CONFIRM_MS, SHORT_AUTO_START_MS};
     QSignalSpy started_{&controller_, &MissionController::mission_start_requested};
     QSignalSpy stopped_{&controller_, &MissionController::mission_stop_requested};
 };
@@ -148,7 +152,7 @@ TEST_F(MissionControllerTest, PendingStartIsDroppedOnTimeoutSelectionOrStateChan
     controller_.addWaypoint(25.0001, 121.5);
 
     controller_.requestStart();
-    QTRY_VERIFY_WITH_TIMEOUT(!controller_.is_confirm_pending(), SHORT_CONFIRM_MS + 1000);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller_.is_confirm_pending(), SHORT_CONFIRM_MS + TIMER_MARGIN_MS);
 
     controller_.requestStart();
     controller_.set_selected_agent(AGENT_2);
@@ -163,7 +167,7 @@ TEST_F(MissionControllerTest, PendingStartIsDroppedOnTimeoutSelectionOrStateChan
     EXPECT_EQ(started_.count(), 0);
 }
 
-TEST_F(MissionControllerTest, VoiceStartIsSingleAgentOnlyAndNeedsSeparateConfirm)
+TEST_F(MissionControllerTest, VoiceStartIsSingleAgentOnlyAndStartsAfterCountdown)
 {
     controller_.addWaypoint(25.0001, 121.5);
 
@@ -172,16 +176,82 @@ TEST_F(MissionControllerTest, VoiceStartIsSingleAgentOnlyAndNeedsSeparateConfirm
     EXPECT_FALSE(controller_.is_confirm_pending());
     controller_.set_selected_agent(AGENT_1);
 
-    // 同一句話接著說「確認」不算確認，必須在提示出現後另外說
+    QSignalSpy countdown(&controller_, &MissionController::countdownChanged);
     controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
-    ASSERT_TRUE(controller_.is_confirm_pending());
+    ASSERT_TRUE(controller_.is_auto_start_pending());
+    EXPECT_EQ(controller_.auto_start_seconds(), SHORT_AUTO_START_MS / 1000);
+    EXPECT_TRUE(controller_.confirm_text().contains(QStringLiteral("自動")));
+    EXPECT_EQ(started_.count(), 0);
+
+    // 倒數結束自動開始，不需要再按 EXEC 或說「確認」
+    QTRY_COMPARE_WITH_TIMEOUT(started_.count(), 1, SHORT_AUTO_START_MS + TIMER_MARGIN_MS);
+    EXPECT_EQ(started_plan().agent, AGENT_1);
+    EXPECT_FALSE(controller_.is_confirm_pending());
+    EXPECT_EQ(controller_.auto_start_seconds(), 0);
+    EXPECT_GE(countdown.count(), 1);
+}
+
+TEST_F(MissionControllerTest, VoiceCountdownCanBeCancelledOrSkipped)
+{
+    controller_.addWaypoint(25.0001, 121.5);
+
+    // CLR：倒數結束後也不會開始
+    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
+    controller_.cancelStart();
+    EXPECT_FALSE(controller_.is_confirm_pending());
+    QTest::qWait(SHORT_AUTO_START_MS + TIMER_MARGIN_MS / 2);
+    EXPECT_EQ(started_.count(), 0);
+
+    // 同一句話接著說「確認」不算提前開始，仍照常倒數
+    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
     controller_.on_voice_keyword(voice::KEYWORD_CONFIRM);
     EXPECT_EQ(started_.count(), 0);
-    EXPECT_TRUE(controller_.is_confirm_pending());
+    EXPECT_TRUE(controller_.is_auto_start_pending());
 
-    QTest::qWait(MissionController::VOICE_CONFIRM_MIN_DELAY_MS + 100);
-    controller_.on_voice_keyword(voice::KEYWORD_CONFIRM);
+    // EXEC 提前開始
+    controller_.confirmStart();
     EXPECT_EQ(started_.count(), 1);
+    EXPECT_FALSE(controller_.is_confirm_pending());
+    QTest::qWait(SHORT_AUTO_START_MS + TIMER_MARGIN_MS / 2);
+    EXPECT_EQ(started_.count(), 1);
+}
+
+TEST_F(MissionControllerTest, VoiceCountdownStopsWhenTargetStateOrWaypointsChange)
+{
+    controller_.addWaypoint(25.0001, 121.5);
+
+    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
+    controller_.on_state_updated(AGENT_1, state_at(FlightState::MOVING));
+    EXPECT_FALSE(controller_.is_confirm_pending());
+    controller_.on_state_updated(AGENT_1, state_at(FlightState::HOVER));
+
+    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
+    controller_.set_selected_agent(AGENT_2);
+    EXPECT_FALSE(controller_.is_confirm_pending());
+    controller_.set_selected_agent(AGENT_1);
+
+    // 倒數中改航點：倒數的是舊航線，直接取消
+    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
+    controller_.addWaypoint(25.0002, 121.5);
+    EXPECT_FALSE(controller_.is_confirm_pending());
+
+    QTest::qWait(SHORT_AUTO_START_MS + TIMER_MARGIN_MS / 2);
+    EXPECT_EQ(started_.count(), 0);
+}
+
+TEST_F(MissionControllerTest, ButtonStartStillNeedsConfirmation)
+{
+    controller_.addWaypoint(25.0001, 121.5);
+    controller_.requestStart();
+    EXPECT_FALSE(controller_.is_auto_start_pending());
+    EXPECT_EQ(controller_.auto_start_seconds(), 0);
+
+    // 超過語音倒數仍不會自動開始，等到確認時限後取消
+    QTest::qWait(SHORT_AUTO_START_MS + TIMER_MARGIN_MS / 4);
+    EXPECT_TRUE(controller_.is_confirm_pending());
+    EXPECT_EQ(started_.count(), 0);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller_.is_confirm_pending(), SHORT_CONFIRM_MS + TIMER_MARGIN_MS);
+    EXPECT_EQ(started_.count(), 0);
 }
 
 TEST_F(MissionControllerTest, VoiceCancelAndStop)

@@ -10,8 +10,8 @@
  *     確認列在選取目標改變、命令不再可用或逾時後自動清除，EXEC 時再核對目標與可用狀態。
  *     編隊點選隊形後展開參數，同一列右側出現閃爍的 CONFIRM，按下即暫存到確認列。
  * L2：Arm 需滑桿。面板底部常駐顯示解鎖狀態與 DISARM。
- * MISSION：單機航點任務與語音口令；開始任務（按鈕或說「請執行任務」）一樣先進確認列，
- *          按 EXEC 或說「確認」才開始，狀態與規則皆取自 MissionController。
+ * MISSION：單機航點任務與語音口令；開始任務一樣先進確認列：按鈕開始需按 EXEC 或說「確認」，
+ *          語音「請執行任務」倒數 5 秒後自動開始（可取消或提前 EXEC）。狀態與規則皆取自 MissionController。
  */
 import QtQuick
 import QtQuick.Controls
@@ -833,7 +833,7 @@ Rectangle {
                         }
                     }
                     Label {
-                        text: qsTr("口令：請執行任務 → 確認／取消；停止任務")
+                        text: qsTr("口令：請執行任務（倒數 5 秒自動開始，可說取消）；停止任務")
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontLabel
                         Layout.leftMargin: Theme.spaceLg
@@ -885,7 +885,8 @@ Rectangle {
                 }
             }
 
-            // 航點任務確認列：按鈕或語音「請執行任務」暫存於此，按 EXEC 或說「確認」才開始，10 秒未確認自動取消
+            // 航點任務確認列：按鈕暫存於此，按 EXEC 或說「確認」才開始，10 秒未確認自動取消；
+            // 語音「請執行任務」則倒數 5 秒自動開始，期間可按 CLR、Esc 或說「取消」，按 EXEC 提前開始
             Rectangle {
                 visible: root.mission.isConfirmPending
                 color: Theme.cautionInset
@@ -908,10 +909,20 @@ Rectangle {
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
+                    // 倒數秒數：大字顯示，讓操作人員來得及取消
+                    Label {
+                        visible: root.mission.isAutoStartPending
+                        text: root.mission.autoStartSeconds
+                        color: Theme.caution
+                        font.family: Theme.fontMono
+                        font.pixelSize: Theme.fontTitle
+                        font.bold: true
+                        Accessible.name: qsTr("%1 秒後開始").arg(root.mission.autoStartSeconds)
+                    }
                     ScratchButton {
                         text: "CLR"
                         accentColor: Theme.textMuted
-                        tooltip: qsTr("取消航點任務（或說「取消」）")
+                        tooltip: qsTr("取消航點任務（或按 Esc、說「取消」）")
                         onClicked: root.mission.cancelStart()
                     }
                     ScratchButton {
@@ -919,7 +930,8 @@ Rectangle {
                         accentColor: Theme.background
                         isFilled: true
                         fillColor: Theme.caution
-                        tooltip: qsTr("開始航點任務（或說「確認」）")
+                        tooltip: root.mission.isAutoStartPending ? qsTr("立即開始航點任務（不等倒數）")
+                                                                 : qsTr("開始航點任務（或說「確認」）")
                         Accessible.name: qsTr("執行航點任務")
                         onClicked: root.mission.confirmStart()
                     }

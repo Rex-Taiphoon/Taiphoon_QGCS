@@ -6,7 +6,8 @@
  *
  * 位於主執行緒。航點以 Agent 回報的 WGS84 座標保存，提供給 QML 時才依地圖顯示原點換算；
  * 地圖點選的位置先反向換算再保存，任務不受顯示原點影響。
- * 開始任務只能經確認：按鈕或語音「請執行任務」先暫存，10 秒內按確認或說「確認」才送給 MissionModule。
+ * 按鈕開始任務需經確認：先暫存，10 秒內按確認或說「確認」才送給 MissionModule。
+ * 語音「請執行任務」改為倒數：辨識後倒數 5 秒自動開始，期間可取消或按 EXEC 提前開始。
  * 只支援單機；航點不保存，關閉程式或該機離線即清除。
  */
 #pragma once
@@ -45,10 +46,16 @@ class MissionController : public QObject
     Q_PROPERTY(QString statusText READ status_text NOTIFY changed)
     Q_PROPERTY(bool isConfirmPending READ is_confirm_pending NOTIFY changed)
     Q_PROPERTY(QString confirmText READ confirm_text NOTIFY changed)
+    Q_PROPERTY(bool isAutoStartPending READ is_auto_start_pending NOTIFY changed)
+    Q_PROPERTY(int autoStartSeconds READ auto_start_seconds NOTIFY countdownChanged)
 
 public:
     /// 開始任務的確認時限（毫秒）
     static constexpr int CONFIRM_TIMEOUT_MS = 10000;
+    /// 語音「請執行任務」到自動開始的倒數（毫秒）
+    static constexpr int AUTO_START_DELAY_MS = 5000;
+    /// 倒數秒數的更新間隔（毫秒）
+    static constexpr int COUNTDOWN_TICK_MS = 200;
     /// 語音「確認」需在確認提示出現後至少這麼久才接受（毫秒）：同一句話同時說出兩個口令不算確認
     static constexpr int VOICE_CONFIRM_MIN_DELAY_MS = 800;
     /// 沒有高度資料時新航點的高度（公尺）
@@ -57,9 +64,11 @@ public:
     /**
      * @brief 建立控制器
      * @param confirm_timeout_ms 確認時限（毫秒），測試可縮短
+     * @param auto_start_delay_ms 語音開始的倒數（毫秒），測試可縮短
      * @param parent 父物件
      */
-    explicit MissionController(int confirm_timeout_ms = CONFIRM_TIMEOUT_MS, QObject* parent = nullptr);
+    explicit MissionController(int confirm_timeout_ms = CONFIRM_TIMEOUT_MS,
+                               int auto_start_delay_ms = AUTO_START_DELAY_MS, QObject* parent = nullptr);
 
     QVariantList waypoints() const;
     QVariantList routes() const;
@@ -81,6 +90,10 @@ public:
     QString status_text() const;
     bool is_confirm_pending() const { return pending_.has_value(); }
     QString confirm_text() const;
+    /** @brief 暫存的任務是否為語音倒數（時間到自動開始） @return 是否倒數中 */
+    bool is_auto_start_pending() const { return pending_.has_value() && pending_->is_auto_start; }
+    /** @brief 自動開始前剩餘的秒數（無條件進位） @return 秒數；未倒數時為 0 */
+    int auto_start_seconds() const;
 
     /**
      * @brief 提示訊息的去處；成功訊息只寫日誌，失敗與警告另外彈出
@@ -123,7 +136,7 @@ public:
     /** @brief 要求開始任務：條件符合時暫存，等待確認 */
     Q_INVOKABLE void requestStart();
 
-    /** @brief 確認開始暫存的任務 */
+    /** @brief 確認開始暫存的任務（語音倒數中則提前開始） */
     Q_INVOKABLE void confirmStart();
 
     /** @brief 取消暫存的任務 */
@@ -153,7 +166,9 @@ public slots:
 
 signals:
     void changed();
-    /** @brief 確認提示出現（QML 可據此切到任務頁） */
+    /** @brief 自動開始的剩餘秒數改變 */
+    void countdownChanged();
+    /** @brief 確認提示或倒數出現（QML 可據此切到任務頁） */
     void confirmRequested();
     /** @brief 開始任務；只連到 MissionModule::start_mission */
     void mission_start_requested(const gcs::MissionPlan& plan);
@@ -166,7 +181,24 @@ private:
     {
         MissionPlan plan;
         qint64 requested_ms = 0;
+        /// 語音開始：時間到自動開始，而不是取消
+        bool is_auto_start = false;
     };
+
+    /**
+     * @brief 條件符合時暫存任務
+     * @param is_auto_start 是否倒數後自動開始（語音口令）
+     */
+    void request_start(bool is_auto_start);
+
+    /** @brief 清除暫存的任務並停止計時（不發出 changed） */
+    void clear_pending();
+
+    /** @brief 確認時限或倒數到期 */
+    void on_confirm_timeout();
+
+    /** @brief 倒數秒數改變時通知畫面 */
+    void on_countdown_tick();
 
     /**
      * @brief 選取單機的開始條件
@@ -193,6 +225,7 @@ private:
     void notify(ToastModel::Kind kind, const QString& title, const QString& message);
 
     int confirm_timeout_ms_ = CONFIRM_TIMEOUT_MS;
+    int auto_start_delay_ms_ = AUTO_START_DELAY_MS;
     ToastModel* toasts_ = nullptr;
     QString selected_agent_;
     bool is_editing_ = false;
@@ -202,6 +235,8 @@ private:
     QHash<QString, MissionStatus> statuses_;
     std::optional<PendingStart> pending_;
     QTimer confirm_timer_;
+    QTimer countdown_timer_;
+    int last_countdown_seconds_ = 0;
     QElapsedTimer clock_;
 };
 

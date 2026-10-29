@@ -44,6 +44,14 @@ ApplicationWindow {
         }
     }
 
+    // 語音倒數中按 Esc 取消；任何視窗都有效，只在倒數時啟用，不影響對話框的 Esc
+    Shortcut {
+        sequence: "Esc"
+        context: Qt.ApplicationShortcut
+        enabled: window.mission.isAutoStartPending
+        onActivated: window.mission.cancelStart()
+    }
+
     header: StatusBar {
         bridge: window.bridge
         onSettingsRequested: settingsDialog.open()
