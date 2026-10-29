@@ -5,6 +5,7 @@
  * @date 2026-10-15
  *
  * 姿態區固定在表格下方，不隨選取列展開，切換選取時表格高度不跳動（航電座艙提案）。
+ * 在單機列或「全部」按右鍵可設定影像串流網址（單機網址或機群網址，ADR-0019）；右鍵不改變選取。
  */
 import QtQuick
 import QtQuick.Controls
@@ -17,6 +18,8 @@ Rectangle {
     required property var settings
 
     property bool isCollapsed: false
+    /// 此版本含影像播放時才提供右鍵設定影像串流
+    property bool isVideoAvailable: false
     /// 由父項目設定可用高度，保留底部導覽控制空間
     property real maximumHeight: 600
 
@@ -31,6 +34,21 @@ Rectangle {
     /// 選取單機且已有遙測時顯示姿態區
     readonly property bool hasSelectedTelemetry: bridge.isSingleSelected && summary.hasTelemetry === true
                                                  && summary.isWaitingForFlightController !== true
+
+    /**
+     * @brief 要求開啟影像串流網址設定
+     * @param agent uav_N_agent；空字串表示機群網址
+     */
+    signal videoSourceRequested(string agent)
+
+    /**
+     * @brief 在游標位置開啟列的右鍵選單
+     * @param agent uav_N_agent；空字串表示「全部」
+     */
+    function openRowMenu(agent) {
+        rowMenu.agent = agent
+        rowMenu.popup()
+    }
 
     /**
      * @brief 帶正負號的角度文字（負號使用 U+2212）
@@ -129,6 +147,11 @@ Rectangle {
                 isActive: root.bridge.isAllSelected
                 Accessible.name: qsTr("選取全部機群，共 %1 台").arg(root.bridge.onlineCount)
                 onClicked: root.bridge.selectAgent("all")
+                TapHandler {
+                    enabled: root.isVideoAvailable
+                    acceptedButtons: Qt.RightButton
+                    onTapped: root.openRowMenu("")
+                }
                 TableRow {
                     anchors.fill: parent
                     cells: [qsTr("全部"), qsTr("%1 台").arg(root.bridge.onlineCount), "—", "—"]
@@ -170,6 +193,11 @@ Rectangle {
                     ToolTip.delay: 600
                     onClicked: root.bridge.selectAgent(agent)
 
+                    TapHandler {
+                        enabled: root.isVideoAvailable
+                        acceptedButtons: Qt.RightButton
+                        onTapped: root.openRowMenu(row.agent)
+                    }
                     TableRow {
                         anchors.fill: parent
                         cells: row.isWaitingForFlightController
@@ -244,6 +272,53 @@ Rectangle {
                     DetailLabel { text: "CURR" }
                     DetailValue { text: (root.summary.currentText || "—") + " A" }
                 }
+            }
+        }
+    }
+
+    // 列的右鍵選單
+    Menu {
+        id: rowMenu
+
+        /// uav_N_agent；空字串表示「全部」
+        property string agent: ""
+
+        padding: 1
+        background: Rectangle {
+            implicitWidth: 220
+            color: Theme.panelDeep
+            border.color: Theme.border
+        }
+
+        MenuItem {
+            id: videoItem
+
+            text: rowMenu.agent.length > 0
+                  ? qsTr("設定 %1 影像串流…").arg(rowMenu.agent.replace(/_agent$/, "").toUpperCase())
+                  : qsTr("設定機群影像串流…")
+            implicitHeight: Theme.rowHeight
+            leftPadding: Theme.spaceMd
+            rightPadding: Theme.spaceMd
+            font.pixelSize: Theme.fontSmall
+            onTriggered: root.videoSourceRequested(rowMenu.agent)
+            contentItem: RowLayout {
+                spacing: Theme.spaceSm
+
+                Icon {
+                    name: "video"
+                    color: Theme.textMuted
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
+                }
+                Label {
+                    text: videoItem.text
+                    color: videoItem.highlighted ? Theme.textStrong : Theme.textBody
+                    font: videoItem.font
+                    Layout.fillWidth: true
+                }
+            }
+            background: Rectangle {
+                color: videoItem.highlighted ? Theme.controlHover : "transparent"
             }
         }
     }

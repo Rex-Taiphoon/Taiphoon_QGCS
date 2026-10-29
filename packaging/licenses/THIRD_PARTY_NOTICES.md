@@ -21,7 +21,7 @@ Taiphoon_QGCS 以 MIT 授權發布，並包含下列第三方元件。各元件�
 本程式以動態連結方式使用 Qt。依 LGPL-3.0，使用者可以相容版本的 Qt 函式庫替換安裝目錄中的
 Qt 動態函式庫。Qt 原始碼可自 https://download.qt.io/ 取得。
 
-Qt Multimedia（語音口令收音）使用 Qt 提供的 LGPL 版 FFmpeg 動態函式庫（依平台由 Qt 部署腳本附上），
+Qt Multimedia（語音口令收音與影像串流播放）使用 Qt 提供的 LGPL 版 FFmpeg 動態函式庫（依平台由 Qt 部署腳本附上），
 使用者同樣可以相容版本替換；FFmpeg 原始碼可自 https://ffmpeg.org/download.html 取得。
 
 iOS／iPadOS 版因平台限制，Qt 與 Cyclone DDS 皆以靜態方式連結。本程式完整原始碼與建置腳本公開於

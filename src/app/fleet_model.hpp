@@ -57,7 +57,10 @@ public:
         HeadingRole,
         HasAttitudeRole,
         RollRole,
-        PitchRole
+        PitchRole,
+        Px4StatusLabelRole,
+        NedTextRole,
+        PositionTextRole
     };
 
     explicit FleetModel(QObject* parent = nullptr);
@@ -67,7 +70,10 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     /**
-     * @brief 以最新資料更新模型；只在清單改變時重設，其餘以 dataChanged 通知
+     * @brief 以最新資料更新模型；清單改變時只插入或移除有變動的列，其餘以 dataChanged 通知
+     *
+     * 不整體重設：每列的委派（地圖標記、影像縮圖與其獨立視窗）在其他 Agent 上線或離線時保持不變，
+     * 影像串流才不會因為別台上線而全部重新連線。
      * @param online 線上 Agent（已排序）
      * @param views Agent → 資料
      * @param selected_agent 目前選取
@@ -80,6 +86,12 @@ signals:
     void countChanged();
 
 private:
+    /**
+     * @brief 依新清單插入或移除列；既有列的相對順序改變時才整體重設
+     * @param online 線上 Agent
+     */
+    void apply_membership(const QStringList& online);
+
     QStringList agents_;
     QHash<QString, AgentView> views_;
     QString selected_agent_;

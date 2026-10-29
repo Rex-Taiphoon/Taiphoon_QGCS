@@ -202,6 +202,10 @@ TEST(UiFormatTest, LabelsAndNumbers)
     EXPECT_EQ(ui::format_signed_number(-3.1, 1), QStringLiteral("−3.1"));
     EXPECT_EQ(ui::format_signed_number(-0.04, 1), QStringLiteral("+0.0"));
     EXPECT_EQ(ui::format_signed_number(std::numeric_limits<double>::infinity(), 1), QStringLiteral("—"));
+    EXPECT_EQ(ui::format_ned({1.0F, 2.04F, -5.0F}), QStringLiteral("+1.0  +2.0  −5.0"));
+    EXPECT_EQ(ui::format_lat_lon({25.0756, 121.5375, 0.0}), QStringLiteral("25.075600 N  121.537500 E"));
+    EXPECT_EQ(ui::format_lat_lon({-33.5, -70.25, 0.0}), QStringLiteral("33.500000 S  70.250000 W"));
+    EXPECT_EQ(ui::format_lat_lon({std::numeric_limits<double>::quiet_NaN(), 121.5, 0.0}), QStringLiteral("—"));
     AgentStateData state;
     EXPECT_EQ(ui::px4_status_label(state), QStringLiteral("PX4 狀態未確認"));
     state.px4_nav_state = 14;

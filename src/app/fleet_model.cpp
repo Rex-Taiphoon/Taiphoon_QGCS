@@ -43,6 +43,9 @@ QHash<int, QByteArray> FleetModel::roleNames() const
         {HasAttitudeRole, "hasAttitude"},
         {RollRole, "roll"},
         {PitchRole, "pitch"},
+        {Px4StatusLabelRole, "px4StatusLabel"},
+        {NedTextRole, "nedText"},
+        {PositionTextRole, "positionText"},
     };
 }
 
@@ -102,6 +105,14 @@ QVariant FleetModel::data(const QModelIndex& index, int role) const
         return view.has_attitude ? ui::euler_degrees(view.attitude.q).value_or(ui::EulerDegrees{}).roll : 0.0;
     case PitchRole:
         return view.has_attitude ? ui::euler_degrees(view.attitude.q).value_or(ui::EulerDegrees{}).pitch : 0.0;
+    // 以下供影像獨立視窗顯示各機完整狀態（狀態列只顯示選取機）
+    case Px4StatusLabelRole:
+        return view.has_state ? ui::px4_status_label(state) : QStringLiteral("—");
+    case NedTextRole:
+        return view.has_state ? ui::format_ned(state.position_ned) : QStringLiteral("—");
+    case PositionTextRole:
+        return view.has_state ? ui::format_lat_lon(ui::to_display_position(state.position_global, display_origin_))
+                              : QStringLiteral("—");
     default:
         return {};
     }
@@ -115,15 +126,45 @@ void FleetModel::update(const QStringList& online, const QHash<QString, AgentVie
     display_origin_ = display_origin;
     if (online != agents_)
     {
-        beginResetModel();
-        agents_ = online;
-        endResetModel();
+        apply_membership(online);
         emit countChanged();
-        return;
     }
     if (!agents_.isEmpty())
     {
         emit dataChanged(index(0), index(static_cast<int>(agents_.size()) - 1));
+    }
+}
+
+void FleetModel::apply_membership(const QStringList& online)
+{
+    // 先由後往前移除離線的列，前面的索引不受影響
+    for (int i = static_cast<int>(agents_.size()) - 1; i >= 0; --i)
+    {
+        if (!online.contains(agents_.at(i)))
+        {
+            beginRemoveRows(QModelIndex(), i, i);
+            agents_.removeAt(i);
+            endRemoveRows();
+        }
+    }
+    // 再依新清單的位置插入新上線的列
+    for (int i = 0; i < online.size(); ++i)
+    {
+        if (i < agents_.size() && agents_.at(i) == online.at(i))
+        {
+            continue;
+        }
+        if (agents_.contains(online.at(i)))
+        {
+            // 既有列的順序改變（正常排序下不會發生），無法只用插入表達，整體重設
+            beginResetModel();
+            agents_ = online;
+            endResetModel();
+            return;
+        }
+        beginInsertRows(QModelIndex(), i, i);
+        agents_.insert(i, online.at(i));
+        endInsertRows();
     }
 }
 

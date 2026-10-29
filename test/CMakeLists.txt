@@ -78,6 +78,7 @@ set(GCS_UI_TESTS
     test_app_support
     test_network_controller
     test_mission_controller
+    test_video_controller
 )
 
 foreach(test_name IN LISTS GCS_UI_TESTS)
@@ -95,6 +96,13 @@ target_compile_definitions(test_keyword_spotter PRIVATE
     $<$<BOOL:${GCS_HAS_SHERPA_ONNX}>:GCS_HAS_SHERPA_ONNX>
 )
 gtest_discover_tests(test_keyword_spotter DISCOVERY_MODE PRE_TEST)
+
+# 影像串流播放器：只在有 Qt Multimedia 的平台建置（不需要實際串流，驗證狀態與重新連線）
+if(TARGET gcs_video_playback)
+    add_executable(test_video_player test_video_player.cpp)
+    target_link_libraries(test_video_player PRIVATE gcs_test_support gcs_video_playback)
+    gtest_discover_tests(test_video_player DISCOVERY_MODE PRE_TEST)
+endif()
 
 # QML 互動（以真實的 QQuickWindow 事件傳遞驗證安全相關操作）
 if(GCS_BUILD_APP)

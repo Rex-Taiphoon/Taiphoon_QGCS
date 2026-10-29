@@ -112,6 +112,20 @@ QString format_battery_voltage(float voltage_v);
 QString format_battery_current(float current_a);
 
 /**
+ * @brief NED 位置：各軸帶正負號、以雙空白分隔，等寬字下各軸對齊
+ * @param position_ned N／E／D（公尺）
+ * @return 文字，例如 "+1.0  +2.0  −5.0"
+ */
+QString format_ned(const std::array<float, 3>& position_ned);
+
+/**
+ * @brief 經緯度文字（六位小數約 0.1 公尺，附半球）
+ * @param position [緯度, 經度, 高度]
+ * @return 文字，例如 "25.075600 N  121.537500 E"；位置無效時為「—」
+ */
+QString format_lat_lon(const std::array<double, 3>& position);
+
+/**
  * @brief WGS84 座標是否可在地圖顯示
  * @param position [緯度, 經度, 高度]
  * @return 緯經度皆有限且在合法範圍內

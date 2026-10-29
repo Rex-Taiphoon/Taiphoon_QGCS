@@ -26,6 +26,8 @@ constexpr double FULL_TURN_DEGREES = 360.0;
 constexpr double QUARTER_TURN_DEGREES = 90.0;
 constexpr double MAX_LATITUDE_DEGREES = 90.0;
 constexpr double MAX_LONGITUDE_DEGREES = 180.0;
+/// 經緯度顯示的小數位數（約 0.1 公尺）
+constexpr int LAT_LON_DECIMALS = 6;
 /// 電量比例轉百分比
 constexpr double PERCENT = 100.0;
 /// PX4 BatteryStatus 以 -1 表示 remaining、current_a 無效
@@ -197,6 +199,26 @@ QString format_battery_voltage(float voltage_v)
 QString format_battery_current(float current_a)
 {
     return is_invalid_marker(current_a, PX4_BATTERY_INVALID) ? QStringLiteral("—") : format_number(current_a, 1);
+}
+
+QString format_ned(const std::array<float, 3>& position_ned)
+{
+    return QStringLiteral("%1  %2  %3")
+        .arg(format_signed_number(position_ned[0], 1), format_signed_number(position_ned[1], 1),
+             format_signed_number(position_ned[2], 1));
+}
+
+QString format_lat_lon(const std::array<double, 3>& position)
+{
+    if (!has_valid_global_position(position))
+    {
+        return QStringLiteral("—");
+    }
+    return QStringLiteral("%1 %2  %3 %4")
+        .arg(std::abs(position[0]), 0, 'f', LAT_LON_DECIMALS)
+        .arg(position[0] >= 0.0 ? QStringLiteral("N") : QStringLiteral("S"))
+        .arg(std::abs(position[1]), 0, 'f', LAT_LON_DECIMALS)
+        .arg(position[1] >= 0.0 ? QStringLiteral("E") : QStringLiteral("W"));
 }
 
 bool has_valid_global_position(const std::array<double, 3>& position)

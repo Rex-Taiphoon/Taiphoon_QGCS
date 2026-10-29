@@ -268,11 +268,49 @@ TEST_F(UiBridgeTest, FleetModelExposesDisplayRoles)
     EXPECT_EQ(model->data(index, FleetModel::BatteryTextRole).toString(), QStringLiteral("85"));
     EXPECT_EQ(model->data(index, FleetModel::AltitudeTextRole).toString(), QStringLiteral("5.0"));
     EXPECT_TRUE(model->data(index, FleetModel::HasPositionRole).toBool());
+    // 影像獨立視窗使用的各機完整狀態，與狀態列（選取機）一致
+    EXPECT_EQ(model->data(index, FleetModel::Px4StatusLabelRole).toString(), QStringLiteral("已解鎖 · 飛行中"));
+    EXPECT_EQ(model->data(index, FleetModel::NedTextRole).toString(), QStringLiteral("+1.0  +2.0  −5.0"));
+    EXPECT_EQ(model->data(index, FleetModel::PositionTextRole).toString(),
+              QStringLiteral("25.039970 N  121.511950 E"));
     EXPECT_EQ(bridge_->selected_summary().value(QStringLiteral("px4Label")).toString(),
               QStringLiteral("已解鎖 · 飛行中"));
     EXPECT_TRUE(bridge_->selected_summary().value(QStringLiteral("isArmed")).toBool());
     EXPECT_EQ(bridge_->selected_summary().value(QStringLiteral("nedText")).toString(),
               QStringLiteral("+1.0  +2.0  −5.0"));
+}
+
+TEST(FleetModelTest, MembershipChangesKeepExistingRows)
+{
+    const QString agent_3 = QStringLiteral("uav_3_agent");
+    const QHash<QString, AgentView> views;
+    FleetModel model;
+    QSignalSpy reset(&model, &QAbstractItemModel::modelReset);
+    QSignalSpy inserted(&model, &QAbstractItemModel::rowsInserted);
+    QSignalSpy removed(&model, &QAbstractItemModel::rowsRemoved);
+
+    model.update({AGENT_1, agent_3}, views, QString(), ui::DisplayOrigin{});
+    ASSERT_EQ(model.rowCount(), 2);
+    EXPECT_EQ(inserted.count(), 2);
+    const QPersistentModelIndex third(model.index(1));
+
+    // 其他 Agent 上線或離線時，既有列（影像縮圖、獨立視窗、地圖標記）保留，只調整位置
+    model.update({AGENT_1, AGENT_2, agent_3}, views, QString(), ui::DisplayOrigin{});
+    EXPECT_EQ(inserted.count(), 3);
+    ASSERT_TRUE(third.isValid());
+    EXPECT_EQ(third.row(), 2);
+    EXPECT_EQ(model.data(model.index(1), FleetModel::AgentRole).toString(), AGENT_2);
+
+    model.update({AGENT_2, agent_3}, views, QString(), ui::DisplayOrigin{});
+    EXPECT_EQ(removed.count(), 1);
+    ASSERT_TRUE(third.isValid());
+    EXPECT_EQ(third.row(), 1);
+    EXPECT_EQ(reset.count(), 0);
+
+    // 既有列的順序改變時才整體重設
+    model.update({agent_3, AGENT_2}, views, QString(), ui::DisplayOrigin{});
+    EXPECT_EQ(reset.count(), 1);
+    EXPECT_EQ(model.data(model.index(0), FleetModel::AgentRole).toString(), agent_3);
 }
 
 TEST_F(UiBridgeTest, SummaryArmStateRequiresValidPx4State)

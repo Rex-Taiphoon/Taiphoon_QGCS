@@ -15,7 +15,11 @@
 #include "app/network_controller.hpp"
 #include "app/ui_bridge.hpp"
 #include "app/ui_wiring.hpp"
+#include "app/video_controller.hpp"
 #include "app/voice_controller.hpp"
+#ifdef GCS_HAS_VIDEO
+#include "app/video_player.hpp"
+#endif
 #include "link/cyclone_agent_link.hpp"
 #include "voice/keyword_spotter.hpp"
 
@@ -26,6 +30,7 @@
 #include <QIcon>
 #include <QLoggingCategory>
 #include <QQmlApplicationEngine>
+#include <QQmlEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QStandardPaths>
@@ -177,6 +182,14 @@ int main(int argc, char* argv[])
     QObject::connect(&voice, &gcs::VoiceController::keyword_detected, &mission,
                      &gcs::MissionController::on_voice_keyword);
 
+    // 影像串流：URL 設定與面板狀態；播放器由 QML 依機隊清單逐台建立（ADR-0019）
+#ifdef GCS_HAS_VIDEO
+    qmlRegisterType<gcs::VideoPlayer>("TaiphoonQgcs.Video", 1, 0, "VideoPlayer");
+    gcs::VideoController video(true);
+#else
+    gcs::VideoController video(false);
+#endif
+
     diagnostics.set_topic_source(
         [&runtime]()
         {
@@ -223,6 +236,7 @@ int main(int argc, char* argv[])
         {QStringLiteral("diagnostics"), QVariant::fromValue(&diagnostics)},
         {QStringLiteral("mission"), QVariant::fromValue(&mission)},
         {QStringLiteral("voice"), QVariant::fromValue(&voice)},
+        {QStringLiteral("video"), QVariant::fromValue(&video)},
         // 命令列已指定網路時不顯示首次設定精靈
         {QStringLiteral("isFirstRunAllowed"), !has_network_override},
         {QStringLiteral("isCommandPanelInitiallyOpen"), parser.isSet(QStringLiteral("open-command-panel"))},

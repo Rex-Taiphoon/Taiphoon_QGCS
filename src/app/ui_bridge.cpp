@@ -414,11 +414,7 @@ void UiBridge::rebuild_summary()
         summary.insert(QStringLiteral("isArmed"), state.is_px4_state_valid && state.is_armed);
         summary.insert(QStringLiteral("voltageText"), ui::format_battery_voltage(state.battery_voltage_v));
         summary.insert(QStringLiteral("currentText"), ui::format_battery_current(state.battery_current_a));
-        // 儀表格以帶正負號、雙空白分隔顯示 N／E／D，等寬字下各軸對齊
-        summary.insert(QStringLiteral("nedText"), QStringLiteral("%1  %2  %3")
-                                                      .arg(ui::format_signed_number(state.position_ned[0], 1),
-                                                           ui::format_signed_number(state.position_ned[1], 1),
-                                                           ui::format_signed_number(state.position_ned[2], 1)));
+        summary.insert(QStringLiteral("nedText"), ui::format_ned(state.position_ned));
         const auto display_position = ui::to_display_position(state.position_global, display_origin_);
         summary.insert(QStringLiteral("hasPosition"), ui::has_valid_global_position(display_position));
         summary.insert(QStringLiteral("latitude"), display_position[0]);

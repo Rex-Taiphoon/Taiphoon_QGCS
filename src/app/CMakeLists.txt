@@ -42,6 +42,8 @@ add_library(gcs_ui STATIC
     ui_format.cpp
     ui_wiring.hpp
     ui_wiring.cpp
+    video_controller.hpp
+    video_controller.cpp
 )
 target_link_libraries(gcs_ui PUBLIC gcs_runtime Qt6::Network)
 
@@ -53,6 +55,11 @@ find_package(Qt6 ${GCS_QT_VERSION} EXACT REQUIRED
     COMPONENTS Gui Qml Quick QuickControls2 Location Positioning ShaderTools
 )
 
+# Qt Multimedia：語音收音與影像串流共用；iOS 兩者都不提供（ADR-0018、ADR-0019）
+if(NOT IOS)
+    find_package(Qt6Multimedia ${GCS_QT_VERSION} EXACT QUIET)
+endif()
+
 # 按住說話的收音：獨立成函式庫（與其他 QObject 類別相同由函式庫的 AUTOMOC 處理；
 # 執行檔目標的 autogen 步驟不會為後來加入的標頭產生 moc）。
 # 收音需要 Qt Multimedia；未安裝或沒有 sherpa-onnx（例如 iOS）時不連結，語音口令顯示為不可用。
@@ -61,9 +68,6 @@ add_library(gcs_voice_capture STATIC
     voice_controller.cpp
 )
 target_link_libraries(gcs_voice_capture PUBLIC gcs_voice Qt6::Gui)
-if(GCS_HAS_SHERPA_ONNX)
-    find_package(Qt6Multimedia ${GCS_QT_VERSION} EXACT QUIET)
-endif()
 if(GCS_HAS_SHERPA_ONNX AND Qt6Multimedia_FOUND)
     target_link_libraries(gcs_voice_capture PRIVATE Qt6::Multimedia)
     target_compile_definitions(gcs_voice_capture PRIVATE GCS_HAS_QT_MULTIMEDIA)
@@ -71,10 +75,28 @@ else()
     message(STATUS "未包含 Qt Multimedia 或 sherpa-onnx，語音口令停用")
 endif()
 
+# 影像串流播放（ADR-0019）：同樣獨立成函式庫；沒有 Qt Multimedia 時不建置，影像面板與設定顯示為不支援
+if(Qt6Multimedia_FOUND)
+    add_library(gcs_video_playback STATIC
+        video_player.hpp
+        video_player.cpp
+    )
+    target_include_directories(gcs_video_playback PUBLIC "${PROJECT_SOURCE_DIR}/src")
+    target_link_libraries(gcs_video_playback PUBLIC Qt6::Multimedia)
+    set(GCS_HAS_VIDEO ON)
+else()
+    set(GCS_HAS_VIDEO OFF)
+    message(STATUS "未包含 Qt Multimedia，影像串流停用")
+endif()
+
 qt_add_executable(Taiphoon_QGCS WIN32 MACOSX_BUNDLE
     main.cpp
 )
 target_link_libraries(Taiphoon_QGCS PRIVATE gcs_voice_capture)
+if(GCS_HAS_VIDEO)
+    target_link_libraries(Taiphoon_QGCS PRIVATE gcs_video_playback)
+    target_compile_definitions(Taiphoon_QGCS PRIVATE GCS_HAS_VIDEO)
+endif()
 
 # 程式圖示（tools/make_icons.ps1 產生）：Windows 以資源檔嵌入 exe，macOS 放入 bundle Resources；
 # iOS 需 asset catalog，尚未提供（ADR-0017）
@@ -105,7 +127,16 @@ set(GCS_QML_FILES
     ${GCS_QML_DIR}/SlideToConfirm.qml
     ${GCS_QML_DIR}/StatusBar.qml
     ${GCS_QML_DIR}/Toasts.qml
+    ${GCS_QML_DIR}/VideoSourceDialog.qml
 )
+# 影像面板使用 QtMultimedia 的 QML 模組，只在有影像播放的平台加入（Main.qml 以 Loader 載入）
+if(GCS_HAS_VIDEO)
+    list(APPEND GCS_QML_FILES
+        ${GCS_QML_DIR}/VideoPanel.qml
+        ${GCS_QML_DIR}/VideoTile.qml
+        ${GCS_QML_DIR}/VideoWindow.qml
+    )
+endif()
 foreach(qml_file IN LISTS GCS_QML_FILES)
     get_filename_component(qml_name "${qml_file}" NAME)
     set_source_files_properties("${qml_file}" PROPERTIES QT_RESOURCE_ALIAS "${qml_name}")
