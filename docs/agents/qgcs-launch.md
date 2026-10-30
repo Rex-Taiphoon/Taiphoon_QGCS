@@ -53,8 +53,10 @@ Windows 原始碼建置的執行檔需要 Qt DLL：請在已執行 `tools/dev-en
    每台 Agent 會公告主機區網 IPv4，並使用專屬單播埠段（domain 0：7410～7505），
    主動把 discovery 送往 `192.168.65.254:7510`（Taiphoon_QGCS 固定 participant index 50 的 discovery 埠）。
 2. 啟動器成功後會印出 QGCS 啟動參數，**以啟動器印出的內容為準**；本文件第 4 節為相同格式的說明。
-3. 確認 PX4 SITL 已連上 Agent。沒有 PX4 時 Agent 不會發布 `state`，QGCS 雖能發現 Agent，
-   畫面與 `gcs_headless` 都會顯示 0 台線上。
+3. 確認 PX4 SITL 已連上 Agent。沒有 PX4 時 Agent 只發布健康狀態（`health`）、不發布 `state`：
+   畫面仍會列出該機並顯示「等待飛控」與 PX4 LINK「未連線」，`gcs_headless` 的 `[fleet] online=` 也會列出，
+   但沒有 `[state]` 輸出、`[health]` 為 `status_age=-1`，除強制重新啟動飛控外的命令都會被 Guard 拒絕。
+   不發布 `health` 的舊版 Agent 則顯示 0 台線上。
 
 取得主機區網 IPv4（下文以 `<主機IP>` 表示）：
 
@@ -179,7 +181,8 @@ Guard 依目前飛行狀態拒絕不允許的命令時，會輸出失敗的 `[ac
 | `Agent 離線： "uav_N_agent"` | 該 Agent 的 topic 消失 |
 | `畫面擷取 已保存：` | `--screenshot` 成功 |
 
-日誌的「上線」以 DDS 發現為準；畫面上的「N 台線上」另外要求持續收到 `state`。
+日誌的「上線」以 DDS 發現為準；畫面上的「N 台線上」與 `gcs_headless` 的 `[fleet] online=`
+另外要求持續收到 `state` 或 `health`（任一即可），所以 PX4 未連上的 Agent 也會列為線上。
 
 ### 5.2 `gcs_headless` 輸出
 
@@ -188,7 +191,7 @@ Guard 依目前飛行狀態拒絕不允許的命令時，會輸出失敗的 `[ac
 | 輸出 | 意義 |
 |---|---|
 | `[fleet] 上線 uav_N_agent`／`[fleet] 離線 uav_N_agent` | 機隊變化 |
-| `[fleet] online=... offline=...` | 每次掃描的線上／離線清單 |
+| `[fleet] online=... offline=...` | 每次掃描的線上／離線清單；線上需持續收到 `state` 或 `health` |
 | `[state] uav_N_agent n=... mode=... armed=... landed=... alt=...` | 每 2 秒一次的遙測摘要 |
 | `[request] uav_N_agent COMMAND` | 已交給 GuardModule 的命令 |
 | `[ack] uav_N_agent COMMAND 成功/失敗 <訊息>` | Guard 拒絕或 Agent 回報結果 |
@@ -209,7 +212,8 @@ Guard 依目前飛行狀態拒絕不允許的命令時，會輸出失敗的 `[ac
 | 現象 | 原因與處理 |
 |---|---|
 | 0 台，日誌沒有任何「上線」 | 檢查 `<主機IP>` 是否正確、Agent 容器是否執行、`--external-address 192.168.65.254` 是否遺漏 |
-| 日誌有「上線」但畫面 0 台 | PX4 SITL 未連上 Agent，`state` 沒有資料 |
+| 日誌有「上線」但畫面 0 台 | Agent 沒有發布 `state` 與 `health`（例如舊版 Agent 未連上 PX4 SITL） |
+| 畫面列出該機但顯示「等待飛控」、PX4 LINK「未連線」 | PX4 SITL 未連上 Agent；`gcs_headless` 的 `[health]` 為 `status_age=-1` |
 | 只看到部分 Agent | 確認 `--peer` 不含 port；QGCS 版本需包含 2026-10-16 的探測範圍修正（ADR-0011） |
 | 修改前後比對結果相同 | CycloneDDS 會記住曾連線的對端位址並持續送 discovery；每輪比對前重啟 Agent 容器 |
 | `participant index` 啟動失敗 | 同機已有程序使用相同 index；改用其他 index（例如 51） |

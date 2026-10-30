@@ -446,7 +446,7 @@ Rectangle {
                     }
                     Divider {}
 
-                    // 方向鍵：前後左右以機頭方向為準，右側為升降
+                    // 方向鍵：單機前後左右以機頭方向為準；全體沿固定北東軸且需在編隊中。右側為升降
                     GridLayout {
                         id: movePad
 
@@ -461,14 +461,14 @@ Rectangle {
                         Item { Layout.fillWidth: true }
                         MoveButton {
                             iconName: "arrowUp"
-                            tooltip: qsTr("沿機頭方向前進")
+                            tooltip: root.isAll ? qsTr("全體向北移動（需在編隊中）") : qsTr("沿機頭方向前進")
                             enabled: movePad.canSendMove
                             onClicked: root.send("MOVE_FORWARD", [root.moveDistance])
                         }
                         Item { Layout.fillWidth: true }
                         MoveButton {
                             iconName: "takeoff"
-                            tooltip: qsTr("上升")
+                            tooltip: root.isAll ? qsTr("全體上升（需在編隊中）") : qsTr("上升")
                             enabled: movePad.canSendMove
                             onClicked: root.send("MOVE_UP", [root.moveDistance])
                         }
@@ -477,7 +477,7 @@ Rectangle {
 
                             iconName: "arrowLeft"
 
-                            tooltip: qsTr("向機頭左側移動")
+                            tooltip: root.isAll ? qsTr("全體向西移動（需在編隊中）") : qsTr("向機頭左側移動")
 
                             enabled: movePad.canSendMove
 
@@ -485,7 +485,8 @@ Rectangle {
 
                         }
                         Label {
-                            text: "HDG"
+                            // 方向基準：單機為機頭，全體為固定 NED 軸
+                            text: root.isAll ? "NED" : "HDG"
                             color: Theme.textDim
                             font.pixelSize: Theme.fontLabel
                             font.letterSpacing: Theme.labelSpacing
@@ -494,13 +495,13 @@ Rectangle {
                         }
                         MoveButton {
                             iconName: "arrowRight"
-                            tooltip: qsTr("向機頭右側移動")
+                            tooltip: root.isAll ? qsTr("全體向東移動（需在編隊中）") : qsTr("向機頭右側移動")
                             enabled: movePad.canSendMove
                             onClicked: root.send("MOVE_RIGHT", [root.moveDistance])
                         }
                         MoveButton {
                             iconName: "land"
-                            tooltip: qsTr("下降")
+                            tooltip: root.isAll ? qsTr("全體下降（需在編隊中）") : qsTr("下降")
                             enabled: movePad.canSendMove
                             onClicked: root.send("MOVE_DOWN", [root.moveDistance])
                         }
@@ -508,7 +509,7 @@ Rectangle {
                         Item { Layout.fillWidth: true }
                         MoveButton {
                             iconName: "arrowDown"
-                            tooltip: qsTr("沿機頭方向後退")
+                            tooltip: root.isAll ? qsTr("全體向南移動（需在編隊中）") : qsTr("沿機頭方向後退")
                             enabled: movePad.canSendMove
                             onClicked: root.send("MOVE_BACKWARD", [root.moveDistance])
                         }
@@ -516,9 +517,11 @@ Rectangle {
                         Item { Layout.fillWidth: true }
                     }
                     Label {
-                        // Agent 單機水平移動依保存的 target yaw，前後左右相對機頭而非東南西北
-                        text: root.bridge.canMove ? qsTr("前後左右以機頭方向為準")
-                                                  : root.rowTag(false, false, qsTr("限起飛／懸停／移動"))
+                        // Agent 單機水平移動依保存的 target yaw，前後左右相對機頭而非東南西北；
+                        // 全體移動沿固定 NED 軸，未在編隊時 Agent 會拒絕（No active formation）
+                        text: !root.bridge.canMove ? root.rowTag(false, false, qsTr("限起飛／懸停／移動"))
+                              : root.isAll ? qsTr("全體需在編隊中；前後左右為北南西東")
+                                           : qsTr("前後左右以機頭方向為準")
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontLabel
                         horizontalAlignment: Text.AlignHCenter
