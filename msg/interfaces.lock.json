@@ -3,14 +3,19 @@
   "source": "Taiphoon_Agent_Interfaces",
   "files": {
     "msg/AgentAttitude.msg": "4fbbf382926aed337f393eb8a20ac5002ad079f6923c3527cc5e512f7a1e4efc",
+    "msg/AgentEvent.msg": "9a5f3ed7607a1b500b1ace634647f371ff204d899545f882dba6712be8a2950b",
+    "msg/AgentHealth.msg": "766f9e9fce2260885adda701a645e0c7d1d5488c3c51c6e7d86f21b4ac289d76",
     "msg/AgentState.msg": "d35e25af6451ee47314285e848adfa904422dcdeefe7e332498baf012b304bdc",
     "msg/AgentTrajectory.msg": "ef28f9f52b0125566819bc0da9ecb913a6757fe6ec2e8d99df63abef3de51bec",
     "msg/FormationEpoch.msg": "40b86332cdec58faf243b1a5369932e42b6bc8d40a8e2c4b61422555105483fb",
+    "msg/MissionWaypoint.msg": "c4e437b8b7a0b52418a72326226690f645cd1af0d48efe988dc467b71bb452bf",
     "msg/NedTarget.msg": "eac132a4fd341797eb98c7f344e1467bf9fafffa56f4155c967ba405a3931dcf",
     "msg/PlannerStatus.msg": "0decfb80d05dea07fc19256c565b54a6b1c73acc20733f1d38056655c0dee672",
     "msg/RelativeAgentObservation.msg": "6650ffb9211b5f8a698a2565629632828dfdf63822bdc5eedfa0e26dbb958b0b",
     "msg/Waypoint.msg": "592f10b4d4eba9bef1b1661cc27048de5006d3cbfe19df3f2b916d6b0d845e49",
+    "msg/WaypointMission.msg": "aa5cf164df99288e3f4d144efa6e16efee7567190dc379976dbbc0a0506e2467",
+    "msg/WaypointMissionStatus.msg": "9abb26e0ecc3e23033e8840a041870ac314072e38ad087a5d66daafb6a04106d",
     "msg/WaypointSequence.msg": "0432a6e986b60e1ee3a2c8e2748c3f07a106c6ee01c70642a99dd90ecb0f4364"
   },
-  "specification_sha256": "2a1713c98ab41723f0cee24a008d922eeae321440eef3dfce82919b3978b9665"
+  "specification_sha256": "d843132aad9cd9a55b360cc397972da81dd90f9f1a7695747e754c6effb0a862"
 }

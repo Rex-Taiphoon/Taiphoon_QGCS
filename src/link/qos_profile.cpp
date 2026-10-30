@@ -12,8 +12,12 @@ namespace gcs::link
 namespace
 {
 
-/// 介面文件第 8 節所有通道的 history depth
+/// 介面文件第 8 節的 history depth（未另行規定的通道）
 constexpr int32_t INTERFACE_HISTORY_DEPTH = 10;
+/// 只需要最新一筆的狀態通道（mission/status、health）
+constexpr int32_t LATEST_ONLY_DEPTH = 1;
+/// events 的 history depth：短時間內連續發生的事件不會被後到的覆蓋
+constexpr int32_t EVENTS_HISTORY_DEPTH = 20;
 
 /// reliable writer 等待傳送緩衝的最長時間；與 rmw_cyclonedds 預設相同
 constexpr dds_duration_t RELIABLE_MAX_BLOCKING_TIME = DDS_MSECS(100);
@@ -45,6 +49,24 @@ QosProfile qos_for(AgentChannel channel, EndpointRole role)
         profile.reliability = Reliability::RELIABLE;
         profile.durability = Durability::TRANSIENT_LOCAL;
         break;
+    case AgentChannel::MISSION_STATUS:
+        // transient_local：QGCS 晚加入或重新啟動時立即取得 Agent 執行中任務的最後狀態；
+        // Agent writer 也必須是 transient_local，否則 volatile writer 與本 reader 無法配對
+        profile.reliability = Reliability::RELIABLE;
+        profile.durability = Durability::TRANSIENT_LOCAL;
+        profile.depth = LATEST_ONLY_DEPTH;
+        break;
+    case AgentChannel::HEALTH:
+        profile.reliability = Reliability::RELIABLE;
+        profile.depth = LATEST_ONLY_DEPTH;
+        break;
+    case AgentChannel::EVENTS:
+        // volatile：連上前的舊事件不重播，避免把已排除的錯誤當成新錯誤
+        profile.reliability = Reliability::RELIABLE;
+        profile.depth = EVENTS_HISTORY_DEPTH;
+        break;
+    case AgentChannel::MISSION_PLAN:
+        // volatile：Agent 重新啟動後不會收到舊航線；發布前確認已有訂閱者，並以 mission/status 確認收到
     case AgentChannel::STATE:
     case AgentChannel::ATTITUDE:
     case AgentChannel::PLANNING_TRAJECTORY:

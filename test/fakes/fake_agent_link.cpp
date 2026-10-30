@@ -38,6 +38,20 @@ bool FakeAgentLink::publish_command(const QString& target, const QString& comman
     return true;
 }
 
+bool FakeAgentLink::publish_mission_plan(const QString& agent_ns, const WaypointMissionData& mission, QString* error)
+{
+    if (!is_mission_channel_ready)
+    {
+        if (error != nullptr)
+        {
+            *error = QStringLiteral("Agent 沒有訂閱航點任務");
+        }
+        return false;
+    }
+    published_missions.push_back({agent_ns, mission});
+    return true;
+}
+
 bool FakeAgentLink::request_shutdown(const QString& agent_ns, quint64 request_id, QString* error)
 {
     if (!is_shutdown_service_ready)

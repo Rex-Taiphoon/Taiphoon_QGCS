@@ -5,7 +5,8 @@
  * @date 2026-10-12
  *
  * 行為沿用網頁版：每 3 秒掃描；topic 首次出現視為上線、消失視為離線；
- * 超過 5 秒沒有狀態資料流則從顯示清單移除但保留訂閱，以利復原；
+ * 超過 5 秒沒有狀態或健康資料流則從顯示清單移除但保留訂閱，以利復原；
+ * Agent 收到 odometry 前只發布健康狀態，因此兩者任一有資料流就視為在線；
  * shutdown 成功的 Agent 在 topic 消失前不重新加入。
  */
 #pragma once
@@ -38,7 +39,7 @@ public:
 
     /// 掃描週期（毫秒）
     static constexpr std::chrono::milliseconds SCAN_INTERVAL{3000};
-    /// 超過此時間未收到狀態資料流即視為停滯（DDS 發現快取可能殘留）
+    /// 超過此時間未收到狀態或健康資料流即視為停滯（DDS 發現快取可能殘留）
     static constexpr std::chrono::seconds STALE_TIMEOUT{5};
 
     /**
@@ -84,6 +85,13 @@ public slots:
     void on_state_updated(const QString& agent_ns, const gcs::AgentStateData& state);
 
     /**
+     * @brief 收到 Agent 健康狀態資料流，更新最後可見時間
+     * @param agent_ns Agent namespace
+     * @param health AgentHealth（只用於確認資料流存在）
+     */
+    void on_health_updated(const QString& agent_ns, const gcs::AgentHealthData& health);
+
+    /**
      * @brief Agent 已接受 shutdown：立即隔離並抑制重新加入
      * @param agent_ns Agent namespace
      */
@@ -102,7 +110,7 @@ private:
     QTimer scan_timer_;
     bool is_initialized_ = false;
     QSet<QString> online_agents_;
-    /// Agent → 最後一次收到狀態的時間
+    /// Agent → 最後一次收到狀態或健康資料的時間
     QHash<QString, Clock::time_point> last_seen_;
     /// 已接受 shutdown 的 Agent；直到 topic 消失前不重新加入機隊
     QSet<QString> shutdown_suppressed_agents_;

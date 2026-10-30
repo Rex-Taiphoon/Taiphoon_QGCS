@@ -27,7 +27,11 @@ enum class AgentChannel
     PLANNING_STATUS,       ///< /{ns}/planning/status
     FORMATION_EPOCHS,      ///< /uav_all_agent/swarm/formation_epochs
     COMMAND,               ///< /{ns}/command、/uav_all_agent/command
-    SHUTDOWN_SERVICE       ///< /{ns}/shutdown
+    SHUTDOWN_SERVICE,      ///< /{ns}/shutdown
+    MISSION_PLAN,          ///< /{ns}/mission/plan
+    MISSION_STATUS,        ///< /{ns}/mission/status
+    EVENTS,                ///< /{ns}/events
+    HEALTH                 ///< /{ns}/health
 };
 
 /// GCS 端點角色

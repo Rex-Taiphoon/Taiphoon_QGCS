@@ -49,25 +49,13 @@ double horizontal_distance(const MissionWaypoint& a, const MissionWaypoint& b)
 }
 
 /**
- * @brief 任務是否執行中
+ * @brief 任務是否開始中或執行中（可停止、不可編輯）
  * @param phase 任務階段
- * @return MOVING 或 DWELLING
+ * @return STARTING、MOVING 或 DWELLING
  */
 bool is_active_phase(MissionPhase phase)
 {
-    return phase == MissionPhase::MOVING || phase == MissionPhase::DWELLING;
-}
-
-/**
- * @brief UAV 簡稱，例如 uav_1_agent → UAV_1
- * @param agent Agent namespace
- * @return 簡稱
- */
-QString short_name(const QString& agent)
-{
-    QString name = agent;
-    name.remove(QStringLiteral("_agent"));
-    return name.toUpper();
+    return phase == MissionPhase::STARTING || phase == MissionPhase::MOVING || phase == MissionPhase::DWELLING;
 }
 
 }  // namespace
@@ -245,6 +233,16 @@ bool MissionController::is_running() const
     return is_single_selected() && is_active_phase(statuses_.value(selected_agent_).phase);
 }
 
+bool MissionController::is_status_unknown() const
+{
+    return is_single_selected() && statuses_.value(selected_agent_).phase == MissionPhase::LOST;
+}
+
+bool MissionController::can_stop() const
+{
+    return is_running() || is_status_unknown();
+}
+
 QString MissionController::block_reason() const
 {
     if (!is_single_selected())
@@ -253,7 +251,8 @@ QString MissionController::block_reason() const
     }
     if (is_running())
     {
-        return QStringLiteral("任務執行中");
+        return statuses_.value(selected_agent_).phase == MissionPhase::STARTING ? QStringLiteral("上傳中")
+                                                                                 : QStringLiteral("任務執行中");
     }
     if (waypoints_.value(selected_agent_).isEmpty())
     {
@@ -292,6 +291,10 @@ QString MissionController::status_text() const
     {
         return QStringLiteral("無法開始：") + status.message;
     }
+    if (status.phase == MissionPhase::LOST)
+    {
+        return QStringLiteral("狀態不明，Agent 繼續執行：") + status.message;
+    }
     return status.message;
 }
 
@@ -303,7 +306,7 @@ QString MissionController::confirm_text() const
     }
     const QString format = pending_->is_auto_start ? QStringLiteral("%1 即將自動執行航點任務（%2 個航點）")
                                                    : QStringLiteral("%1 執行航點任務（%2 個航點）？");
-    return format.arg(short_name(pending_->plan.agent)).arg(pending_->plan.waypoints.size());
+    return format.arg(ui::agent_short_name(pending_->plan.agent)).arg(pending_->plan.waypoints.size());
 }
 
 void MissionController::set_selected_agent(const QString& agent)
@@ -476,7 +479,7 @@ void MissionController::cancelStart()
 
 void MissionController::stopMission()
 {
-    if (!is_running())
+    if (!can_stop())
     {
         return;
     }
@@ -506,19 +509,20 @@ void MissionController::on_state_updated(const QString& agent_ns, const AgentSta
 void MissionController::on_mission_status(const MissionStatus& status)
 {
     statuses_.insert(status.agent, status);
+    const QString name = ui::agent_short_name(status.agent);
     switch (status.phase)
     {
     case MissionPhase::REJECTED:
-        notify(ToastModel::Kind::ERROR, QStringLiteral("%1 航點任務無法開始").arg(short_name(status.agent)),
-               status.message);
+        notify(ToastModel::Kind::ERROR, QStringLiteral("%1 航點任務無法開始").arg(name), status.message);
         break;
     case MissionPhase::ABORTED:
-        notify(ToastModel::Kind::WARNING, QStringLiteral("%1 航點任務中止").arg(short_name(status.agent)),
-               status.message);
+        notify(ToastModel::Kind::WARNING, QStringLiteral("%1 航點任務中止").arg(name), status.message);
+        break;
+    case MissionPhase::LOST:
+        notify(ToastModel::Kind::WARNING, QStringLiteral("%1 航點任務狀態不明").arg(name), status.message);
         break;
     default:
-        notify(ToastModel::Kind::SUCCESS, QStringLiteral("%1 航點任務").arg(short_name(status.agent)),
-               status.message);
+        notify(ToastModel::Kind::SUCCESS, QStringLiteral("%1 航點任務").arg(name), status.message);
         break;
     }
     emit changed();
@@ -587,7 +591,7 @@ void MissionController::on_voice_keyword(const QString& keyword)
     }
     if (keyword == voice::KEYWORD_STOP_MISSION)
     {
-        if (!is_running())
+        if (!can_stop())
         {
             notify(ToastModel::Kind::WARNING, VOICE_TITLE, QStringLiteral("目前沒有執行中的任務"));
             return;

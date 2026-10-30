@@ -7,7 +7,6 @@
 #include "app/ui_bridge.hpp"
 
 #include "app/ui_format.hpp"
-#include "modules/guard/guard_rules.hpp"
 
 #include <QLoggingCategory>
 
@@ -48,11 +47,26 @@ QString pending_key(const QString& agent, const QString& command)
     return agent + QLatin1Char(':') + command;
 }
 
+/**
+ * @brief Agent 事件提示標題，例如「UAV_1 飛控拒絕命令」
+ * @param agent_ns Agent namespace
+ * @param event Agent 事件
+ * @return 標題
+ */
+QString agent_event_title(const QString& agent_ns, const AgentEventData& event)
+{
+    return ui::agent_short_name(agent_ns) + QLatin1Char(' ') + ui::agent_event_label(event.code);
+}
+
 }  // namespace
 
-UiBridge::UiBridge(int command_timeout_ms, QObject* parent)
-    : QObject(parent), command_timeout_ms_(command_timeout_ms), refresh_timer_(this)
+UiBridge::UiBridge(int command_timeout_ms, int preflight_confirm_ms, QObject* parent)
+    : QObject(parent),
+      command_timeout_ms_(command_timeout_ms),
+      preflight_confirm_ms_(preflight_confirm_ms),
+      refresh_timer_(this)
 {
+    event_clock_.start();
     refresh_timer_.setInterval(REFRESH_INTERVAL_MS);
     connect(&refresh_timer_, &QTimer::timeout, this, &UiBridge::refresh);
     refresh_timer_.start();
@@ -258,6 +272,10 @@ void UiBridge::resolve_arm_check(const QString& agent_ns, const AgentStateData& 
 
 void UiBridge::on_state_updated(const QString& agent_ns, const AgentStateData& state)
 {
+    if (state.is_px4_state_valid)
+    {
+        last_valid_states_.insert(agent_ns, state);
+    }
     AgentView& view = views_[agent_ns];
     view.state = state;
     view.has_state = true;
@@ -281,12 +299,99 @@ void UiBridge::on_trajectory_updated(const QString& agent_ns, const AgentTraject
     mark_dirty();
 }
 
+void UiBridge::on_health_updated(const QString& agent_ns, const AgentHealthData& health)
+{
+    AgentView& view = views_[agent_ns];
+    view.health = health;
+    view.has_health = true;
+    resolve_preflight_check(agent_ns, health);
+    mark_dirty();
+}
+
+void UiBridge::on_agent_event(const QString& agent_ns, const AgentEventData& event)
+{
+    const auto severity = static_cast<AgentEventSeverity>(event.severity);
+    if (severity != AgentEventSeverity::WARNING && severity != AgentEventSeverity::ERROR)
+    {
+        qCInfo(lc_ui).noquote() << agent_event_title(agent_ns, event) + QStringLiteral("：")
+                                       + ui::format_agent_event_message(event);
+        return;
+    }
+    if (event.code == agent_event_code::PX4_PREFLIGHT_FAILED)
+    {
+        begin_preflight_check(agent_ns, event);
+        return;
+    }
+    show_agent_event(agent_ns, event);
+}
+
+void UiBridge::show_agent_event(const QString& agent_ns, const AgentEventData& event)
+{
+    const QString title = agent_event_title(agent_ns, event);
+    const QString message = ui::format_agent_event_message(event);
+    const QString key = agent_ns + QLatin1Char(':') + QString::number(event.code) + QLatin1Char(':') + event.command;
+    const qint64 now = event_clock_.elapsed();
+    const auto shown = event_shown_ms_.constFind(key);
+    if (shown != event_shown_ms_.cend() && now - *shown < EVENT_DEDUP_MS)
+    {
+        qCInfo(lc_ui).noquote() << title + QStringLiteral("（重複，不再提示）：") + message;
+        return;
+    }
+    event_shown_ms_.insert(key, now);
+    const bool is_error = static_cast<AgentEventSeverity>(event.severity) == AgentEventSeverity::ERROR;
+    notify(is_error ? ToastModel::Kind::ERROR : ToastModel::Kind::WARNING, title, message);
+}
+
+void UiBridge::begin_preflight_check(const QString& agent_ns, const AgentEventData& event)
+{
+    const quint64 id = next_pending_id_++;
+    preflight_checks_.insert(agent_ns, PreflightCheck{id, event, false});
+    qCInfo(lc_ui).noquote() << agent_event_title(agent_ns, event) + QStringLiteral("：等待健康狀態確認");
+    QTimer::singleShot(preflight_confirm_ms_, this,
+                       [this, agent_ns, id]()
+                       {
+                           const auto it = preflight_checks_.constFind(agent_ns);
+                           if (it == preflight_checks_.cend() || it->id != id)
+                           {
+                               return;
+                           }
+                           const PreflightCheck check = *it;
+                           preflight_checks_.remove(agent_ns);
+                           // 最新健康狀態若是 PX4 連線中斷，預檢結果不可信，交給 300 事件與 PX4 LINK 呈現
+                           const auto view = views_.constFind(agent_ns);
+                           const bool is_still_failed = view != views_.cend() && view->has_health
+                                                        && ui::is_preflight_failed(view->health);
+                           if (!check.has_health_after || is_still_failed)
+                           {
+                               show_agent_event(agent_ns, check.event);
+                           }
+                       });
+}
+
+void UiBridge::resolve_preflight_check(const QString& agent_ns, const AgentHealthData& health)
+{
+    const auto it = preflight_checks_.find(agent_ns);
+    if (it == preflight_checks_.end())
+    {
+        return;
+    }
+    if (!ui::is_px4_link_lost(health) && health.is_px4_pre_flight_checks_pass)
+    {
+        // 正常降落自動上鎖的瞬間 PX4 會短暫回報未通過，健康狀態隨即恢復，不需提示
+        qCInfo(lc_ui).noquote() << agent_event_title(agent_ns, it->event) + QStringLiteral("：健康狀態已恢復，不提示");
+        preflight_checks_.erase(it);
+        return;
+    }
+    it->has_health_after = true;
+}
+
 void UiBridge::on_fleet_changed(const FleetSnapshot& snapshot)
 {
     // 停滯或消失的 Agent 移除快取資料，避免地圖與面板殘留舊位置
     for (const QString& agent : snapshot.offline)
     {
         views_.remove(agent);
+        preflight_checks_.remove(agent);
         if (arm_checks_.remove(agent))
         {
             notify(ToastModel::Kind::WARNING, QStringLiteral("%1 解鎖狀態未確認").arg(agent),
@@ -387,10 +492,65 @@ void UiBridge::recompute_availability()
     availability_.insert(CmdType::FORMATION_CIRCLE,
                          is_all_selected() && online_agents_.size() >= MIN_FORMATION_AGENT_COUNT);
 
-    if (availability_ != previous)
+    const bool is_reboot_changed = recompute_reboot_availability();
+    if (availability_ != previous || is_reboot_changed)
     {
         emit availabilityChanged();
     }
+}
+
+guard_rules::RebootFacts UiBridge::reboot_facts(const QString& agent_ns) const
+{
+    guard_rules::RebootFacts facts;
+    const auto view = views_.constFind(agent_ns);
+    if (view != views_.cend() && view->has_state)
+    {
+        facts.state = view->state;
+    }
+    if (view != views_.cend() && view->has_health)
+    {
+        facts.health = view->health;
+    }
+    const auto last_valid = last_valid_states_.constFind(agent_ns);
+    if (last_valid != last_valid_states_.cend())
+    {
+        facts.last_valid_state = *last_valid;
+    }
+    return facts;
+}
+
+bool UiBridge::recompute_reboot_availability()
+{
+    bool can_reboot = false;
+    bool can_force = false;
+    bool is_force_mode = false;
+    QString reason;
+    if (!is_single_selected())
+    {
+        reason = QStringLiteral("只支援單機");
+    }
+    else if (!online_agents_.contains(selected_agent_))
+    {
+        reason = QStringLiteral("Agent 不在線上");
+    }
+    else
+    {
+        // 與 GuardModule 使用同一份規則：PX4 狀態有效時一般重新啟動，狀態不明時只能強制
+        const guard_rules::RebootFacts facts = reboot_facts(selected_agent_);
+        is_force_mode = !facts.state.has_value() || !facts.state->is_px4_state_valid;
+        const QString normal_reason = guard_rules::check_reboot(facts, false);
+        const QString force_reason = guard_rules::check_reboot(facts, true);
+        can_reboot = normal_reason.isEmpty();
+        can_force = force_reason.isEmpty();
+        reason = is_force_mode ? force_reason : normal_reason;
+    }
+    const bool is_changed = can_reboot != can_reboot_fc_ || can_force != can_force_reboot_fc_
+                            || is_force_mode != is_reboot_force_mode_ || reason != reboot_blocked_reason_;
+    can_reboot_fc_ = can_reboot;
+    can_force_reboot_fc_ = can_force;
+    is_reboot_force_mode_ = is_force_mode;
+    reboot_blocked_reason_ = reason;
+    return is_changed;
 }
 
 void UiBridge::rebuild_summary()
@@ -402,6 +562,17 @@ void UiBridge::rebuild_summary()
     summary.insert(QStringLiteral("hasTelemetry"), has_state);
     summary.insert(QStringLiteral("isWaitingForFlightController"),
                    online_agents_.contains(selected_agent_) && (!has_state || !it->state.is_px4_state_valid));
+    const bool has_health = it != views_.cend() && it->has_health;
+    const AgentHealthData health = has_health ? it->health : AgentHealthData{};
+    summary.insert(QStringLiteral("hasHealth"), has_health);
+    summary.insert(QStringLiteral("px4LinkText"), has_health ? ui::px4_link_text(health) : QStringLiteral("—"));
+    summary.insert(QStringLiteral("isPx4LinkLost"), has_health && ui::is_px4_link_lost(health));
+    summary.insert(QStringLiteral("preflightText"), has_health ? ui::preflight_text(health) : QStringLiteral("—"));
+    summary.insert(QStringLiteral("isPreflightFailed"), has_health && ui::is_preflight_failed(health));
+    // 取代籠統的「等待飛控」，例如「PX4 資料中斷 12 秒」
+    summary.insert(QStringLiteral("waitReason"),
+                   ui::flight_controller_wait_reason(has_state, has_state ? it->state : AgentStateData{}, has_health,
+                                                     health));
     if (has_state)
     {
         const AgentStateData& state = it->state;

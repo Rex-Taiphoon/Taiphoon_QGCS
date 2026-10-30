@@ -39,6 +39,9 @@ enum class CmdType
     FORMATION_VERT_LINEAR,
     FORMATION_V_SHAPE,
     FORMATION_CANCEL,
+    MISSION_START,
+    MISSION_STOP,
+    REBOOT_FC,
     UNKNOWN
 };
 
@@ -54,10 +57,27 @@ CmdType parse_command(const QString& command);
 
 /**
  * @brief 驗證命令請求的目標、命令名稱、參數數量與數值
+ *
+ * 只能送給單機的命令（MISSION_*、REBOOT_FC）指定 all 時拒絕：Agent 會忽略全體 topic 上的這些命令。
+ *
  * @param request 命令請求
  * @return 空字串表示通過，否則為錯誤訊息
  */
 QString validate_request(const CommandRequest& request);
+
+/**
+ * @brief 檢查命令是否只能送給單機（MISSION_START、MISSION_STOP、REBOOT_FC）
+ * @param cmd 命令型別
+ * @return 是否只接受 /{agent_namespace}/command
+ */
+bool is_single_agent_only(CmdType cmd);
+
+/**
+ * @brief REBOOT_FC 請求是否為強制重新啟動（參數為 1）
+ * @param request 已驗證的 REBOOT_FC 請求
+ * @return 是否強制
+ */
+bool is_forced_reboot(const CommandRequest& request);
 
 /**
  * @brief 檢查命令目標是否合法（all 或 uav_{N}_agent，N 由 1 起算）
@@ -90,7 +110,7 @@ bool has_non_finite_param(const CommandRequest& request);
 /**
  * @brief 組合送往 Agent 的命令列，例如 "FORMATION_CIRCLE 10 20.5"
  * @param request 已驗證的命令請求
- * @return 命令列；數值使用可完整還原的最短十進位表示
+ * @return 命令列；數值使用可完整還原的最短十進位表示，整數一律不用指數（例如 1000000 而非 1e+06）
  */
 QString make_command_line(const CommandRequest& request);
 

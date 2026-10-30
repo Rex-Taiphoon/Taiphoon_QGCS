@@ -1,7 +1,7 @@
 /**
  * @file test_ui_bridge.cpp
  * @brief UiBridge 與 UI 組裝：命令仍須經 Guard、按鈕狀態與 Guard 一致、待回應防重複、選取調整、
- *        成功只寫日誌而失敗與警告彈出提示、地圖顯示原點只改變畫面座標
+ *        成功只寫日誌而失敗與警告彈出提示、地圖顯示原點只改變畫面座標、Agent 事件提示、健康狀態與重新啟動飛控
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
@@ -41,6 +41,39 @@ constexpr int WAIT_PAST_TIMEOUT_MS = 1300;
 QStringList g_ui_logs;
 
 /**
+ * @brief 建立 Agent 事件
+ * @param severity 嚴重程度
+ * @param code 事件代碼
+ * @param command 相關命令
+ * @return AgentEvent
+ */
+AgentEventData make_event(AgentEventSeverity severity, uint16_t code, const QString& command = QString())
+{
+    AgentEventData event;
+    event.severity = static_cast<uint8_t>(severity);
+    event.code = code;
+    event.command = command;
+    return event;
+}
+
+/**
+ * @brief PX4 連線正常的健康狀態
+ * @param is_preflight_pass 預檢是否通過
+ * @return AgentHealth
+ */
+AgentHealthData make_health(bool is_preflight_pass)
+{
+    constexpr float FRESH_AGE_S = 0.5F;
+    AgentHealthData health;
+    health.px4_status_age_s = FRESH_AGE_S;
+    health.px4_odometry_age_s = FRESH_AGE_S;
+    health.px4_land_detected_age_s = FRESH_AGE_S;
+    health.px4_arming_state = px4_arming::DISARMED;
+    health.is_px4_pre_flight_checks_pass = is_preflight_pass;
+    return health;
+}
+
+/**
  * @brief 測試用訊息處理器：只收集 gcs.ui 類別
  * @param type 訊息等級（未使用）
  * @param context 來源資訊
@@ -65,7 +98,7 @@ protected:
     {
         g_ui_logs.clear();
         previous_handler_ = qInstallMessageHandler(capture_ui_log);
-        bridge_ = std::make_unique<UiBridge>(SHORT_TIMEOUT_MS);
+        bridge_ = std::make_unique<UiBridge>(SHORT_TIMEOUT_MS, SHORT_TIMEOUT_MS);
         ASSERT_TRUE(fleet_.init());
         ASSERT_TRUE(telemetry_.init());
         ASSERT_TRUE(guard_.init());
@@ -112,6 +145,23 @@ protected:
 
     /** @brief 提示總數 */
     int toast_count() const { return bridge_->toasts().rowCount(); }
+
+    /** @brief 最後一筆提示的種類（success、error、warning） */
+    QString last_toast_kind() const { return last_toast_value(ToastModel::KindRole); }
+
+    /** @brief 最後一筆提示的內容 */
+    QString last_toast_message() const { return last_toast_value(ToastModel::MessageRole); }
+
+    /**
+     * @brief 最後一筆提示的指定欄位
+     * @param role ToastModel 角色
+     * @return 欄位文字；沒有提示時為空字串
+     */
+    QString last_toast_value(int role) const
+    {
+        const ToastModel& model = bridge_->toasts();
+        return model.rowCount() > 0 ? model.data(model.index(model.rowCount() - 1), role).toString() : QString();
+    }
 
     /** @brief 最後一筆 gcs.ui 日誌 */
     static QString last_log() { return g_ui_logs.isEmpty() ? QString() : g_ui_logs.last(); }
@@ -519,4 +569,154 @@ TEST_F(UiBridgeTest, ShutdownReplyLoggedAsSuccess)
     emit link_.shutdown_replied(AGENT_1, link_.shutdown_requests[0].request_id, true, QStringLiteral("已接受"));
     EXPECT_TRUE(last_log().startsWith(QStringLiteral("AGENT_SHUTDOWN 成功")));
     EXPECT_EQ(toast_count(), 0);
+}
+
+TEST_F(UiBridgeTest, AgentEventsToastBySeverityAndDeduplicate)
+{
+    bring_online(AGENT_1, make_state(FlightState::IDLE));
+
+    // 一般資訊只寫日誌
+    emit link_.event_received(AGENT_1, make_event(AgentEventSeverity::INFO, agent_event_code::PX4_STATUS_RECOVERED));
+    EXPECT_EQ(toast_count(), 0);
+    EXPECT_TRUE(last_log().startsWith(QStringLiteral("UAV_1 飛控資料恢復")));
+
+    // 錯誤：紅色提示，附命令、Agent 說明與 PX4 結果碼
+    AgentEventData rejected = make_event(AgentEventSeverity::ERROR, agent_event_code::PX4_COMMAND_REJECTED,
+                                         QStringLiteral("ARM"));
+    rejected.px4_result = 1;
+    rejected.detail = QStringLiteral("Arming denied");
+    emit link_.event_received(AGENT_1, rejected);
+    ASSERT_EQ(toast_count(), 1);
+    EXPECT_EQ(last_toast_title(), QStringLiteral("UAV_1 飛控拒絕命令"));
+    EXPECT_EQ(last_toast_kind(), QStringLiteral("error"));
+    EXPECT_EQ(last_toast_message(), QStringLiteral("ARM；Arming denied（PX4 結果 1：暫時拒絕）"));
+
+    // 同一事件短時間內重複只寫日誌；不同命令另外提示
+    emit link_.event_received(AGENT_1, rejected);
+    EXPECT_EQ(toast_count(), 1);
+    rejected.command = QStringLiteral("DISARM");
+    emit link_.event_received(AGENT_1, rejected);
+    EXPECT_EQ(toast_count(), 2);
+
+    // 警告：黃色提示
+    emit link_.event_received(AGENT_1, make_event(AgentEventSeverity::WARNING, agent_event_code::OFFBOARD_LOST));
+    ASSERT_EQ(toast_count(), 3);
+    EXPECT_EQ(last_toast_title(), QStringLiteral("UAV_1 飛控離開 Offboard"));
+    EXPECT_EQ(last_toast_kind(), QStringLiteral("warning"));
+}
+
+TEST_F(UiBridgeTest, PreflightEventWaitsForHealthConfirmation)
+{
+    bring_online(AGENT_1, make_state(FlightState::IDLE));
+    const AgentEventData preflight =
+        make_event(AgentEventSeverity::WARNING, agent_event_code::PX4_PREFLIGHT_FAILED);
+
+    // 正常降落上鎖時短暫未通過：健康狀態隨即恢復，不提示
+    emit link_.event_received(AGENT_1, preflight);
+    emit link_.health_received(AGENT_1, make_health(true));
+    QTest::qWait(WAIT_PAST_TIMEOUT_MS);
+    EXPECT_EQ(toast_count(), 0);
+
+    // 健康狀態持續未通過：確認時間到才提示
+    emit link_.event_received(AGENT_1, preflight);
+    emit link_.health_received(AGENT_1, make_health(false));
+    EXPECT_EQ(toast_count(), 0);
+    QTest::qWait(WAIT_PAST_TIMEOUT_MS);
+    ASSERT_EQ(toast_count(), 1);
+    EXPECT_EQ(last_toast_title(), QStringLiteral("UAV_1 飛控預檢未通過"));
+}
+
+TEST_F(UiBridgeTest, HealthShownInSummaryFleetModelAndArmWaitReason)
+{
+    link_.discovered_agents.append(AGENT_1);
+    fleet_.scan_now();
+    bridge_->selectAgent(AGENT_1);
+
+    // 收到 odometry 前只有健康狀態
+    AgentHealthData health = make_health(true);
+    health.px4_odometry_age_s = -1.0F;
+    emit link_.health_received(AGENT_1, health);
+    bridge_->refresh_now();
+    QVariantMap summary = bridge_->selected_summary();
+    EXPECT_TRUE(summary.value(QStringLiteral("isWaitingForFlightController")).toBool());
+    EXPECT_EQ(summary.value(QStringLiteral("waitReason")).toString(), QStringLiteral("未收到 PX4 位置資料"));
+    EXPECT_EQ(summary.value(QStringLiteral("px4LinkText")).toString(), QStringLiteral("正常"));
+    EXPECT_EQ(summary.value(QStringLiteral("preflightText")).toString(), QStringLiteral("PASS"));
+
+    // PX4 資料中斷 12 秒
+    health.px4_status_age_s = 12.0F;
+    emit link_.health_received(AGENT_1, health);
+    emit link_.state_received(AGENT_1, make_state(FlightState::ERROR, false, true, PX4_NAV_STATE_OFFBOARD, false));
+    bridge_->refresh_now();
+    summary = bridge_->selected_summary();
+    EXPECT_EQ(summary.value(QStringLiteral("waitReason")).toString(), QStringLiteral("PX4 資料中斷 12 秒"));
+    EXPECT_EQ(summary.value(QStringLiteral("px4LinkText")).toString(), QStringLiteral("中斷 12 秒"));
+    EXPECT_TRUE(summary.value(QStringLiteral("isPx4LinkLost")).toBool());
+    EXPECT_EQ(summary.value(QStringLiteral("preflightText")).toString(), QStringLiteral("—"));
+
+    auto* model = static_cast<FleetModel*>(bridge_->fleet_model());
+    ASSERT_EQ(model->rowCount(), 1);
+    const QModelIndex index = model->index(0);
+    EXPECT_EQ(model->data(index, FleetModel::HealthWarningRole).toString(), QStringLiteral("PX4 中斷 12 秒"));
+    EXPECT_TRUE(model->data(index, FleetModel::IsPx4LinkLostRole).toBool());
+
+    // 狀態有效但預檢未通過
+    emit link_.health_received(AGENT_1, make_health(false));
+    emit link_.state_received(AGENT_1, make_state(FlightState::IDLE));
+    bridge_->refresh_now();
+    EXPECT_EQ(model->data(index, FleetModel::HealthWarningRole).toString(), QStringLiteral("PX4 預檢未通過"));
+    EXPECT_FALSE(model->data(index, FleetModel::IsPx4LinkLostRole).toBool());
+    EXPECT_TRUE(bridge_->selected_summary().value(QStringLiteral("isPreflightFailed")).toBool());
+    EXPECT_TRUE(bridge_->selected_summary().value(QStringLiteral("waitReason")).toString().isEmpty());
+}
+
+TEST_F(UiBridgeTest, RebootAvailabilityFollowsGuardRules)
+{
+    // 全體選取：只支援單機
+    bring_online(AGENT_1, make_state(FlightState::IDLE));
+    bridge_->selectAgent(ALL_AGENTS_TARGET);
+    EXPECT_FALSE(bridge_->can_reboot_fc());
+    EXPECT_FALSE(bridge_->is_reboot_force_mode());
+
+    // 狀態有效、上鎖、落地：一般重新啟動
+    bridge_->selectAgent(AGENT_1);
+    EXPECT_TRUE(bridge_->can_reboot_fc());
+    EXPECT_FALSE(bridge_->can_force_reboot_fc());
+    EXPECT_FALSE(bridge_->is_reboot_force_mode());
+    EXPECT_TRUE(bridge_->reboot_blocked_reason().isEmpty());
+
+    // 狀態不明且最後一次有效時上鎖落地：只能強制
+    emit link_.health_received(AGENT_1, make_health(true));
+    emit link_.state_received(AGENT_1, make_state(FlightState::ERROR, false, true, PX4_NAV_STATE_OFFBOARD, false));
+    bridge_->refresh_now();
+    EXPECT_TRUE(bridge_->is_reboot_force_mode());
+    EXPECT_FALSE(bridge_->can_reboot_fc());
+    EXPECT_TRUE(bridge_->can_force_reboot_fc());
+
+    // 最後一次有效時在空中：滑桿停用並顯示原因
+    emit link_.state_received(AGENT_1, make_state(FlightState::HOVER, true, false));
+    emit link_.state_received(AGENT_1, make_state(FlightState::ERROR, false, true, PX4_NAV_STATE_OFFBOARD, false));
+    bridge_->refresh_now();
+    EXPECT_TRUE(bridge_->is_reboot_force_mode());
+    EXPECT_FALSE(bridge_->can_force_reboot_fc());
+    EXPECT_TRUE(bridge_->reboot_blocked_reason().contains(QStringLiteral("最後一次")));
+
+    // Guard 同樣拒絕，Link 沒有收到命令
+    bridge_->sendCommand(QStringLiteral("REBOOT_FC"), {1});
+    EXPECT_TRUE(link_.published_commands.empty());
+    EXPECT_EQ(last_toast_title(), QStringLiteral("REBOOT_FC 失敗"));
+}
+
+TEST_F(UiBridgeTest, ForcedRebootWithHealthOnlyReachesLink)
+{
+    link_.discovered_agents.append(AGENT_1);
+    fleet_.scan_now();
+    emit link_.health_received(AGENT_1, make_health(true));
+    bridge_->selectAgent(AGENT_1);
+    EXPECT_TRUE(bridge_->is_reboot_force_mode());
+    EXPECT_TRUE(bridge_->can_force_reboot_fc());
+
+    bridge_->sendCommand(QStringLiteral("REBOOT_FC"), {1});
+    ASSERT_EQ(link_.published_commands.size(), 1U);
+    EXPECT_EQ(link_.published_commands[0].command_line, QStringLiteral("REBOOT_FC 1"));
 }

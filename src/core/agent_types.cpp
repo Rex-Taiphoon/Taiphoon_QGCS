@@ -16,6 +16,10 @@ void register_core_metatypes()
     qRegisterMetaType<NedTargetData>();
     qRegisterMetaType<WaypointSequenceData>();
     qRegisterMetaType<AgentTrajectoryData>();
+    qRegisterMetaType<WaypointMissionData>();
+    qRegisterMetaType<WaypointMissionStatusData>();
+    qRegisterMetaType<AgentEventData>();
+    qRegisterMetaType<AgentHealthData>();
     qRegisterMetaType<CommandRequest>();
     qRegisterMetaType<CommandAck>();
     qRegisterMetaType<FleetSnapshot>();

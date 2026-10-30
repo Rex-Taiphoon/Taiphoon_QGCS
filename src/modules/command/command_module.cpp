@@ -79,4 +79,33 @@ void CommandModule::publish_validated(const CommandRequest& request)
     emit command_acked(command_protocol::make_ack(request.agent, request.command, true));
 }
 
+void CommandModule::publish_mission_plan(const QString& agent_ns, const WaypointMissionData& mission)
+{
+    const QString agent = agent_ns.isEmpty() ? QStringLiteral("unknown") : agent_ns;
+    // 縱深防禦：Guard 已驗證，發布前仍確認目標是單機（mission/plan 只有單機 topic）
+    if (!command_protocol::is_single_agent(agent_ns))
+    {
+        emit mission_upload_acked(
+            command_protocol::make_ack(agent, MISSION_UPLOAD_ACK_NAME, false, QStringLiteral("航點任務只支援單機")));
+        return;
+    }
+    if (!is_initialized_ || link_ == nullptr)
+    {
+        emit mission_upload_acked(command_protocol::make_ack(agent, MISSION_UPLOAD_ACK_NAME, false,
+                                                             QStringLiteral("CommandModule 未初始化")));
+        return;
+    }
+    QString link_error;
+    if (!link_->publish_mission_plan(agent_ns, mission, &link_error))
+    {
+        qCWarning(lc_command) << "航點任務發布失敗：" << agent_ns << "mission_id=" << mission.mission_id << link_error;
+        emit mission_upload_acked(command_protocol::make_ack(agent, MISSION_UPLOAD_ACK_NAME, false,
+                                                             QStringLiteral("航點任務發布失敗: ") + link_error));
+        return;
+    }
+    qCInfo(lc_command) << "已發布航點任務至" << agent_ns << "mission_id=" << mission.mission_id << "航點"
+                       << mission.waypoints.size() << "個";
+    emit mission_upload_acked(command_protocol::make_ack(agent_ns, MISSION_UPLOAD_ACK_NAME, true));
+}
+
 }  // namespace gcs

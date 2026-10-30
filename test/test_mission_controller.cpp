@@ -1,6 +1,6 @@
 /**
  * @file test_mission_controller.cpp
- * @brief 航點任務介面：航點編輯、顯示原點換算、開始前確認、語音倒數與語音口令
+ * @brief 航點任務介面：航點編輯、顯示原點換算、開始前確認、語音倒數、語音口令與狀態不明時停止
  * @author Taiphoon GCS Team
  * @date 2026-10-26
  */
@@ -346,4 +346,37 @@ TEST_F(MissionControllerTest, AbortAndRejectArePoppedUp)
     // 完成只寫日誌，不彈出
     EXPECT_EQ(toasts_.rowCount(), 1);
     EXPECT_FALSE(controller_.is_running());
+}
+
+TEST_F(MissionControllerTest, StartingShowsUploadingAndLostStillAllowsStop)
+{
+    controller_.addWaypoint(25.0001, 121.5);
+    MissionStatus status;
+    status.agent = AGENT_1;
+    status.phase = MissionPhase::STARTING;
+    status.waypoint_count = 1;
+    status.message = QStringLiteral("上傳 1 個航點，等待 Agent 開始");
+    controller_.on_mission_status(status);
+    EXPECT_FALSE(controller_.can_start());
+    EXPECT_EQ(controller_.start_block_reason(), QStringLiteral("上傳中"));
+    EXPECT_TRUE(controller_.can_stop());
+
+    // 狀態不明：Agent 可能仍在執行，停止任務仍可按（按鈕與語音）
+    status.phase = MissionPhase::LOST;
+    status.message = QStringLiteral("超過 5 秒沒有收到任務狀態，無法得知任務進度");
+    controller_.on_mission_status(status);
+    EXPECT_FALSE(controller_.is_running());
+    EXPECT_TRUE(controller_.is_status_unknown());
+    EXPECT_TRUE(controller_.can_stop());
+    EXPECT_TRUE(controller_.status_text().startsWith(QStringLiteral("狀態不明，Agent 繼續執行")));
+    controller_.stopMission();
+    controller_.on_voice_keyword(voice::KEYWORD_STOP_MISSION);
+    EXPECT_EQ(stopped_.count(), 2);
+
+    status.phase = MissionPhase::ABORTED;
+    status.message = QStringLiteral("操作人員停止任務");
+    controller_.on_mission_status(status);
+    EXPECT_FALSE(controller_.can_stop());
+    controller_.stopMission();
+    EXPECT_EQ(stopped_.count(), 2);
 }

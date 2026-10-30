@@ -61,8 +61,20 @@ _Avoid_：設定檔（未特指時）、config
 _Avoid_：GPS 偏移、修改 GPS（實際位置沒有改變）
 
 **航點任務 (Waypoint Mission)**：
-單機依序飛往預先設定的航點，每點停留 3 秒，最後一點懸停。由 MissionModule 逐段送出 `MOVE_POINT`，每段都經 Guard；只能在懸停時開始，且必須確認。
+單機依序飛往預先設定的航點，每點停留 3 秒，最後一點懸停。MissionModule 把整組航點上傳給 Agent（`mission/plan`），經 Guard 送出 `MISSION_START` 後由 Agent 執行，進度以 Agent 回報的 `mission/status` 為準；QGCS 斷線時 Agent 繼續執行。只能在懸停時開始，且必須確認。
 _Avoid_：mission（PX4 原生的 Mission 模式，QGCS 不使用）、航線規劃
+
+**任務狀態不明 (Mission Lost)**：
+航點任務開始後，Agent 離線、資料停滯或超過 5 秒沒有任務狀態時 QGCS 的任務階段（LOST）。QGCS 不送出任何命令，Agent 仍繼續執行；恢復收到狀態後繼續追蹤。
+_Avoid_：任務中止（中止是 Agent 回報的 ABORTED，任務已結束）
+
+**重新啟動飛控 (Reboot Flight Controller)**：
+`REBOOT_FC` 命令，請 Agent 重新啟動 PX4 飛控，只能指定單機。一般重新啟動需飛控狀態有效、未解鎖且已落地；飛控狀態不明時只能強制重新啟動（`REBOOT_FC 1`，滑桿確認），且最後一次飛控狀態有效時、以及 Agent 保留的最後解鎖與落地狀態都不能顯示可能在空中。
+_Avoid_：關閉 Agent、shutdown（shutdown service 是結束 Agent 程序，不影響飛控）
+
+**Agent 事件 (Agent Event)**：
+Agent 在錯誤、警告或重要資訊發生時發布一次的 `events` 訊息，例如 PX4 拒絕解鎖與原因、PX4 資料中斷。與週期發布的 Agent 健康狀態（`health`：各 PX4 資料的經過時間、preflight 與 failsafe 狀態）互補；介面上錯誤與警告彈出提示，一般資訊只寫入日誌。
+_Avoid_：命令回報（命令結果仍以 command ack 為準）、日誌
 
 **語音口令 (Voice Command)**：
 按住說話（F2 或 PTT 按鈕）時以離線關鍵詞偵測辨識的固定口令：請執行任務、確認、取消、停止任務。口令只觸發航點任務的開始、確認、取消與停止，不直接成為 Agent 命令。

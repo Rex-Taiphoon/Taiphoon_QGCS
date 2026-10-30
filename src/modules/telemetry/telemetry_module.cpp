@@ -35,6 +35,9 @@ bool TelemetryModule::init()
     connect(link_, &IAgentLink::ned_target_received, this, &TelemetryModule::on_ned_target_received);
     connect(link_, &IAgentLink::waypoints_received, this, &TelemetryModule::on_waypoints_received);
     connect(link_, &IAgentLink::trajectory_received, this, &TelemetryModule::on_trajectory_received);
+    connect(link_, &IAgentLink::mission_status_received, this, &TelemetryModule::on_mission_status_received);
+    connect(link_, &IAgentLink::event_received, this, &TelemetryModule::on_event_received);
+    connect(link_, &IAgentLink::health_received, this, &TelemetryModule::on_health_received);
     is_initialized_ = true;
     qCInfo(lc_telemetry) << "初始化完成";
     return true;
@@ -126,6 +129,30 @@ void TelemetryModule::on_trajectory_received(const QString& agent_ns, const Agen
     if (subscribed_agents_.contains(agent_ns))
     {
         emit trajectory_updated(agent_ns, trajectory);
+    }
+}
+
+void TelemetryModule::on_mission_status_received(const QString& agent_ns, const WaypointMissionStatusData& status)
+{
+    if (subscribed_agents_.contains(agent_ns))
+    {
+        emit mission_status_updated(agent_ns, status);
+    }
+}
+
+void TelemetryModule::on_event_received(const QString& agent_ns, const AgentEventData& event)
+{
+    if (subscribed_agents_.contains(agent_ns))
+    {
+        emit agent_event_received(agent_ns, event);
+    }
+}
+
+void TelemetryModule::on_health_received(const QString& agent_ns, const AgentHealthData& health)
+{
+    if (subscribed_agents_.contains(agent_ns))
+    {
+        emit health_updated(agent_ns, health);
     }
 }
 

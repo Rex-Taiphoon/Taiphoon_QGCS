@@ -21,7 +21,7 @@ namespace gcs
 
 /**
  * @class IAgentLink
- * @brief Agent 通訊介面：訂閱遙測、發布命令、呼叫 shutdown service、查詢探索結果
+ * @brief Agent 通訊介面：訂閱遙測、發布命令與航點任務、呼叫 shutdown service、查詢探索結果
  */
 class IAgentLink : public QObject
 {
@@ -59,6 +59,16 @@ public:
     virtual bool publish_command(const QString& target, const QString& command_line, QString* error) = 0;
 
     /**
+     * @brief 發布航點任務上傳（/{ns}/mission/plan）
+     * @param agent_ns 單一 Agent namespace
+     * @param mission 航點任務
+     * @param error 失敗原因（可為 nullptr）；mission/plan 為 volatile，尚無訂閱者時必須回報失敗
+     * @return 是否已送出
+     */
+    virtual bool publish_mission_plan(const QString& agent_ns, const gcs::WaypointMissionData& mission,
+                                      QString* error) = 0;
+
+    /**
      * @brief 送出 shutdown service 請求（request.data = true）
      * @param agent_ns 單一 Agent namespace
      * @param request_id 用於比對回應的識別碼
@@ -80,6 +90,12 @@ signals:
     void trajectory_received(const QString& agent_ns, const gcs::AgentTrajectoryData& trajectory);
     /** @brief 收到 shutdown service 回應 */
     void shutdown_replied(const QString& agent_ns, quint64 request_id, bool is_success, const QString& message);
+    /** @brief 收到 mission/status */
+    void mission_status_received(const QString& agent_ns, const gcs::WaypointMissionStatusData& status);
+    /** @brief 收到 events */
+    void event_received(const QString& agent_ns, const gcs::AgentEventData& event);
+    /** @brief 收到 health */
+    void health_received(const QString& agent_ns, const gcs::AgentHealthData& health);
 };
 
 }  // namespace gcs

@@ -46,6 +46,10 @@ QHash<int, QByteArray> FleetModel::roleNames() const
         {Px4StatusLabelRole, "px4StatusLabel"},
         {NedTextRole, "nedText"},
         {PositionTextRole, "positionText"},
+        {Px4LinkTextRole, "px4LinkText"},
+        {PreflightTextRole, "preflightText"},
+        {HealthWarningRole, "healthWarning"},
+        {IsPx4LinkLostRole, "isPx4LinkLost"},
     };
 }
 
@@ -113,6 +117,23 @@ QVariant FleetModel::data(const QModelIndex& index, int role) const
     case PositionTextRole:
         return view.has_state ? ui::format_lat_lon(ui::to_display_position(state.position_global, display_origin_))
                               : QStringLiteral("—");
+    case Px4LinkTextRole:
+        return view.has_health ? ui::px4_link_text(view.health) : QStringLiteral("—");
+    case PreflightTextRole:
+        return view.has_health ? ui::preflight_text(view.health) : QStringLiteral("—");
+    case HealthWarningRole:
+        // 機群表警示標記：PX4 資料中斷優先於預檢未通過；沒有健康狀態時不標記
+        if (!view.has_health)
+        {
+            return QString();
+        }
+        if (ui::is_px4_link_lost(view.health))
+        {
+            return QStringLiteral("PX4 %1").arg(ui::px4_link_text(view.health));
+        }
+        return ui::is_preflight_failed(view.health) ? QStringLiteral("PX4 預檢未通過") : QString();
+    case IsPx4LinkLostRole:
+        return view.has_health && ui::is_px4_link_lost(view.health);
     default:
         return {};
     }

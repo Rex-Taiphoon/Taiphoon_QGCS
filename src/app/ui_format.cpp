@@ -36,6 +36,16 @@ constexpr float PX4_BATTERY_INVALID = -1.0F;
 constexpr float PX4_VOLTAGE_INVALID = 0.0F;
 /// 判斷無效標記值的容許誤差
 constexpr float INVALID_MARKER_TOLERANCE = 1e-3F;
+/// VehicleStatus 超過此秒數未更新即視為中斷；與 Agent 判斷 px4_state_valid 的時限相同（介面文件 AgentState 一節）
+constexpr float PX4_STATUS_STALE_S = 5.0F;
+/// PX4 VehicleCommandAck.result（介面文件 AgentEvent 一節）
+constexpr int16_t PX4_RESULT_ACCEPTED = 0;
+constexpr int16_t PX4_RESULT_TEMPORARILY_REJECTED = 1;
+constexpr int16_t PX4_RESULT_DENIED = 2;
+constexpr int16_t PX4_RESULT_UNSUPPORTED = 3;
+constexpr int16_t PX4_RESULT_FAILED = 4;
+constexpr int16_t PX4_RESULT_IN_PROGRESS = 5;
+constexpr int16_t PX4_RESULT_CANCELLED = 6;
 
 /**
  * @brief 是否為 PX4 的無效標記值
@@ -260,6 +270,169 @@ std::array<double, 3> to_reported_position(const std::array<double, 3>& position
     inverse.display_latitude = origin.source_latitude;
     inverse.display_longitude = origin.source_longitude;
     return to_display_position(position, inverse);
+}
+
+
+QString agent_short_name(const QString& agent_ns)
+{
+    QString name = agent_ns;
+    name.remove(QStringLiteral("_agent"));
+    return name.toUpper();
+}
+
+QString agent_event_label(uint16_t code)
+{
+    namespace ec = agent_event_code;
+    switch (code)
+    {
+    case ec::COMMAND_UNKNOWN:
+        return QStringLiteral("無法辨識的命令");
+    case ec::COMMAND_INVALID_PARAMS:
+        return QStringLiteral("命令參數錯誤");
+    case ec::COMMAND_REJECTED:
+        return QStringLiteral("Agent 拒絕命令");
+    case ec::COMMAND_FAILED:
+        return QStringLiteral("命令執行失敗");
+    case ec::PX4_COMMAND_REJECTED:
+        return QStringLiteral("飛控拒絕命令");
+    case ec::PX4_COMMAND_TIMEOUT:
+        return QStringLiteral("飛控未回應命令");
+    case ec::PX4_COMMAND_ACCEPTED:
+        return QStringLiteral("飛控接受命令");
+    case ec::TAKEOFF_CANCELLED:
+        return QStringLiteral("起飛已取消");
+    case ec::OFFBOARD_LOST:
+        return QStringLiteral("飛控離開 Offboard");
+    case ec::PX4_STATUS_STALE:
+        return QStringLiteral("飛控資料中斷");
+    case ec::PX4_STATUS_RECOVERED:
+        return QStringLiteral("飛控資料恢復");
+    case ec::PX4_POSITION_STALE:
+        return QStringLiteral("飛控位置資料中斷");
+    case ec::PX4_PREFLIGHT_FAILED:
+        return QStringLiteral("飛控預檢未通過");
+    case ec::PX4_FAILSAFE:
+        return QStringLiteral("飛控失效保護啟動");
+    case ec::PX4_RESTART_DETECTED:
+        return QStringLiteral("偵測到飛控重新啟動");
+    case ec::PLANNER_COMMAND_REJECTED:
+        return QStringLiteral("路徑規劃拒絕命令");
+    case ec::PLANNER_EMERGENCY_BRAKE:
+        return QStringLiteral("緊急煞停");
+    case ec::PLANNER_FAILURE_PERSISTENT:
+        return QStringLiteral("路徑規劃持續失敗");
+    case ec::SAFETY_POSITION_DEVIATION:
+        return QStringLiteral("位置偏差過大");
+    default:
+        return QStringLiteral("Agent 事件 %1").arg(code);
+    }
+}
+
+QString px4_command_result_label(int16_t result)
+{
+    switch (result)
+    {
+    case PX4_RESULT_ACCEPTED:
+        return QStringLiteral("已接受");
+    case PX4_RESULT_TEMPORARILY_REJECTED:
+        return QStringLiteral("暫時拒絕");
+    case PX4_RESULT_DENIED:
+        return QStringLiteral("拒絕");
+    case PX4_RESULT_UNSUPPORTED:
+        return QStringLiteral("不支援");
+    case PX4_RESULT_FAILED:
+        return QStringLiteral("失敗");
+    case PX4_RESULT_IN_PROGRESS:
+        return QStringLiteral("執行中");
+    case PX4_RESULT_CANCELLED:
+        return QStringLiteral("已取消");
+    default:
+        return QStringLiteral("未知");
+    }
+}
+
+QString format_agent_event_message(const AgentEventData& event)
+{
+    QStringList parts;
+    if (!event.command.isEmpty())
+    {
+        parts.append(event.command);
+    }
+    if (!event.detail.isEmpty())
+    {
+        parts.append(event.detail);
+    }
+    QString text = parts.isEmpty() ? QStringLiteral("代碼 %1").arg(event.code) : parts.join(QStringLiteral("；"));
+    if (event.px4_result != AGENT_EVENT_NO_PX4_RESULT)
+    {
+        text += QStringLiteral("（PX4 結果 %1：%2）")
+                    .arg(event.px4_result)
+                    .arg(px4_command_result_label(event.px4_result));
+    }
+    return text;
+}
+
+bool is_px4_link_lost(const AgentHealthData& health)
+{
+    return health.px4_status_age_s < 0.0F || health.px4_status_age_s > PX4_STATUS_STALE_S;
+}
+
+QString px4_link_text(const AgentHealthData& health)
+{
+    if (health.px4_status_age_s < 0.0F)
+    {
+        return QStringLiteral("未連線");
+    }
+    if (is_px4_link_lost(health))
+    {
+        return QStringLiteral("中斷 %1 秒").arg(format_number(health.px4_status_age_s, 0));
+    }
+    return QStringLiteral("正常");
+}
+
+bool is_preflight_failed(const AgentHealthData& health)
+{
+    return !is_px4_link_lost(health) && !health.is_px4_pre_flight_checks_pass;
+}
+
+QString preflight_text(const AgentHealthData& health)
+{
+    if (is_px4_link_lost(health))
+    {
+        return QStringLiteral("—");
+    }
+    return health.is_px4_pre_flight_checks_pass ? QStringLiteral("PASS") : QStringLiteral("FAIL");
+}
+
+QString flight_controller_wait_reason(bool has_state, const AgentStateData& state, bool has_health,
+                                      const AgentHealthData& health)
+{
+    if (has_state && state.is_px4_state_valid)
+    {
+        return QString();
+    }
+    if (!has_health)
+    {
+        return has_state ? QStringLiteral("等待飛控") : QStringLiteral("等待 Agent 狀態");
+    }
+    if (health.px4_status_age_s < 0.0F)
+    {
+        return QStringLiteral("未收到 PX4 資料");
+    }
+    if (is_px4_link_lost(health))
+    {
+        return QStringLiteral("PX4 資料中斷 %1 秒").arg(format_number(health.px4_status_age_s, 0));
+    }
+    // Agent 收到第一筆 odometry 才發布 AgentState
+    if (!has_state)
+    {
+        return QStringLiteral("未收到 PX4 位置資料");
+    }
+    if (health.px4_land_detected_age_s < 0.0F || health.px4_land_detected_age_s > PX4_STATUS_STALE_S)
+    {
+        return QStringLiteral("未收到 PX4 落地偵測");
+    }
+    return QStringLiteral("等待飛控");
 }
 
 }  // namespace gcs::ui

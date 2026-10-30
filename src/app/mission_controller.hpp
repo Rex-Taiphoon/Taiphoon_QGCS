@@ -43,6 +43,8 @@ class MissionController : public QObject
     Q_PROPERTY(bool canStart READ can_start NOTIFY changed)
     Q_PROPERTY(QString startBlockReason READ start_block_reason NOTIFY changed)
     Q_PROPERTY(bool isRunning READ is_running NOTIFY changed)
+    Q_PROPERTY(bool isStatusUnknown READ is_status_unknown NOTIFY changed)
+    Q_PROPERTY(bool canStop READ can_stop NOTIFY changed)
     Q_PROPERTY(QString statusText READ status_text NOTIFY changed)
     Q_PROPERTY(bool isConfirmPending READ is_confirm_pending NOTIFY changed)
     Q_PROPERTY(QString confirmText READ confirm_text NOTIFY changed)
@@ -87,6 +89,10 @@ public:
     bool can_start() const;
     QString start_block_reason() const;
     bool is_running() const;
+    /** @brief 任務狀態不明（與 Agent 失去聯繫，Agent 會繼續執行） @return 是否不明 */
+    bool is_status_unknown() const;
+    /** @brief 是否可停止任務：執行中或狀態不明（不確定 Agent 是否仍在執行時也要能停止） @return 是否可停止 */
+    bool can_stop() const;
     QString status_text() const;
     bool is_confirm_pending() const { return pending_.has_value(); }
     QString confirm_text() const;

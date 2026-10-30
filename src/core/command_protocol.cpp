@@ -29,7 +29,7 @@ struct CommandSpec
 };
 
 /// 介面文件第 6.2 節的全部命令（含相容性簡寫）
-constexpr std::array<CommandSpec, 24> COMMAND_SPECS = {{
+constexpr std::array<CommandSpec, 27> COMMAND_SPECS = {{
     {"MODE_RTL", CmdType::MODE_RTL, 0, 0},
     {"MODE_LAND", CmdType::MODE_LAND, 0, 0},
     {"MODE_OFFBOARD", CmdType::MODE_OFFBOARD, 0, 0},
@@ -54,10 +54,21 @@ constexpr std::array<CommandSpec, 24> COMMAND_SPECS = {{
     {"FORMATION_VERT_LINEAR", CmdType::FORMATION_VERT_LINEAR, 1, 1},
     {"FORMATION_V_SHAPE", CmdType::FORMATION_V_SHAPE, 2, 2},
     {"FORMATION_CANCEL", CmdType::FORMATION_CANCEL, 0, 0},
+    {"MISSION_START", CmdType::MISSION_START, 1, 1},
+    {"MISSION_STOP", CmdType::MISSION_STOP, 0, 0},
+    {"REBOOT_FC", CmdType::REBOOT_FC, 0, 1},
 }};
 
 /// double 最短可還原十進位表示所需的最大長度
 constexpr std::size_t MAX_DOUBLE_TEXT_LENGTH = 32;
+/// 絕對值小於此值的整數可由 double 精確表示（2^53），以定點格式輸出
+constexpr double MAX_EXACT_INTEGER = 9007199254740992.0;
+/// MISSION_START 識別碼範圍（WaypointMission.mission_id 為 uint32，0 表示沒有任務）
+constexpr double MIN_MISSION_ID = 1.0;
+constexpr double MAX_MISSION_ID = 4294967295.0;
+/// REBOOT_FC 的參數：0 為一般重新啟動、1 為飛控狀態不明時的強制重新啟動
+constexpr double REBOOT_NORMAL_FLAG = 0.0;
+constexpr double REBOOT_FORCE_FLAG = 1.0;
 
 /**
  * @brief 依命令名稱查詢規格
@@ -78,14 +89,60 @@ const CommandSpec* find_spec(const QString& command)
 }
 
 /**
- * @brief 將 double 轉為最短可還原表示，例如 3 → "3"、20.5 → "20.5"
+ * @brief 數值是否為整數（不含小數部分）
+ * @param value 有限數值
+ * @return 是否為整數
+ */
+bool is_integer(double value)
+{
+    // 刻意精確比較：Agent 以整數解析的參數不得帶任何小數
+    return std::trunc(value) == value;
+}
+
+/**
+ * @brief 依命令檢查參數數值；參數數量與有限值已先檢查
+ * @param spec 命令規格
+ * @param params 參數
+ * @return 空字串表示通過，否則為錯誤訊息
+ */
+QString validate_param_values(const CommandSpec& spec, const QVector<double>& params)
+{
+    switch (spec.type)
+    {
+    case CmdType::MISSION_START:
+    {
+        const double mission_id = params.at(0);
+        if (!is_integer(mission_id) || mission_id < MIN_MISSION_ID || mission_id > MAX_MISSION_ID)
+        {
+            return QStringLiteral("MISSION_START 的任務識別碼需為 1～4294967295 的整數");
+        }
+        break;
+    }
+    case CmdType::REBOOT_FC:
+        if (!params.isEmpty() && params.at(0) != REBOOT_NORMAL_FLAG && params.at(0) != REBOOT_FORCE_FLAG)
+        {
+            return QStringLiteral("REBOOT_FC 的參數只能是 0 或 1");
+        }
+        break;
+    default:
+        break;
+    }
+    return QString();
+}
+
+/**
+ * @brief 將 double 轉為最短可還原表示，例如 3 → "3"、20.5 → "20.5"、1000000 → "1000000"
  * @param value 有限數值
  * @return 十進位字串
  */
 QString format_number(double value)
 {
     std::array<char, MAX_DOUBLE_TEXT_LENGTH> buffer{};
-    const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+    // 最短表示會把 1000000 寫成 1e+06；Agent 以整數解析的參數（例如任務識別碼）不能出現指數
+    const bool is_fixed = std::abs(value) < MAX_EXACT_INTEGER && is_integer(value);
+    const auto result = is_fixed ? std::to_chars(buffer.data(), buffer.data() + buffer.size(), value,
+                                                 std::chars_format::fixed)
+                                 : std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
     if (result.ec != std::errc())
     {
         // 緩衝區足以容納任何 double；保守退回 Qt 格式化，避免回傳空字串。
@@ -134,7 +191,22 @@ QString validate_request(const CommandRequest& request)
     {
         return QStringLiteral("參數不得為 NaN 或 Inf");
     }
-    return QString();
+    if (request.agent == ALL_AGENTS_TARGET && is_single_agent_only(spec->type))
+    {
+        return QStringLiteral("命令 %1 只能指定單一 Agent").arg(QLatin1String(spec->name));
+    }
+    return validate_param_values(*spec, request.params);
+}
+
+bool is_single_agent_only(CmdType cmd)
+{
+    return cmd == CmdType::MISSION_START || cmd == CmdType::MISSION_STOP || cmd == CmdType::REBOOT_FC;
+}
+
+bool is_forced_reboot(const CommandRequest& request)
+{
+    return parse_command(request.command) == CmdType::REBOOT_FC && !request.params.isEmpty()
+           && request.params.at(0) == REBOOT_FORCE_FLAG;
 }
 
 bool is_agent_target_valid(const QString& agent)

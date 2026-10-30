@@ -179,12 +179,30 @@ QString phase_name(MissionPhase phase)
 {
     switch (phase)
     {
+    case MissionPhase::STARTING: return QStringLiteral("STARTING");
     case MissionPhase::MOVING: return QStringLiteral("MOVING");
     case MissionPhase::DWELLING: return QStringLiteral("DWELLING");
     case MissionPhase::COMPLETED: return QStringLiteral("COMPLETED");
     case MissionPhase::ABORTED: return QStringLiteral("ABORTED");
     case MissionPhase::REJECTED: return QStringLiteral("REJECTED");
+    case MissionPhase::LOST: return QStringLiteral("LOST");
     default: return QStringLiteral("IDLE");
+    }
+}
+
+/**
+ * @brief Agent 事件嚴重度名稱（輸出用）
+ * @param severity AgentEvent.severity
+ * @return 名稱；未知值輸出數值
+ */
+QString severity_name(uint8_t severity)
+{
+    switch (static_cast<AgentEventSeverity>(severity))
+    {
+    case AgentEventSeverity::INFO: return QStringLiteral("INFO");
+    case AgentEventSeverity::WARNING: return QStringLiteral("WARNING");
+    case AgentEventSeverity::ERROR: return QStringLiteral("ERROR");
+    default: return QString::number(severity);
     }
 }
 
@@ -338,6 +356,21 @@ int main(int argc, char* argv[])
                          latest_states.insert(agent, state);
                          ++state_counts[agent];
                      });
+    // Agent 事件發生時立即輸出；health 隨 [state] 摘要週期輸出
+    QObject::connect(runtime.telemetry(), &TelemetryModule::agent_event_received, &receiver,
+                     [](const QString& agent, const AgentEventData& event)
+                     {
+                         print_line(QStringLiteral("[event] %1 %2 code=%3 command=%4 px4_result=%5 %6")
+                                        .arg(agent, severity_name(event.severity))
+                                        .arg(event.code)
+                                        .arg(event.command.isEmpty() ? QStringLiteral("-") : event.command)
+                                        .arg(event.px4_result)
+                                        .arg(event.detail));
+                     });
+    QHash<QString, AgentHealthData> latest_health;
+    QObject::connect(runtime.telemetry(), &TelemetryModule::health_updated, &receiver,
+                     [&latest_health](const QString& agent, const AgentHealthData& health)
+                     { latest_health.insert(agent, health); });
     const auto print_ack = [&failed_acks](const CommandAck& ack)
     {
         failed_acks += ack.is_ok ? 0 : 1;
@@ -369,6 +402,24 @@ int main(int argc, char* argv[])
                                             .arg(s.position_global[1], 0, 'f', 7)
                                             .arg(s.position_global[2], 0, 'f', 2)
                                             .arg(-s.position_ned[2], 0, 'f', 2));
+                         }
+                         for (auto it = latest_health.cbegin(); it != latest_health.cend(); ++it)
+                         {
+                             const AgentHealthData& h = it.value();
+                             print_line(QStringLiteral("[health] %1 status_age=%2 odometry_age=%3 global_age=%4 "
+                                                       "preflight=%5 failsafe=%6 arming=%7 arming_reason=%8 "
+                                                       "flags_valid=%9 flags=0x%10 offboard=%11")
+                                            .arg(it.key())
+                                            .arg(h.px4_status_age_s, 0, 'f', 1)
+                                            .arg(h.px4_odometry_age_s, 0, 'f', 1)
+                                            .arg(h.px4_global_position_age_s, 0, 'f', 1)
+                                            .arg(h.is_px4_pre_flight_checks_pass)
+                                            .arg(h.is_px4_failsafe)
+                                            .arg(h.px4_arming_state)
+                                            .arg(h.px4_latest_arming_reason)
+                                            .arg(h.is_failsafe_flags_valid)
+                                            .arg(h.failsafe_flags, 0, 16)
+                                            .arg(h.is_offboard_session_active));
                          }
                      });
     summary_timer.start(SUMMARY_INTERVAL_MS);

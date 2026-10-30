@@ -25,6 +25,8 @@ struct AgentView
     bool has_attitude = false;
     AgentTrajectoryData trajectory;
     bool has_trajectory = false;
+    AgentHealthData health;
+    bool has_health = false;
 };
 
 /**
@@ -60,7 +62,11 @@ public:
         PitchRole,
         Px4StatusLabelRole,
         NedTextRole,
-        PositionTextRole
+        PositionTextRole,
+        Px4LinkTextRole,
+        PreflightTextRole,
+        HealthWarningRole,
+        IsPx4LinkLostRole
     };
 
     explicit FleetModel(QObject* parent = nullptr);

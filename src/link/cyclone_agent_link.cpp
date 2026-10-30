@@ -16,6 +16,7 @@
 #include <QLoggingCategory>
 
 #include <algorithm>
+#include <chrono>
 #include <random>
 
 namespace
@@ -245,6 +246,10 @@ bool CycloneAgentLink::create_agent_endpoints(const QString& agent_ns)
         {&taiphoon_agent_msg_dds__WaypointSequence__desc, "waypoints", AgentChannel::WAYPOINTS, Channel::WAYPOINTS},
         {&taiphoon_agent_msg_dds__AgentTrajectory__desc, "planning/trajectory", AgentChannel::PLANNING_TRAJECTORY,
          Channel::TRAJECTORY},
+        {&taiphoon_agent_msg_dds__WaypointMissionStatus__desc, "mission/status", AgentChannel::MISSION_STATUS,
+         Channel::MISSION_STATUS},
+        {&taiphoon_agent_msg_dds__AgentEvent__desc, "events", AgentChannel::EVENTS, Channel::EVENTS},
+        {&taiphoon_agent_msg_dds__AgentHealth__desc, "health", AgentChannel::HEALTH, Channel::HEALTH},
     };
     bool is_ok = true;
     for (const auto& spec : specs)
@@ -267,6 +272,12 @@ bool CycloneAgentLink::create_agent_endpoints(const QString& agent_ns)
         find_or_create_topic(&std_msgs_msg_dds__String__desc, *to_dds_topic(agent_topic(ns, "command")));
     endpoints.command_writer =
         command_topic > 0 ? dds_create_writer(participant_, command_topic, command_qos.get(), nullptr) : command_topic;
+    const auto mission_qos =
+        create_dds_qos(qos_for(AgentChannel::MISSION_PLAN, EndpointRole::WRITER), EndpointRole::WRITER);
+    const dds_entity_t mission_topic = find_or_create_topic(&taiphoon_agent_msg_dds__WaypointMission__desc,
+                                                            *to_dds_topic(agent_topic(ns, "mission/plan")));
+    endpoints.mission_plan_writer =
+        mission_topic > 0 ? dds_create_writer(participant_, mission_topic, mission_qos.get(), nullptr) : mission_topic;
 
     const std::string service = agent_topic(ns, "shutdown");
     const auto service_writer_qos =
@@ -284,8 +295,8 @@ bool CycloneAgentLink::create_agent_endpoints(const QString& agent_ns)
                                service_reader_qos.get(), reply_context.get());
     endpoints.contexts.push_back(std::move(reply_context));
 
-    for (const dds_entity_t entity :
-         {endpoints.command_writer, endpoints.shutdown_request_writer, endpoints.shutdown_reply_reader})
+    for (const dds_entity_t entity : {endpoints.command_writer, endpoints.mission_plan_writer,
+                                      endpoints.shutdown_request_writer, endpoints.shutdown_reply_reader})
     {
         is_ok = is_ok && entity > 0;
         if (entity > 0)
@@ -422,6 +433,40 @@ bool CycloneAgentLink::publish_command(const QString& target, const QString& com
     return true;
 }
 
+bool CycloneAgentLink::publish_mission_plan(const QString& agent_ns, const WaypointMissionData& mission,
+                                            QString* error)
+{
+    const auto it = agents_.find(agent_ns);
+    if (!is_running() || it == agents_.end() || it->second.mission_plan_writer <= 0)
+    {
+        set_error(error, QStringLiteral("Agent 尚未上線，沒有航點任務通道"));
+        return false;
+    }
+    // mission/plan 為 volatile：沒有訂閱者時寫入的任務會直接遺失；舊版 Agent 也沒有此訂閱者
+    if (matched_readers(it->second.mission_plan_writer) == 0)
+    {
+        set_error(error, QStringLiteral("Agent 沒有訂閱航點任務，請確認 Agent 版本支援航點任務"));
+        return false;
+    }
+
+    // 與 ROS2 預設時鐘相同使用系統時間
+    const auto since_epoch = std::chrono::system_clock::now().time_since_epoch();
+    const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(since_epoch);
+    const auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch - seconds);
+    RosTime stamp;
+    stamp.sec = static_cast<int32_t>(seconds.count());
+    stamp.nanosec = static_cast<uint32_t>(nanoseconds.count());
+    std::vector<taiphoon_agent_msg_dds__MissionWaypoint_> waypoint_buffer;
+    const taiphoon_agent_msg_dds__WaypointMission_ sample = to_dds(mission, stamp, &waypoint_buffer);
+    const dds_return_t result = dds_write(it->second.mission_plan_writer, &sample);
+    if (result != DDS_RETCODE_OK)
+    {
+        set_error(error, QStringLiteral("DDS 寫入失敗：%1").arg(QString::fromUtf8(dds_strretcode(result))));
+        return false;
+    }
+    return true;
+}
+
 bool CycloneAgentLink::request_shutdown(const QString& agent_ns, quint64 request_id, QString* error)
 {
     const auto it = agents_.find(agent_ns);
@@ -541,6 +586,18 @@ void CycloneAgentLink::handle_agent_data(dds_entity_t reader, const ReaderContex
                 emit shutdown_replied(agent, static_cast<quint64>(reply.sequence_number), reply.success,
                                       QString::fromUtf8(reply.message != nullptr ? reply.message : ""));
             });
+        break;
+    case Channel::MISSION_STATUS:
+        take_valid<taiphoon_agent_msg_dds__WaypointMissionStatus_>(
+            reader, [&](const auto& sample) { emit mission_status_received(agent, to_core(sample)); });
+        break;
+    case Channel::EVENTS:
+        take_valid<taiphoon_agent_msg_dds__AgentEvent_>(
+            reader, [&](const auto& sample) { emit event_received(agent, to_core(sample)); });
+        break;
+    case Channel::HEALTH:
+        take_valid<taiphoon_agent_msg_dds__AgentHealth_>(
+            reader, [&](const auto& sample) { emit health_received(agent, to_core(sample)); });
         break;
     case Channel::DISCOVERY:
         break;

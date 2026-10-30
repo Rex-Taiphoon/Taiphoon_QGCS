@@ -85,6 +85,17 @@ TEST_F(FleetModuleTest, StaleAgentHiddenButKeptSubscribed)
     EXPECT_EQ(recovered.online, QStringList{AGENT_1});
 }
 
+TEST_F(FleetModuleTest, HealthStreamKeepsAgentOnlineWithoutState)
+{
+    // Agent 收到 odometry 前只發布健康狀態，仍要顯示為線上，才能操作強制重新啟動飛控
+    link_.discovered_agents = {AGENT_1};
+    scan(start_ - FleetModule::STALE_TIMEOUT - 1s);
+    EXPECT_EQ(scan(FleetModule::Clock::now()).offline, QStringList{AGENT_1});
+
+    fleet_.on_health_updated(AGENT_1, AgentHealthData{});
+    EXPECT_EQ(scan(FleetModule::Clock::now()).online, QStringList{AGENT_1});
+}
+
 TEST_F(FleetModuleTest, VanishedTopicGoesOffline)
 {
     link_.discovered_agents = {AGENT_1, AGENT_2};

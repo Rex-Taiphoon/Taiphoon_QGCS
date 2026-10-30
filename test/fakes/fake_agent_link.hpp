@@ -23,6 +23,13 @@ struct PublishedCommand
     QString command_line;
 };
 
+/// 一筆已發布的航點任務
+struct PublishedMission
+{
+    QString agent_ns;
+    WaypointMissionData mission;
+};
+
 /// 一筆 shutdown 請求
 struct ShutdownRequest
 {
@@ -45,6 +52,7 @@ public:
     void unsubscribe_agent(const QString& agent_ns) override;
     QStringList discovered_state_agents() const override;
     bool publish_command(const QString& target, const QString& command_line, QString* error) override;
+    bool publish_mission_plan(const QString& agent_ns, const WaypointMissionData& mission, QString* error) override;
     bool request_shutdown(const QString& agent_ns, quint64 request_id, QString* error) override;
 
     /// 模擬 DDS 探索到的 state 發布者
@@ -53,11 +61,15 @@ public:
     bool is_command_channel_ready = true;
     /// 為 false 時 request_shutdown 失敗（模擬 service 未配對）
     bool is_shutdown_service_ready = true;
+    /// 為 false 時 publish_mission_plan 失敗（模擬 Agent 沒有訂閱 mission/plan）
+    bool is_mission_channel_ready = true;
 
     /// 目前已訂閱的 Agent
     QSet<QString> subscribed_agents;
     /// 依序記錄已發布的命令
     std::vector<PublishedCommand> published_commands;
+    /// 依序記錄已發布的航點任務
+    std::vector<PublishedMission> published_missions;
     /// 依序記錄 shutdown 請求
     std::vector<ShutdownRequest> shutdown_requests;
 };

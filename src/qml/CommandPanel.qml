@@ -6,10 +6,10 @@
  *
  * 每列左側為行選鍵「‹」，右側小字為狀態：可用時標示 CONFIRM（需確認），停用時寫出 Guard 規則摘要。
  * 命令可用狀態一律取自 UiBridge（與 GuardModule 同一份規則），右側停用原因只是說明文字，不參與判斷。
- * L1：Takeoff、RTL、Land、Disarm 與編隊命令先暫存到確認列（顯示「是否執行？」），按 EXEC 才送出；
+ * L1：Takeoff、RTL、Land、Disarm、重新啟動飛控與編隊命令先暫存到確認列（顯示「是否執行？」），按 EXEC 才送出；
  *     確認列在選取目標改變、命令不再可用或逾時後自動清除，EXEC 時再核對目標與可用狀態。
  *     編隊點選隊形後展開參數，同一列右側出現閃爍的 CONFIRM，按下即暫存到確認列。
- * L2：Arm 需滑桿。面板底部常駐顯示解鎖狀態與 DISARM。
+ * L2：Arm 與強制重新啟動飛控（PX4 狀態不明時）需滑桿。面板底部常駐顯示解鎖狀態與 DISARM。
  * MISSION：單機航點任務與語音口令；開始任務一樣先進確認列：按鈕開始需按 EXEC 或說「確認」，
  *          語音「請執行任務」倒數 5 秒後自動開始（可取消或提前 EXEC）。狀態與規則皆取自 MissionController。
  */
@@ -67,6 +67,7 @@ Rectangle {
         case "MODE_RTL": return bridge.canRtl
         case "MODE_LAND": return bridge.canLand
         case "DISARM": return bridge.canDisarm
+        case "REBOOT_FC": return bridge.canRebootFc
         default: return command.indexOf("FORMATION_") === 0 && bridge.canFormation
         }
     }
@@ -303,7 +304,8 @@ Rectangle {
                     }
                     Label {
                         visible: !root.bridge.canArm
-                        text: root.isWaitingForFlightController ? qsTr("等待飛控")
+                        // 等待飛控時顯示具體原因，例如「PX4 資料中斷 12 秒」
+                        text: root.isWaitingForFlightController ? (root.summary.waitReason || qsTr("等待飛控"))
                                                                 : qsTr("需 PX4 為 Offboard、已落地且上鎖")
                         color: Theme.textDim
                         font.pixelSize: Theme.fontLabel
@@ -317,6 +319,50 @@ Rectangle {
                         enabled: root.bridge.canDisarm
                         tag: root.rowTag(enabled, true, qsTr("限解鎖／懸停"))
                         onClicked: root.stage("DISARM", [], title)
+                    }
+                    Divider {}
+                    // 重新啟動飛控：PX4 狀態有效時為一般列（EXEC 確認）；狀態不明時改為紅色滑桿強制重新啟動
+                    LskRow {
+                        visible: !root.bridge.isRebootForceMode
+                        title: qsTr("REBOOT FC 重新啟動飛控")
+                        risk: Theme.commandDanger
+                        enabled: root.bridge.canRebootFc
+                        tag: root.rowTag(enabled, true, root.isSingle ? qsTr("限上鎖並落地") : qsTr("限單機"))
+                        tooltip: root.bridge.rebootBlockedReason
+                        onClicked: root.stage("REBOOT_FC", [], title)
+                    }
+                    SlideToConfirm {
+                        visible: root.bridge.isRebootForceMode
+                        label: qsTr("滑動以強制重新啟動飛控")
+                        accentColor: Theme.commandDanger
+                        enabled: root.bridge.canForceRebootFc
+                        implicitHeight: 46
+                        Layout.fillWidth: true
+                        Layout.margins: Theme.spaceMd
+                        onConfirmed: root.send("REBOOT_FC", [1])
+                    }
+                    Label {
+                        visible: root.bridge.isRebootForceMode
+                        text: qsTr("飛控狀態不明，無法確認是否在地面")
+                        color: Theme.caution
+                        font.pixelSize: Theme.fontLabel
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.spaceLg
+                        Layout.rightMargin: Theme.spaceLg
+                        Layout.bottomMargin: root.bridge.canForceRebootFc ? Theme.spaceSm : 0
+                    }
+                    // 被強制重新啟動的安全條件擋下時顯示原因（例如最後一次狀態有效時已解鎖）
+                    Label {
+                        visible: root.bridge.isRebootForceMode && !root.bridge.canForceRebootFc
+                        text: root.bridge.rebootBlockedReason
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontLabel
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.spaceLg
+                        Layout.rightMargin: Theme.spaceLg
+                        Layout.bottomMargin: Theme.spaceSm
                     }
                 }
 
@@ -777,7 +823,8 @@ Rectangle {
                     LskRow {
                         visible: root.isSingle
                         title: qsTr("STOP 停止任務")
-                        enabled: root.mission.isRunning
+                        // 狀態不明時 Agent 可能仍在執行，也要能停止
+                        enabled: root.mission.canStop
                         tag: enabled ? qsTr("停在原地") : qsTr("未執行")
                         tooltip: qsTr("停止航點任務，要求無人機停在目前位置懸停（也可說「停止任務」）")
                         onClicked: root.mission.stopMission()
@@ -785,7 +832,8 @@ Rectangle {
                     Label {
                         visible: root.isSingle && root.mission.statusText.length > 0
                         text: root.mission.statusText
-                        color: root.mission.isRunning ? Theme.normal : Theme.textMuted
+                        color: root.mission.isStatusUnknown ? Theme.caution
+                                                            : (root.mission.isRunning ? Theme.normal : Theme.textMuted)
                         font.pixelSize: Theme.fontLabel
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true

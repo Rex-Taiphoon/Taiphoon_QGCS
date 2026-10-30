@@ -129,7 +129,7 @@ void FleetModule::scan_at(Clock::time_point now)
         last_seen_.remove(agent);
     }
 
-    // 顯示清單以實際資料流為準：超過 STALE_TIMEOUT 未收到狀態即列為離線
+    // 顯示清單以實際資料流為準：超過 STALE_TIMEOUT 未收到狀態或健康資料即列為離線
     FleetSnapshot snapshot;
     QSet<QString> verified_online;
     QSet<QString> offline = removed;
@@ -174,6 +174,12 @@ void FleetModule::record_state_at(const QString& agent_ns, Clock::time_point now
 void FleetModule::on_state_updated(const QString& agent_ns, const AgentStateData& state)
 {
     Q_UNUSED(state)
+    record_state_at(agent_ns, Clock::now());
+}
+
+void FleetModule::on_health_updated(const QString& agent_ns, const AgentHealthData& health)
+{
+    Q_UNUSED(health)
     record_state_at(agent_ns, Clock::now());
 }
 

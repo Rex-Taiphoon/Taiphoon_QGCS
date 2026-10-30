@@ -9,11 +9,9 @@
 #include "core/command_protocol.hpp"
 
 #include <QLoggingCategory>
+#include <QRandomGenerator>
 
-#include <algorithm>
-#include <cmath>
-#include <optional>
-#include <utility>
+#include <limits>
 
 namespace
 {
@@ -26,110 +24,20 @@ namespace gcs
 namespace
 {
 
-/// 每度緯度對應的距離（公尺，球體近似）；任務範圍 1 km 內誤差遠小於 Agent 到達容許誤差
-constexpr double METERS_PER_DEGREE = 111319.49;
-constexpr double PI = 3.14159265358979323846;
-constexpr double DEGREES_TO_RADIANS = PI / 180.0;
-constexpr double RADIANS_TO_DEGREES = 180.0 / PI;
-constexpr double FULL_TURN_DEGREES = 360.0;
-constexpr double MAX_LATITUDE_DEGREES = 90.0;
-constexpr double MAX_LONGITUDE_DEGREES = 180.0;
 constexpr double MS_PER_SECOND = 1000.0;
-/// 四元數範數低於此值視為無效姿態
-constexpr double MIN_QUATERNION_NORM = 1e-6;
-/// 命令參數四捨五入到公分與 0.1 度，避免命令列出現過長的小數
-constexpr double CENTIMETERS_PER_METER = 100.0;
-constexpr double TENTHS_PER_DEGREE = 10.0;
-/// Agent 狀態預設 10 Hz；同一批到達的樣本以此間隔估算速度，避免網路抖動被當成定位跳動
-constexpr qint64 NOMINAL_STATE_INTERVAL_MS = 100;
-const QString MOVE_POINT = QStringLiteral("MOVE_POINT");
-const QString HOLD = QStringLiteral("HOLD");
-
-/// 北／東位移（公尺）
-struct NorthEast
-{
-    double north = 0.0;
-    double east = 0.0;
-};
+/// 尚未開始或沒有航點資訊時的航點索引
+constexpr int NO_WAYPOINT = -1;
+const QString MISSION_START = QStringLiteral("MISSION_START");
+const QString MISSION_STOP = QStringLiteral("MISSION_STOP");
 
 /**
- * @brief 計算兩個 WGS84 位置之間的北／東位移（局部平面近似）
- * @param from_latitude 起點緯度
- * @param from_longitude 起點經度
- * @param to_latitude 終點緯度
- * @param to_longitude 終點經度
- * @return 位移（公尺）
+ * @brief Agent 回報的狀態值是否為已知的 AgentMissionState
+ * @param state 原始數值
+ * @return 是否已知
  */
-NorthEast north_east_offset(double from_latitude, double from_longitude, double to_latitude, double to_longitude)
+bool is_known_state(uint8_t state)
 {
-    const double delta_longitude = std::remainder(to_longitude - from_longitude, FULL_TURN_DEGREES);
-    return {(to_latitude - from_latitude) * METERS_PER_DEGREE,
-            delta_longitude * METERS_PER_DEGREE * std::cos(from_latitude * DEGREES_TO_RADIANS)};
-}
-
-/**
- * @brief 四元數轉機頭方向
- * @param q 四元數 (w, x, y, z)，NED
- * @return 0～360 度（北為 0、順時針）；無效時為 std::nullopt
- */
-std::optional<double> heading_from_quaternion(const std::array<float, 4>& q)
-{
-    const double w = q[0];
-    const double x = q[1];
-    const double y = q[2];
-    const double z = q[3];
-    const double norm = std::sqrt(w * w + x * x + y * y + z * z);
-    if (!std::isfinite(norm) || norm < MIN_QUATERNION_NORM)
-    {
-        return std::nullopt;
-    }
-    // 分母寫成 w²+x²−y²−z²，四元數未正規化時兩項同比例縮放，atan2 結果不變
-    const double yaw = std::atan2(2.0 * (w * z + x * y), w * w + x * x - y * y - z * z);
-    return std::fmod(yaw * RADIANS_TO_DEGREES + FULL_TURN_DEGREES, FULL_TURN_DEGREES);
-}
-
-/**
- * @brief 三維距離
- * @param a 位置
- * @param b 位置
- * @return 距離（公尺）
- */
-double distance_between(const std::array<double, 3>& a, const std::array<double, 3>& b)
-{
-    return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
-}
-
-/**
- * @brief AgentState 的 position_ned 轉為 double
- * @param state AgentState
- * @return 位置（公尺）
- */
-std::array<double, 3> position_of(const AgentStateData& state)
-{
-    return {state.position_ned[0], state.position_ned[1], state.position_ned[2]};
-}
-
-/**
- * @brief 四捨五入到指定倍數
- * @param value 數值
- * @param scale 倍數，例如 100 表示到 0.01
- * @return 結果
- */
-double round_to(double value, double scale)
-{
-    return std::round(value * scale) / scale;
-}
-
-/**
- * @brief WGS84 緯經度是否有效
- * @param latitude 緯度
- * @param longitude 經度
- * @return 皆為有限值且在合法範圍內
- */
-bool is_valid_global_position(double latitude, double longitude)
-{
-    return std::isfinite(latitude) && std::isfinite(longitude) && std::abs(latitude) <= MAX_LATITUDE_DEGREES
-           && std::abs(longitude) <= MAX_LONGITUDE_DEGREES;
+    return state <= static_cast<uint8_t>(AgentMissionState::REJECTED);
 }
 
 }  // namespace
@@ -153,9 +61,6 @@ void MissionModule::shutdown()
 {
     tick_timer_.stop();
     missions_.clear();
-    states_.clear();
-    state_received_ms_.clear();
-    attitudes_.clear();
     is_initialized_ = false;
 }
 
@@ -166,7 +71,17 @@ bool MissionModule::health_check() const
 
 bool MissionModule::is_running(const QString& agent_ns) const
 {
-    return missions_.contains(agent_ns);
+    const auto it = missions_.constFind(agent_ns);
+    if (it == missions_.cend())
+    {
+        return false;
+    }
+    if (it->pending.has_value())
+    {
+        return true;
+    }
+    const MissionPhase phase = it->last_reported.has_value() ? it->last_reported->phase : MissionPhase::IDLE;
+    return phase == MissionPhase::MOVING || phase == MissionPhase::DWELLING;
 }
 
 qint64 MissionModule::now_ms() const
@@ -174,490 +89,459 @@ qint64 MissionModule::now_ms() const
     return clock_.isValid() ? clock_.elapsed() : 0;
 }
 
-QString MissionModule::validate_start(const MissionPlan& plan, double* heading_deg) const
+uint32_t MissionModule::new_mission_id(uint32_t previous)
 {
-    if (heading_deg == nullptr)
+    uint32_t mission_id = 0;
+    // 0 表示沒有任務；與目前追蹤的任務不同，Agent 週期重送的舊狀態才不會被當成新任務的回報
+    while (mission_id == 0 || mission_id == previous)
     {
-        return QStringLiteral("內部錯誤：未提供機頭方向輸出");
+        mission_id = QRandomGenerator::global()->generate();
     }
-    if (!is_initialized_)
-    {
-        return QStringLiteral("航點任務模組未初始化");
-    }
-    if (!command_protocol::is_single_agent(plan.agent))
-    {
-        return QStringLiteral("航點任務只支援單機");
-    }
-    if (plan.waypoints.isEmpty())
-    {
-        return QStringLiteral("沒有航點");
-    }
-    if (plan.waypoints.size() > MAX_WAYPOINTS)
-    {
-        return QStringLiteral("航點最多 %1 個").arg(MAX_WAYPOINTS);
-    }
-    if (missions_.contains(plan.agent))
-    {
-        return QStringLiteral("已在執行航點任務");
-    }
-    const auto state_it = states_.constFind(plan.agent);
-    if (state_it == states_.cend() || !state_it->is_px4_state_valid)
-    {
-        return QStringLiteral("尚未收到有效的飛控狀態");
-    }
-    if (!is_state_fresh(plan.agent, now_ms()))
-    {
-        return QStringLiteral("飛控狀態超過 %1 秒未更新").arg(timing_.state_fresh_ms / MS_PER_SECOND);
-    }
-    if (state_it->flight_mode != static_cast<uint8_t>(FlightState::HOVER))
-    {
-        return QStringLiteral("需在懸停狀態才能開始任務");
-    }
-    const double latitude = state_it->position_global[0];
-    const double longitude = state_it->position_global[1];
-    if (!is_valid_global_position(latitude, longitude))
-    {
-        return QStringLiteral("沒有有效的 GPS 位置");
-    }
-    const auto attitude_it = attitudes_.constFind(plan.agent);
-    const auto heading = attitude_it == attitudes_.cend() ? std::nullopt : heading_from_quaternion(attitude_it->q);
-    if (!heading.has_value())
-    {
-        return QStringLiteral("尚未收到姿態資料，無法維持機頭方向");
-    }
-
-    for (int i = 0; i < plan.waypoints.size(); ++i)
-    {
-        const MissionWaypoint& waypoint = plan.waypoints.at(i);
-        if (!is_valid_global_position(waypoint.latitude, waypoint.longitude) || !std::isfinite(waypoint.altitude_m))
-        {
-            return QStringLiteral("第 %1 個航點座標無效").arg(i + 1);
-        }
-        if (waypoint.altitude_m < MIN_ALTITUDE_M || waypoint.altitude_m > MAX_ALTITUDE_M)
-        {
-            return QStringLiteral("第 %1 個航點高度需介於 %2～%3 公尺").arg(i + 1).arg(MIN_ALTITUDE_M).arg(MAX_ALTITUDE_M);
-        }
-        const NorthEast offset = north_east_offset(latitude, longitude, waypoint.latitude, waypoint.longitude);
-        const double range = std::hypot(offset.north, offset.east);
-        if (range > MAX_RANGE_M)
-        {
-            return QStringLiteral("第 %1 個航點距離目前位置 %2 公尺，超過 %3 公尺上限")
-                .arg(i + 1)
-                .arg(std::round(range))
-                .arg(MAX_RANGE_M);
-        }
-    }
-    *heading_deg = *heading;
-    return QString();
+    return mission_id;
 }
 
 void MissionModule::start_mission(const MissionPlan& plan)
 {
-    double heading_deg = 0.0;
-    const QString error = validate_start(plan, &heading_deg);
+    const int count = static_cast<int>(plan.waypoints.size());
+    QString error;
+    if (!is_initialized_)
+    {
+        error = QStringLiteral("航點任務模組未初始化");
+    }
+    else if (!command_protocol::is_single_agent(plan.agent))
+    {
+        error = QStringLiteral("航點任務只支援單機");
+    }
+    else if (is_running(plan.agent))
+    {
+        error = QStringLiteral("已在執行航點任務");
+    }
     if (!error.isEmpty())
     {
         qCWarning(lc_mission) << "拒絕開始航點任務：" << plan.agent << error;
-        MissionStatus status;
-        status.agent = plan.agent;
-        status.phase = MissionPhase::REJECTED;
-        status.waypoint_count = static_cast<int>(plan.waypoints.size());
-        status.message = error;
-        emit mission_status_changed(status);
+        report(plan.agent, 0, MissionPhase::REJECTED, NO_WAYPOINT, count, error);
         return;
     }
 
-    ActiveMission mission;
-    mission.plan = plan;
-    mission.heading_deg = heading_deg;
-    missions_.insert(plan.agent, mission);
-    qCInfo(lc_mission) << "開始航點任務：" << plan.agent << "航點" << plan.waypoints.size() << "個";
-    if (!tick_timer_.isActive())
+    AgentMission& mission = missions_[plan.agent];
+    WaypointMissionData upload;
+    upload.mission_id = new_mission_id(mission.tracked_mission_id);
+    upload.altitude_frame = MISSION_ALTITUDE_PX4_LOCAL;
+    upload.waypoints.reserve(plan.waypoints.size());
+    for (const MissionWaypoint& waypoint : plan.waypoints)
     {
-        tick_timer_.start();
+        MissionWaypointData target;
+        target.latitude_deg = waypoint.latitude;
+        target.longitude_deg = waypoint.longitude;
+        target.altitude_m = static_cast<float>(waypoint.altitude_m);
+        target.dwell_s = static_cast<float>(timing_.dwell_ms / MS_PER_SECOND);
+        // 維持目前航向：與 QGCS 逐段下令時「機頭維持任務開始時的方向」相同
+        target.yaw_deg = std::numeric_limits<float>::quiet_NaN();
+        upload.waypoints.push_back(target);
     }
-    send_leg(plan.agent);
+
+    PendingStart pending;
+    pending.mission_id = upload.mission_id;
+    pending.waypoint_count = count;
+    pending.stage = StartStage::AWAITING_UPLOAD_ACK;
+    pending.stage_started_ms = now_ms();
+    mission.pending = pending;
+    mission.tracked_mission_id = upload.mission_id;
+    ensure_ticking();
+
+    qCInfo(lc_mission) << "上傳航點任務：" << plan.agent << "mission_id=" << upload.mission_id << "航點" << count << "個";
+    report(plan.agent, upload.mission_id, MissionPhase::STARTING, NO_WAYPOINT, count,
+           QStringLiteral("上傳 %1 個航點，等待 Agent 開始").arg(count));
+    // Guard 與 CommandModule 以 DirectConnection 在此呼叫內同步回報，之後不得再使用 mission 參考
+    emit mission_upload_requested(plan.agent, upload);
 }
 
-void MissionModule::send_leg(const QString& agent_ns)
+void MissionModule::on_mission_upload_acked(const CommandAck& ack)
 {
-    const auto it = missions_.find(agent_ns);
-    if (it == missions_.end())
+    const auto it = missions_.find(ack.agent);
+    if (it == missions_.end() || !it->pending.has_value() || it->pending->stage != StartStage::AWAITING_UPLOAD_ACK)
     {
         return;
     }
-    const AgentStateData state = states_.value(agent_ns);
-    const MissionWaypoint waypoint = it->plan.waypoints.at(it->index);
-    const NorthEast offset = north_east_offset(state.position_global[0], state.position_global[1],
-                                               waypoint.latitude, waypoint.longitude);
-    const std::array<double, 3> current = position_of(state);
-    const std::array<double, 3> target = {current[0] + offset.north, current[1] + offset.east, -waypoint.altitude_m};
+    if (!ack.is_ok)
+    {
+        reject_pending(ack.agent, ack.message);
+        return;
+    }
+    it->pending->stage = StartStage::AWAITING_LOADED;
+    it->pending->stage_started_ms = now_ms();
+}
 
-    it->target_ned = target;
-    it->start_ned = current;
-    it->phase = LegPhase::AWAITING_ACK;
-    it->has_departed = false;
-    it->is_paused_for_stale = false;
-    restart_arrival_timing(&*it, current, now_ms());
-    it->leg_started_ms = now_ms();
-    it->leg_timeout_ms = static_cast<qint64>(timing_.leg_base_timeout_ms
-                                             + distance_between(current, target) / timing_.min_expected_speed_mps
-                                                   * MS_PER_SECOND);
-
+void MissionModule::send_start(const QString& agent_ns)
+{
+    const auto it = missions_.find(agent_ns);
+    if (it == missions_.end() || !it->pending.has_value())
+    {
+        return;
+    }
+    it->pending->stage = StartStage::AWAITING_START_ACK;
+    it->pending->stage_started_ms = now_ms();
     CommandRequest request;
     request.agent = agent_ns;
-    request.command = MOVE_POINT;
-    request.params = {round_to(target[0], CENTIMETERS_PER_METER), round_to(target[1], CENTIMETERS_PER_METER),
-                      round_to(target[2], CENTIMETERS_PER_METER), round_to(it->heading_deg, TENTHS_PER_DEGREE)};
-    const int index = it->index;
-    const int count = static_cast<int>(it->plan.waypoints.size());
-    report(agent_ns, MissionPhase::MOVING, QStringLiteral("前往第 %1/%2 個航點").arg(index + 1).arg(count));
+    request.command = MISSION_START;
+    request.params = {static_cast<double>(it->pending->mission_id)};
+    qCInfo(lc_mission) << agent_ns << "Agent 已載入任務，送出" << MISSION_START << it->pending->mission_id;
     // Guard 與 CommandModule 以 DirectConnection 在此呼叫內同步回報，之後不得再使用 it
     emit command_requested(request);
 }
 
 void MissionModule::on_command_acked(const CommandAck& ack)
 {
-    if (ack.agent == ALL_AGENTS_TARGET)
-    {
-        if (!ack.is_ok)
-        {
-            return;
-        }
-        // 全體命令也會作用在執行任務的 Agent 上，視同操作人員介入
-        for (const QString& agent : missions_.keys())
-        {
-            finish(agent, MissionPhase::ABORTED, QStringLiteral("操作人員對全體送出 %1，任務中止").arg(ack.command));
-        }
-        return;
-    }
-
     const auto it = missions_.find(ack.agent);
-    if (it == missions_.end())
+    if (it == missions_.end() || !it->pending.has_value() || it->pending->stage != StartStage::AWAITING_START_ACK
+        || ack.command != MISSION_START)
     {
+        // 其他命令是否中止任務由 Agent 判斷（COMMAND_OVERRIDE），並以任務狀態回報
         return;
     }
-    if (it->phase == LegPhase::AWAITING_ACK && ack.command == MOVE_POINT)
+    if (!ack.is_ok)
     {
-        if (!ack.is_ok)
+        // Agent 已載入的任務會在載入逾時後自行清除
+        reject_pending(ack.agent, QStringLiteral("MISSION_START 未送出：") + ack.message);
+        return;
+    }
+    it->pending->stage = StartStage::AWAITING_RUNNING;
+    it->pending->stage_started_ms = now_ms();
+}
+
+void MissionModule::on_mission_status_updated(const QString& agent_ns, const WaypointMissionStatusData& status)
+{
+    if (!is_known_state(status.state))
+    {
+        qCWarning(lc_mission) << agent_ns << "收到未知的任務狀態" << status.state << "，略過";
+        return;
+    }
+    AgentMission& mission = missions_[agent_ns];
+    mission.status_received_ms = now_ms();
+    const auto state = static_cast<AgentMissionState>(status.state);
+
+    if (mission.pending.has_value())
+    {
+        // 開始中只看本機任務的回報；週期重送的其他任務狀態（例如上一個任務的 COMPLETED）略過
+        if (status.mission_id != mission.pending->mission_id)
         {
-            const int index = it->index;
-            finish(ack.agent, MissionPhase::ABORTED,
-                   QStringLiteral("第 %1 個航點命令未送出：%2").arg(index + 1).arg(ack.message));
             return;
         }
-        it->phase = LegPhase::MOVING;
-        it->leg_started_ms = now_ms();
+        switch (state)
+        {
+        case AgentMissionState::REJECTED:
+            reject_pending(agent_ns, reason_text(status));
+            return;
+        case AgentMissionState::LOADED:
+            if (mission.pending->stage == StartStage::AWAITING_LOADED)
+            {
+                send_start(agent_ns);
+            }
+            return;
+        case AgentMissionState::RUNNING:
+        case AgentMissionState::DWELLING:
+        case AgentMissionState::COMPLETED:
+        case AgentMissionState::ABORTED:
+            mission.pending.reset();
+            follow_agent_status(agent_ns, status);
+            return;
+        case AgentMissionState::IDLE:
+            return;
+        }
         return;
     }
-    if (ack.is_ok)
-    {
-        finish(ack.agent, MissionPhase::ABORTED, QStringLiteral("操作人員送出 %1，任務中止").arg(ack.command));
-    }
+    follow_agent_status(agent_ns, status);
 }
 
-void MissionModule::on_state_updated(const QString& agent_ns, const AgentStateData& state)
-{
-    const qint64 now = now_ms();
-    const auto previous = states_.constFind(agent_ns);
-    const std::optional<std::array<double, 3>> previous_ned =
-        previous == states_.cend() ? std::nullopt : std::make_optional(position_of(*previous));
-    const qint64 previous_ms = state_received_ms_.value(agent_ns, now);
-    states_.insert(agent_ns, state);
-    state_received_ms_.insert(agent_ns, now);
-    if (!missions_.contains(agent_ns) || !state.is_px4_state_valid)
-    {
-        // PX4 狀態暫時無效不中止；若持續無效，逾時檢查仍會結束任務
-        return;
-    }
-    const auto mode = static_cast<FlightState>(state.flight_mode);
-    if (mode != FlightState::HOVER && mode != FlightState::MOVING)
-    {
-        finish(agent_ns, MissionPhase::ABORTED,
-               QStringLiteral("飛行狀態已離開懸停／移動（flight_mode=%1），任務中止").arg(state.flight_mode));
-        return;
-    }
-    if (previous_ned.has_value())
-    {
-        check_continuity(agent_ns, *previous_ned, now - previous_ms);
-    }
-    evaluate_arrival(agent_ns);
-}
-
-void MissionModule::check_continuity(const QString& agent_ns, const std::array<double, 3>& previous_ned,
-                                     qint64 elapsed_ms)
+void MissionModule::follow_agent_status(const QString& agent_ns, const WaypointMissionStatusData& status)
 {
     const auto it = missions_.find(agent_ns);
     if (it == missions_.end())
     {
         return;
     }
-    const std::array<double, 3> current = position_of(states_.value(agent_ns));
-    const double moved = distance_between(previous_ned, current);
-    const double interval_s = static_cast<double>(std::max(elapsed_ms, NOMINAL_STATE_INTERVAL_MS)) / MS_PER_SECOND;
-    const bool is_jump = moved > timing_.max_plausible_speed_mps * interval_s;
-    const bool is_resumed = elapsed_ms > timing_.state_fresh_ms;
-    const bool was_paused = std::exchange(it->is_paused_for_stale, false);
-    if (!is_jump && !is_resumed && !was_paused)
+    const int index = status.current_index;
+    const int count = status.waypoint_count;
+    switch (static_cast<AgentMissionState>(status.state))
     {
-        return;
-    }
-    if (is_jump)
-    {
-        // 跳動不是飛行距離：起點跟著平移，「已離開起點」只反映實際移動。
-        // 目標不變，Agent 仍以已送出的座標為目標
-        for (std::size_t axis = 0; axis < current.size(); ++axis)
+    case AgentMissionState::RUNNING:
+    case AgentMissionState::DWELLING:
+        if (status.mission_id != it->tracked_mission_id)
         {
-            it->start_ned[axis] += current[axis] - previous_ned[axis];
+            // QGCS 重新啟動、晚加入或其他地面站開始的任務：接手追蹤
+            qCInfo(lc_mission) << agent_ns << "接手追蹤 Agent 執行中的任務 mission_id=" << status.mission_id;
+            it->tracked_mission_id = status.mission_id;
         }
-        qCWarning(lc_mission) << agent_ns << "定位跳動" << moved << "公尺（" << elapsed_ms << "毫秒內），重新判斷到達";
-    }
-    else
-    {
-        qCInfo(lc_mission) << agent_ns << "狀態恢復更新，重新判斷到達";
-    }
-    // 中斷或跳動前後的觀測不連續，接近與停止的持續時間都從現在算起
-    restart_arrival_timing(&*it, current, now_ms());
-}
-
-bool MissionModule::is_state_fresh(const QString& agent_ns, qint64 now) const
-{
-    const auto received = state_received_ms_.constFind(agent_ns);
-    return received != state_received_ms_.cend() && now - *received <= timing_.state_fresh_ms;
-}
-
-void MissionModule::pause_for_stale(const QString& agent_ns, ActiveMission* mission) const
-{
-    if (mission->is_paused_for_stale)
-    {
-        return;
-    }
-    mission->is_paused_for_stale = true;
-    qCWarning(lc_mission) << agent_ns << "狀態超過" << timing_.state_fresh_ms << "毫秒未更新，暫停到達判斷與下一段命令";
-}
-
-void MissionModule::restart_arrival_timing(ActiveMission* mission, const std::array<double, 3>& position, qint64 now)
-{
-    mission->settle_anchor_ned = position;
-    mission->settle_since_ms = now;
-    mission->near_since_ms.reset();
-}
-
-void MissionModule::on_attitude_updated(const QString& agent_ns, const AgentAttitudeData& attitude)
-{
-    attitudes_.insert(agent_ns, attitude);
-}
-
-void MissionModule::evaluate_arrival(const QString& agent_ns)
-{
-    const auto it = missions_.find(agent_ns);
-    if (it == missions_.end() || it->phase != LegPhase::MOVING)
-    {
-        return;
-    }
-    const qint64 now = now_ms();
-    // 資料中斷時最後一筆位置不再變動，看起來像已停止；不能拿來判斷
-    if (!is_state_fresh(agent_ns, now))
-    {
-        pause_for_stale(agent_ns, &*it);
-        return;
-    }
-    const AgentStateData state = states_.value(agent_ns);
-    const std::array<double, 3> position = position_of(state);
-    const bool is_moving_state = static_cast<FlightState>(state.flight_mode) == FlightState::MOVING;
-    if (is_moving_state || distance_between(position, it->start_ned) > timing_.departure_distance_m)
-    {
-        it->has_departed = true;
-    }
-    if (distance_between(position, it->settle_anchor_ned) > timing_.settle_radius_m)
-    {
-        it->settle_anchor_ned = position;
-        it->settle_since_ms = now;
-    }
-    const double distance = distance_between(position, it->target_ned);
-    const bool is_within_tolerance = distance <= timing_.arrival_tolerance_m;
-    if (is_moving_state || !is_within_tolerance)
-    {
-        it->near_since_ms.reset();
-    }
-    else if (!it->near_since_ms.has_value())
-    {
-        it->near_since_ms = now;
-    }
-    if (is_moving_state)
-    {
-        return;
-    }
-    // 接近需持續 near_hold_ms，單筆定位跳動到航點附近不算到達
-    const bool is_near = it->near_since_ms.has_value() && now - *it->near_since_ms >= timing_.near_hold_ms;
-    const bool is_settled = it->has_departed && now - it->settle_since_ms >= timing_.hover_settle_ms;
-    if (!is_near && !is_settled)
-    {
-        return;
-    }
-    if (!is_within_tolerance)
-    {
-        qCWarning(lc_mission) << agent_ns << "已停止移動，但與預期位置相差" << distance
-                              << "公尺（Agent planner 原點可能與 PX4 local 原點不同）";
-    }
-
-    const int index = it->index;
-    const int count = static_cast<int>(it->plan.waypoints.size());
-    if (index + 1 >= count)
-    {
-        finish(agent_ns, MissionPhase::COMPLETED, QStringLiteral("已到達最後一個航點，懸停中"));
-        return;
-    }
-    it->phase = LegPhase::DWELLING;
-    it->dwell_started_ms = now;
-    report(agent_ns, MissionPhase::DWELLING,
-           QStringLiteral("已到達第 %1/%2 個航點，停留 %3 秒")
-               .arg(index + 1)
-               .arg(count)
-               .arg(timing_.dwell_ms / MS_PER_SECOND));
-}
-
-void MissionModule::on_tick()
-{
-    const qint64 now = now_ms();
-    for (const QString& agent : missions_.keys())
-    {
-        evaluate_arrival(agent);
-        const auto it = missions_.find(agent);
-        if (it == missions_.end())
+        if (static_cast<AgentMissionState>(status.state) == AgentMissionState::RUNNING)
         {
-            continue;
+            report(agent_ns, status.mission_id, MissionPhase::MOVING, index, count,
+                   QStringLiteral("前往第 %1/%2 個航點").arg(index + 1).arg(count));
         }
-        if (it->phase == LegPhase::DWELLING)
+        else
         {
-            // 下一段的目標以目前位置換算；狀態未更新時不送
-            if (!is_state_fresh(agent, now))
-            {
-                pause_for_stale(agent, &*it);
-                continue;
-            }
-            if (now - it->dwell_started_ms >= timing_.dwell_ms)
-            {
-                ++it->index;
-                send_leg(agent);
-            }
-            continue;
+            report(agent_ns, status.mission_id, MissionPhase::DWELLING, index, count,
+                   QStringLiteral("已到達第 %1/%2 個航點，停留中").arg(index + 1).arg(count));
         }
-        if (now - it->leg_started_ms > it->leg_timeout_ms)
+        return;
+    case AgentMissionState::COMPLETED:
+        // 晚加入時看到的舊任務結果不回報，避免一啟動就出現與目前操作無關的提示
+        if (status.mission_id == it->tracked_mission_id)
         {
-            const int index = it->index;
-            finish(agent, MissionPhase::ABORTED,
-                   QStringLiteral("第 %1 個航點逾時未到達（%2 秒），任務中止")
-                       .arg(index + 1)
-                       .arg(it->leg_timeout_ms / MS_PER_SECOND));
+            report(agent_ns, status.mission_id, MissionPhase::COMPLETED, index, count,
+                   QStringLiteral("已到達最後一個航點，懸停中"));
         }
-    }
-    if (missions_.isEmpty())
-    {
-        tick_timer_.stop();
+        return;
+    case AgentMissionState::ABORTED:
+        if (status.mission_id == it->tracked_mission_id)
+        {
+            report(agent_ns, status.mission_id, MissionPhase::ABORTED, index, count,
+                   QStringLiteral("任務中止：") + reason_text(status));
+        }
+        return;
+    case AgentMissionState::IDLE:
+        if (is_following(*it))
+        {
+            // Agent 重新啟動後任務遺失，重啟後回報 IDLE
+            report(agent_ns, it->tracked_mission_id, MissionPhase::ABORTED, NO_WAYPOINT,
+                   it->last_reported->waypoint_count, QStringLiteral("Agent 回報沒有任務（可能已重新啟動），任務已結束"));
+        }
+        return;
+    case AgentMissionState::LOADED:
+    case AgentMissionState::REJECTED:
+        // 不是本機開始中的任務（例如逾時後才到的回報），不影響目前顯示
+        return;
     }
 }
 
 void MissionModule::stop_mission(const QString& agent_ns)
 {
-    const auto it = missions_.constFind(agent_ns);
-    if (it == missions_.cend())
+    const auto it = missions_.find(agent_ns);
+    if (it == missions_.end() || (!it->pending.has_value() && !is_following(*it)))
     {
         qCInfo(lc_mission) << agent_ns << "沒有執行中的航點任務";
         return;
     }
-    // SITL 實測 HOLD 不會取消 EGO-Swarm 已規劃的軌跡，Agent 仍會飛往原目標；
-    // 改以 MOVE_POINT 把目標換成目前位置，planner 才會停下。位置無效時才退回 HOLD。
-    const double heading_deg = it->heading_deg;
-    const std::array<double, 3> current = position_of(states_.value(agent_ns));
-    const bool is_position_valid = std::isfinite(current[0]) && std::isfinite(current[1]) && std::isfinite(current[2]);
+    if (it->pending.has_value())
+    {
+        // 開始流程中停止：Agent 可能已載入或剛開始，MISSION_STOP 會停在目前位置或清除已載入的任務
+        const PendingStart pending = *it->pending;
+        it->pending.reset();
+        report(agent_ns, pending.mission_id, MissionPhase::ABORTED, NO_WAYPOINT, pending.waypoint_count,
+               QStringLiteral("操作人員停止任務"));
+    }
     CommandRequest request;
     request.agent = agent_ns;
-    if (is_position_valid)
-    {
-        request.command = MOVE_POINT;
-        request.params = {round_to(current[0], CENTIMETERS_PER_METER), round_to(current[1], CENTIMETERS_PER_METER),
-                          round_to(current[2], CENTIMETERS_PER_METER), round_to(heading_deg, TENTHS_PER_DEGREE)};
-    }
-    else
-    {
-        request.command = HOLD;
-    }
-    // 先結束任務再送命令，該命令的回報才不會被當成操作人員介入
-    finish(agent_ns, MissionPhase::ABORTED, QStringLiteral("操作人員停止任務，已要求停在目前位置"));
+    request.command = MISSION_STOP;
+    qCInfo(lc_mission) << agent_ns << "操作人員停止任務，送出" << MISSION_STOP;
     emit command_requested(request);
 }
 
 void MissionModule::on_agent_offline(const QString& agent_ns)
 {
-    states_.remove(agent_ns);
-    state_received_ms_.remove(agent_ns);
-    attitudes_.remove(agent_ns);
-    if (missions_.contains(agent_ns))
-    {
-        finish(agent_ns, MissionPhase::ABORTED, QStringLiteral("Agent 離線，任務中止"));
-    }
+    report_lost(agent_ns, QStringLiteral("與 Agent 失去連線，無法得知任務進度；Agent 會繼續執行任務"));
 }
 
 void MissionModule::on_fleet_changed(const FleetSnapshot& snapshot)
 {
-    // 資料停滯時 topic 仍在，不會收到 agent_offline；畫面已移除該機與航點，
-    // 任務若繼續，資料恢復後會在操作人員看不到任務時送出下一段命令
+    // 資料停滯時 topic 仍在，不會收到 agent_offline；以顯示清單判斷，與畫面移除該機的時機一致
     for (const QString& agent : snapshot.offline)
     {
-        states_.remove(agent);
-        state_received_ms_.remove(agent);
-        attitudes_.remove(agent);
-        if (missions_.contains(agent))
-        {
-            finish(agent, MissionPhase::ABORTED, QStringLiteral("Agent 資料停滯，已視為離線，任務中止"));
-        }
+        report_lost(agent, QStringLiteral("Agent 資料停滯，無法得知任務進度；Agent 會繼續執行任務"));
     }
 }
 
-void MissionModule::finish(const QString& agent_ns, MissionPhase phase, const QString& message)
+void MissionModule::report_lost(const QString& agent_ns, const QString& message)
 {
     const auto it = missions_.find(agent_ns);
     if (it == missions_.end())
     {
         return;
     }
-    MissionStatus status;
-    status.agent = agent_ns;
-    status.phase = phase;
-    status.waypoint_index = it->index;
-    status.waypoint_count = static_cast<int>(it->plan.waypoints.size());
-    status.message = message;
-    missions_.erase(it);
-    if (missions_.isEmpty())
+    if (it->pending.has_value())
+    {
+        const PendingStart pending = *it->pending;
+        it->pending.reset();
+        report(agent_ns, pending.mission_id, MissionPhase::LOST, NO_WAYPOINT, pending.waypoint_count,
+               QStringLiteral("開始任務時與 Agent 失去聯繫，無法確認任務是否開始"));
+        return;
+    }
+    if (it->last_reported.has_value()
+        && (it->last_reported->phase == MissionPhase::MOVING || it->last_reported->phase == MissionPhase::DWELLING))
+    {
+        report(agent_ns, it->tracked_mission_id, MissionPhase::LOST, it->last_reported->waypoint_index,
+               it->last_reported->waypoint_count, message);
+    }
+}
+
+void MissionModule::reject_pending(const QString& agent_ns, const QString& message)
+{
+    const auto it = missions_.find(agent_ns);
+    if (it == missions_.end() || !it->pending.has_value())
+    {
+        return;
+    }
+    const PendingStart pending = *it->pending;
+    it->pending.reset();
+    report(agent_ns, pending.mission_id, MissionPhase::REJECTED, NO_WAYPOINT, pending.waypoint_count, message);
+}
+
+void MissionModule::ensure_ticking()
+{
+    if (!tick_timer_.isActive())
+    {
+        tick_timer_.start();
+    }
+}
+
+void MissionModule::on_tick()
+{
+    const qint64 now = now_ms();
+    bool should_keep_ticking = false;
+    for (const QString& agent : missions_.keys())
+    {
+        const auto it = missions_.find(agent);
+        if (it == missions_.end())
+        {
+            continue;
+        }
+        if (it->pending.has_value())
+        {
+            if (now - it->pending->stage_started_ms <= timing_.handshake_timeout_ms)
+            {
+                should_keep_ticking = true;
+                continue;
+            }
+            const QString seconds = QString::number(timing_.handshake_timeout_ms / MS_PER_SECOND);
+            if (it->pending->stage == StartStage::AWAITING_RUNNING)
+            {
+                // Agent 若之後才開始，週期重送的 RUNNING 仍會被接手追蹤
+                reject_pending(agent, QStringLiteral("送出 MISSION_START 後 %1 秒內 Agent 未開始任務").arg(seconds));
+            }
+            else
+            {
+                reject_pending(agent, QStringLiteral("%1 秒內 Agent 未回應航點任務上傳，請確認 Agent 版本支援航點任務")
+                                          .arg(seconds));
+            }
+            continue;
+        }
+        const MissionPhase phase = it->last_reported.has_value() ? it->last_reported->phase : MissionPhase::IDLE;
+        if (phase != MissionPhase::MOVING && phase != MissionPhase::DWELLING)
+        {
+            continue;
+        }
+        if (now - it->status_received_ms > timing_.status_timeout_ms)
+        {
+            report_lost(agent, QStringLiteral("超過 %1 秒沒有收到任務狀態，無法得知任務進度")
+                                   .arg(timing_.status_timeout_ms / MS_PER_SECOND));
+            continue;
+        }
+        should_keep_ticking = true;
+    }
+    if (!should_keep_ticking)
     {
         tick_timer_.stop();
     }
-    if (phase == MissionPhase::COMPLETED)
-    {
-        qCInfo(lc_mission) << agent_ns << message;
-    }
-    else
-    {
-        qCWarning(lc_mission) << agent_ns << message;
-    }
-    emit mission_status_changed(status);
 }
 
-void MissionModule::report(const QString& agent_ns, MissionPhase phase, const QString& message)
+bool MissionModule::is_following(const AgentMission& mission)
 {
-    const auto it = missions_.constFind(agent_ns);
-    if (it == missions_.cend())
+    if (!mission.last_reported.has_value())
+    {
+        return false;
+    }
+    const MissionPhase phase = mission.last_reported->phase;
+    return phase == MissionPhase::MOVING || phase == MissionPhase::DWELLING || phase == MissionPhase::LOST;
+}
+
+QString MissionModule::reason_text(const WaypointMissionStatusData& status)
+{
+    const int waypoint = status.current_index + 1;
+    QString text;
+    switch (static_cast<AgentMissionReason>(status.reason))
+    {
+    case AgentMissionReason::INVALID_PLAN:
+        text = QStringLiteral("Agent 判定航點內容不合法（第 %1 個航點）").arg(waypoint);
+        break;
+    case AgentMissionReason::OUT_OF_RANGE:
+        text = QStringLiteral("第 %1 個航點超出 Agent 允許的距離").arg(waypoint);
+        break;
+    case AgentMissionReason::NOT_READY:
+        text = QStringLiteral("Agent 尚未就緒（沒有有效狀態或座標換算尚未建立）");
+        break;
+    case AgentMissionReason::NOT_HOVERING:
+        text = QStringLiteral("需在懸停狀態才能開始任務");
+        break;
+    case AgentMissionReason::BUSY:
+        text = QStringLiteral("Agent 正在執行其他任務或編隊");
+        break;
+    case AgentMissionReason::ID_MISMATCH:
+        text = QStringLiteral("任務識別碼不符或載入已逾時");
+        break;
+    case AgentMissionReason::OPERATOR_STOP:
+        text = QStringLiteral("操作人員停止任務，已停在目前位置");
+        break;
+    case AgentMissionReason::COMMAND_OVERRIDE:
+        text = QStringLiteral("收到其他命令（操作人員介入），已停在目前位置");
+        break;
+    case AgentMissionReason::FLIGHT_STATE:
+        text = QStringLiteral("飛行狀態已離開懸停／移動");
+        break;
+    case AgentMissionReason::LANDED:
+        text = QStringLiteral("已落地或上鎖");
+        break;
+    case AgentMissionReason::LEG_TIMEOUT:
+        text = QStringLiteral("第 %1 個航點逾時未到達，已停在目前位置").arg(waypoint);
+        break;
+    case AgentMissionReason::NONE:
+        text = QStringLiteral("未提供原因");
+        break;
+    default:
+        text = QStringLiteral("原因代碼 %1").arg(status.reason);
+        break;
+    }
+    if (!status.detail.isEmpty())
+    {
+        text += QStringLiteral("（%1）").arg(status.detail);
+    }
+    return text;
+}
+
+void MissionModule::report(const QString& agent_ns, uint32_t mission_id, MissionPhase phase, int index, int count,
+                           const QString& message)
+{
+    AgentMission& mission = missions_[agent_ns];
+    const bool is_event = phase == MissionPhase::REJECTED || phase == MissionPhase::STARTING;
+    if (!is_event && mission.last_reported.has_value() && mission.last_reported_mission_id == mission_id
+        && mission.last_reported->phase == phase && mission.last_reported->waypoint_index == index
+        && mission.last_reported->waypoint_count == count)
     {
         return;
     }
     MissionStatus status;
     status.agent = agent_ns;
     status.phase = phase;
-    status.waypoint_index = it->index;
-    status.waypoint_count = static_cast<int>(it->plan.waypoints.size());
+    status.waypoint_index = index;
+    status.waypoint_count = count;
     status.message = message;
-    qCInfo(lc_mission) << agent_ns << message;
+    // REJECTED 不改變 Agent 端的任務，保留原本的追蹤狀態（例如晚加入時的執行中任務）
+    if (phase != MissionPhase::REJECTED || !is_following(mission))
+    {
+        mission.last_reported = status;
+        mission.last_reported_mission_id = mission_id;
+    }
+    if (phase == MissionPhase::ABORTED || phase == MissionPhase::REJECTED || phase == MissionPhase::LOST)
+    {
+        qCWarning(lc_mission) << agent_ns << message;
+    }
+    else
+    {
+        qCInfo(lc_mission) << agent_ns << message;
+    }
+    if (phase == MissionPhase::MOVING || phase == MissionPhase::DWELLING)
+    {
+        // 接手追蹤的任務也要檢查任務狀態是否停止更新
+        ensure_ticking();
+    }
     emit mission_status_changed(status);
 }
 

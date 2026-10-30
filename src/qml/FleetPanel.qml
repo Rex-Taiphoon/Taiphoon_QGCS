@@ -5,6 +5,7 @@
  * @date 2026-10-15
  *
  * 姿態區固定在表格下方，不隨選取列展開，切換選取時表格高度不跳動（航電座艙提案）。
+ * Agent 的健康狀態（PX4 連線、預檢）顯示在下方明細，資料中斷或預檢未通過時機號旁加警示標記。
  * 在單機列或「全部」按右鍵可設定影像串流網址（單機網址或機群網址，ADR-0019）；右鍵不改變選取。
  */
 import QtQuick
@@ -34,6 +35,8 @@ Rectangle {
     /// 選取單機且已有遙測時顯示姿態區
     readonly property bool hasSelectedTelemetry: bridge.isSingleSelected && summary.hasTelemetry === true
                                                  && summary.isWaitingForFlightController !== true
+    /// 選取單機且已收到健康狀態時顯示 PX4 連線與預檢（等待飛控時也顯示，才看得出原因）
+    readonly property bool hasSelectedHealth: bridge.isSingleSelected && summary.hasHealth === true
 
     /**
      * @brief 要求開啟影像串流網址設定
@@ -181,6 +184,8 @@ Rectangle {
                     required property string px4ModeLabel
                     required property string batteryText
                     required property string altitudeText
+                    required property string healthWarning
+                    required property bool isPx4LinkLost
 
                     /// 表格顯示大寫短名稱（去掉固定的 _agent 字尾），完整名稱見提示與無障礙名稱
                     readonly property string shortName: agent.replace(/_agent$/, "").toUpperCase()
@@ -189,7 +194,7 @@ Rectangle {
                     implicitHeight: isWaitingForFlightController ? Theme.rowHeight : root.twoLineRowHeight
                     Accessible.name: qsTr("選取 %1").arg(agent)
                     ToolTip.visible: hovered
-                    ToolTip.text: agent
+                    ToolTip.text: healthWarning.length > 0 ? agent + " · " + healthWarning : agent
                     ToolTip.delay: 600
                     onClicked: root.bridge.selectAgent(agent)
 
@@ -208,26 +213,29 @@ Rectangle {
                         firstColor: Theme.textStrong
                         secondColor: row.isWaitingForFlightController ? Theme.caution : Theme.normal
                         cellColor: row.isWaitingForFlightController ? Theme.textDim : Theme.textValue
+                        // PX4 資料中斷（紅）或預檢未通過（琥珀）時在機號旁加警示標記
+                        warning: row.healthWarning
+                        warningColor: row.isPx4LinkLost ? Theme.danger : Theme.caution
                     }
                 }
             }
 
-            // 選取機的姿態與電力：固定在表格下方
+            // 選取機的姿態、電力與 PX4 健康狀態：固定在表格下方
             Rectangle {
-                visible: root.hasSelectedTelemetry
+                visible: root.hasSelectedTelemetry || root.hasSelectedHealth
                 implicitHeight: 1
                 Layout.fillWidth: true
                 color: Theme.border
             }
             RowLayout {
-                visible: root.hasSelectedTelemetry
+                visible: root.hasSelectedTelemetry || root.hasSelectedHealth
                 spacing: Theme.spaceLg
                 Layout.fillWidth: true
                 Layout.margins: Theme.spaceMd
                 Layout.leftMargin: Theme.spaceLg
 
                 Item {
-                    visible: root.settings.showAttitude
+                    visible: root.settings.showAttitude && root.hasSelectedTelemetry
                     implicitWidth: 88
                     implicitHeight: 88
 
@@ -267,10 +275,28 @@ Rectangle {
                         visible: root.summary.hasHeading === true
                         text: String(Math.round(root.summary.heading || 0) % 360).padStart(3, "0") + "°"
                     }
-                    DetailLabel { text: "VOLT" }
-                    DetailValue { text: (root.summary.voltageText || "—") + " V" }
-                    DetailLabel { text: "CURR" }
-                    DetailValue { text: (root.summary.currentText || "—") + " A" }
+                    DetailLabel { visible: root.hasSelectedTelemetry; text: "VOLT" }
+                    DetailValue {
+                        visible: root.hasSelectedTelemetry
+                        text: (root.summary.voltageText || "—") + " V"
+                    }
+                    DetailLabel { visible: root.hasSelectedTelemetry; text: "CURR" }
+                    DetailValue {
+                        visible: root.hasSelectedTelemetry
+                        text: (root.summary.currentText || "—") + " A"
+                    }
+                    DetailLabel { visible: root.hasSelectedHealth; text: "PX4 LINK" }
+                    DetailValue {
+                        visible: root.hasSelectedHealth
+                        text: root.summary.px4LinkText || "—"
+                        color: root.summary.isPx4LinkLost === true ? Theme.danger : Theme.textValue
+                    }
+                    DetailLabel { visible: root.hasSelectedHealth; text: "PREFLIGHT" }
+                    DetailValue {
+                        visible: root.hasSelectedHealth
+                        text: root.summary.preflightText || "—"
+                        color: root.summary.isPreflightFailed === true ? Theme.caution : Theme.textValue
+                    }
                 }
             }
         }
@@ -353,6 +379,8 @@ Rectangle {
 
     /// 四欄表格列：機號、模式、電量、高度（後兩欄靠右）；modeDetail 非空時於模式下方以暗色顯示第二行
     component TableRow: RowLayout {
+        id: tableRow
+
         property var cells: ["", "", "", ""]
         property string modeDetail: ""
         property color cellColor: Theme.textValue
@@ -360,19 +388,49 @@ Rectangle {
         property color secondColor: cellColor
         property int cellSize: Theme.fontSmall
         property bool isMono: true
+        /// 非空時在機號旁顯示警示標記（內容見列的提示文字）
+        property string warning: ""
+        property color warningColor: Theme.caution
 
         spacing: Theme.spaceSm
         Layout.fillWidth: true
 
-        Label {
-            text: parent.cells[0]
-            color: parent.firstColor
-            font.family: parent.isMono ? Theme.fontMono : Theme.fontFamily
-            font.pixelSize: parent.cellSize
-            font.letterSpacing: parent.isMono ? 0 : Theme.labelSpacing
-            elide: Text.ElideRight
+        RowLayout {
+            spacing: Theme.spaceSm
             Layout.fillWidth: true
             Layout.leftMargin: Theme.spaceLg
+
+            Label {
+                text: tableRow.cells[0]
+                color: tableRow.firstColor
+                font.family: tableRow.isMono ? Theme.fontMono : Theme.fontFamily
+                font.pixelSize: tableRow.cellSize
+                font.letterSpacing: tableRow.isMono ? 0 : Theme.labelSpacing
+                elide: Text.ElideRight
+                Layout.fillWidth: tableRow.warning.length === 0
+            }
+            Rectangle {
+                visible: tableRow.warning.length > 0
+                implicitWidth: 14
+                implicitHeight: 14
+                radius: 2
+                color: "transparent"
+                border.color: tableRow.warningColor
+                Accessible.name: tableRow.warning
+
+                Label {
+                    anchors.centerIn: parent
+                    text: "!"
+                    color: tableRow.warningColor
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.fontLabel
+                    font.bold: true
+                }
+            }
+            Item {
+                visible: tableRow.warning.length > 0
+                Layout.fillWidth: true
+            }
         }
         Column {
             id: modeColumn

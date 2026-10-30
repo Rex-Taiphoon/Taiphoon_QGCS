@@ -230,6 +230,59 @@ TEST(UiFormatTest, LabelsAndNumbers)
     EXPECT_TRUE(ui::has_valid_global_position({25.0, 121.5, 0.0}));
 }
 
+TEST(UiFormatTest, AgentEventAndHealthTexts)
+{
+    EXPECT_EQ(ui::agent_short_name(QStringLiteral("uav_12_agent")), QStringLiteral("UAV_12"));
+    EXPECT_EQ(ui::agent_event_label(agent_event_code::PX4_COMMAND_TIMEOUT), QStringLiteral("飛控未回應命令"));
+    constexpr uint16_t UNDEFINED_EVENT_CODE = 999;
+    EXPECT_EQ(ui::agent_event_label(UNDEFINED_EVENT_CODE), QStringLiteral("Agent 事件 999"));
+    EXPECT_EQ(ui::px4_command_result_label(2), QStringLiteral("拒絕"));
+    EXPECT_EQ(ui::px4_command_result_label(42), QStringLiteral("未知"));
+
+    AgentEventData event;
+    event.code = agent_event_code::PX4_STATUS_STALE;
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("代碼 300"));
+    event.detail = QStringLiteral("VehicleStatus stale");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("VehicleStatus stale"));
+    event.command = QStringLiteral("REBOOT_FC");
+    event.px4_result = 2;
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("REBOOT_FC；VehicleStatus stale（PX4 結果 2：拒絕）"));
+
+    AgentHealthData health;
+    EXPECT_TRUE(ui::is_px4_link_lost(health));
+    EXPECT_EQ(ui::px4_link_text(health), QStringLiteral("未連線"));
+    EXPECT_EQ(ui::preflight_text(health), QStringLiteral("—"));
+    EXPECT_FALSE(ui::is_preflight_failed(health));
+    health.px4_status_age_s = 5.0F;
+    EXPECT_FALSE(ui::is_px4_link_lost(health));
+    EXPECT_EQ(ui::px4_link_text(health), QStringLiteral("正常"));
+    EXPECT_EQ(ui::preflight_text(health), QStringLiteral("FAIL"));
+    EXPECT_TRUE(ui::is_preflight_failed(health));
+    health.is_px4_pre_flight_checks_pass = true;
+    EXPECT_EQ(ui::preflight_text(health), QStringLiteral("PASS"));
+    health.px4_status_age_s = 12.4F;
+    EXPECT_EQ(ui::px4_link_text(health), QStringLiteral("中斷 12 秒"));
+}
+
+TEST(UiFormatTest, FlightControllerWaitReason)
+{
+    const AgentStateData invalid_state;
+    AgentStateData valid_state;
+    valid_state.is_px4_state_valid = true;
+    AgentHealthData health;
+    EXPECT_TRUE(ui::flight_controller_wait_reason(true, valid_state, false, health).isEmpty());
+    EXPECT_EQ(ui::flight_controller_wait_reason(false, invalid_state, false, health), QStringLiteral("等待 Agent 狀態"));
+    EXPECT_EQ(ui::flight_controller_wait_reason(true, invalid_state, false, health), QStringLiteral("等待飛控"));
+    EXPECT_EQ(ui::flight_controller_wait_reason(false, invalid_state, true, health), QStringLiteral("未收到 PX4 資料"));
+    health.px4_status_age_s = 7.0F;
+    EXPECT_EQ(ui::flight_controller_wait_reason(true, invalid_state, true, health), QStringLiteral("PX4 資料中斷 7 秒"));
+    health.px4_status_age_s = 0.5F;
+    EXPECT_EQ(ui::flight_controller_wait_reason(false, invalid_state, true, health), QStringLiteral("未收到 PX4 位置資料"));
+    EXPECT_EQ(ui::flight_controller_wait_reason(true, invalid_state, true, health), QStringLiteral("未收到 PX4 落地偵測"));
+    health.px4_land_detected_age_s = 0.5F;
+    EXPECT_EQ(ui::flight_controller_wait_reason(true, invalid_state, true, health), QStringLiteral("等待飛控"));
+}
+
 TEST(UiFormatTest, DisplayPositionKeepsOffsetFromReference)
 {
     ui::DisplayOrigin origin;

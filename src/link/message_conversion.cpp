@@ -30,6 +30,16 @@ RosTime to_core_time(const builtin_interfaces_msg_dds__Time_& stamp)
     return time;
 }
 
+/**
+ * @brief DDS 字串轉換；未設定的字串為空
+ * @param text DDS 字串（可為 nullptr）
+ * @return QString
+ */
+QString to_core_string(const char* text)
+{
+    return QString::fromUtf8(text != nullptr ? text : "");
+}
+
 }  // namespace
 
 AgentStateData to_core(const taiphoon_agent_msg_dds__AgentState_& sample)
@@ -118,6 +128,86 @@ AgentTrajectoryData to_core(const taiphoon_agent_msg_dds__AgentTrajectory_& samp
         trajectory.control_points.assign(sample.control_points._buffer, sample.control_points._buffer + usable);
     }
     return trajectory;
+}
+
+WaypointMissionStatusData to_core(const taiphoon_agent_msg_dds__WaypointMissionStatus_& sample)
+{
+    WaypointMissionStatusData status;
+    status.stamp = to_core_time(sample.stamp);
+    status.mission_id = sample.mission_id;
+    status.state = sample.state;
+    status.reason = sample.reason;
+    status.current_index = sample.current_index;
+    status.waypoint_count = sample.waypoint_count;
+    status.detail = to_core_string(sample.detail);
+    return status;
+}
+
+AgentEventData to_core(const taiphoon_agent_msg_dds__AgentEvent_& sample)
+{
+    AgentEventData event;
+    event.stamp = to_core_time(sample.stamp);
+    // IDL 欄位名稱 sequence 與 IDL 關鍵字衝突，由 msg2idl 改為 sequence_
+    event.sequence = sample.sequence_;
+    event.severity = sample.severity;
+    event.source = sample.source;
+    event.code = sample.code;
+    event.command = to_core_string(sample.command);
+    event.px4_result = sample.px4_result;
+    event.detail = to_core_string(sample.detail);
+    return event;
+}
+
+AgentHealthData to_core(const taiphoon_agent_msg_dds__AgentHealth_& sample)
+{
+    AgentHealthData health;
+    health.stamp = to_core_time(sample.stamp);
+    health.px4_status_age_s = sample.px4_status_age_s;
+    health.px4_odometry_age_s = sample.px4_odometry_age_s;
+    health.px4_global_position_age_s = sample.px4_global_position_age_s;
+    health.px4_land_detected_age_s = sample.px4_land_detected_age_s;
+    health.px4_battery_age_s = sample.px4_battery_age_s;
+    health.px4_command_ack_age_s = sample.px4_command_ack_age_s;
+    health.is_px4_pre_flight_checks_pass = sample.px4_pre_flight_checks_pass;
+    health.is_px4_failsafe = sample.px4_failsafe;
+    health.px4_arming_state = sample.px4_arming_state;
+    health.px4_latest_arming_reason = sample.px4_latest_arming_reason;
+    health.is_failsafe_flags_valid = sample.failsafe_flags_valid;
+    health.failsafe_flags = sample.failsafe_flags;
+    health.is_offboard_session_active = sample.offboard_session_active;
+    return health;
+}
+
+taiphoon_agent_msg_dds__WaypointMission_ to_dds(const WaypointMissionData& mission, const RosTime& stamp,
+                                                std::vector<taiphoon_agent_msg_dds__MissionWaypoint_>* waypoint_buffer)
+{
+    taiphoon_agent_msg_dds__WaypointMission_ sample{};
+    sample.stamp.sec = stamp.sec;
+    sample.stamp.nanosec = stamp.nanosec;
+    sample.mission_id = mission.mission_id;
+    sample.altitude_frame = mission.altitude_frame;
+    if (waypoint_buffer == nullptr)
+    {
+        return sample;
+    }
+    waypoint_buffer->clear();
+    waypoint_buffer->reserve(mission.waypoints.size());
+    for (const MissionWaypointData& waypoint : mission.waypoints)
+    {
+        taiphoon_agent_msg_dds__MissionWaypoint_ target{};
+        target.latitude_deg = waypoint.latitude_deg;
+        target.longitude_deg = waypoint.longitude_deg;
+        target.altitude_m = waypoint.altitude_m;
+        target.dwell_s = waypoint.dwell_s;
+        target.yaw_deg = waypoint.yaw_deg;
+        waypoint_buffer->push_back(target);
+    }
+    sample.waypoints._buffer = waypoint_buffer->empty() ? nullptr : waypoint_buffer->data();
+    sample.waypoints._length = static_cast<uint32_t>(waypoint_buffer->size());
+    sample.waypoints._maximum = static_cast<uint32_t>(waypoint_buffer->size());
+    // 緩衝屬於呼叫端，DDS 不得釋放
+    sample.waypoints._release = false;
+    return sample;
 }
 
 }  // namespace gcs::link

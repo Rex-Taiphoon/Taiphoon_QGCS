@@ -40,11 +40,13 @@ bool wire_ui(const CoreModules& modules, UiBridge* bridge)
     QObject::connect(bridge, &UiBridge::shutdown_requested, modules.lifecycle,
                      &AgentLifecycleModule::request_shutdown);
 
-    // 核心 → UI：遙測、機隊與命令結果
+    // 核心 → UI：遙測、健康狀態、Agent 事件、機隊與命令結果
     QObject::connect(modules.telemetry, &TelemetryModule::state_updated, bridge, &UiBridge::on_state_updated);
     QObject::connect(modules.telemetry, &TelemetryModule::attitude_updated, bridge, &UiBridge::on_attitude_updated);
     QObject::connect(modules.telemetry, &TelemetryModule::trajectory_updated, bridge,
                      &UiBridge::on_trajectory_updated);
+    QObject::connect(modules.telemetry, &TelemetryModule::health_updated, bridge, &UiBridge::on_health_updated);
+    QObject::connect(modules.telemetry, &TelemetryModule::agent_event_received, bridge, &UiBridge::on_agent_event);
     QObject::connect(modules.fleet, &FleetModule::fleet_changed, bridge, &UiBridge::on_fleet_changed);
     QObject::connect(modules.guard, &GuardModule::command_acked, bridge, &UiBridge::on_command_acked);
     QObject::connect(modules.command, &CommandModule::command_acked, bridge, &UiBridge::on_command_acked);

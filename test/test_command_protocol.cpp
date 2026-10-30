@@ -120,3 +120,69 @@ TEST(CommandProtocolTest, DetectsFormationCommands)
     EXPECT_EQ(protocol::parse_command(QStringLiteral("formation_v_shape")), CmdType::FORMATION_V_SHAPE);
     EXPECT_FALSE(protocol::is_formation_command(QStringLiteral("MODE_RTL")));
 }
+
+TEST(CommandProtocolTest, PrintsIntegersWithoutExponent)
+{
+    const QString agent = QStringLiteral("uav_1_agent");
+    // 最短表示會把整數寫成 1e+06；Agent 以整數解析任務識別碼
+    EXPECT_EQ(protocol::make_command_line(request_of(agent, QStringLiteral("MISSION_START"), {1000000})),
+              QStringLiteral("MISSION_START 1000000"));
+    EXPECT_EQ(protocol::make_command_line(request_of(agent, QStringLiteral("MISSION_START"), {4294967295.0})),
+              QStringLiteral("MISSION_START 4294967295"));
+    EXPECT_EQ(protocol::make_command_line(request_of(agent, QStringLiteral("MOVE_UP"), {-2000000})),
+              QStringLiteral("MOVE_UP -2000000"));
+    // 非整數維持最短可還原表示
+    EXPECT_EQ(protocol::make_command_line(request_of(agent, QStringLiteral("MOVE_UP"), {0.000001})),
+              QStringLiteral("MOVE_UP 1e-06"));
+}
+
+TEST(CommandProtocolTest, ValidatesMissionStartId)
+{
+    const QString agent = QStringLiteral("uav_1_agent");
+    const QString start = QStringLiteral("MISSION_START");
+    EXPECT_EQ(protocol::parse_command(start), CmdType::MISSION_START);
+    EXPECT_TRUE(protocol::validate_request(request_of(agent, start, {123})).isEmpty());
+    EXPECT_TRUE(protocol::validate_request(request_of(agent, start, {1})).isEmpty());
+    EXPECT_TRUE(protocol::validate_request(request_of(agent, start, {4294967295.0})).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(agent, start, {0})).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(agent, start, {1.5})).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(agent, start, {-1})).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(agent, start, {4294967296.0})).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(agent, start)).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(agent, start, {1, 2})).isEmpty());
+}
+
+TEST(CommandProtocolTest, ValidatesMissionStopAndRebootParams)
+{
+    const QString agent = QStringLiteral("uav_1_agent");
+    EXPECT_EQ(protocol::parse_command(QStringLiteral("mission_stop")), CmdType::MISSION_STOP);
+    EXPECT_TRUE(protocol::validate_request(request_of(agent, QStringLiteral("MISSION_STOP"))).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(agent, QStringLiteral("MISSION_STOP"), {1})).isEmpty());
+
+    const QString reboot = QStringLiteral("REBOOT_FC");
+    EXPECT_EQ(protocol::parse_command(reboot), CmdType::REBOOT_FC);
+    EXPECT_TRUE(protocol::validate_request(request_of(agent, reboot)).isEmpty());
+    EXPECT_TRUE(protocol::validate_request(request_of(agent, reboot, {0})).isEmpty());
+    EXPECT_TRUE(protocol::validate_request(request_of(agent, reboot, {1})).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(agent, reboot, {2})).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(agent, reboot, {0.5})).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(agent, reboot, {1, 1})).isEmpty());
+
+    EXPECT_FALSE(protocol::is_forced_reboot(request_of(agent, reboot)));
+    EXPECT_FALSE(protocol::is_forced_reboot(request_of(agent, reboot, {0})));
+    EXPECT_TRUE(protocol::is_forced_reboot(request_of(agent, reboot, {1})));
+    EXPECT_FALSE(protocol::is_forced_reboot(request_of(agent, QStringLiteral("MOVE_UP"), {1})));
+}
+
+TEST(CommandProtocolTest, SingleAgentOnlyCommandsRejectAllTarget)
+{
+    // Agent 會忽略全體 topic 上的 MISSION_* 與 REBOOT_FC
+    EXPECT_FALSE(
+        protocol::validate_request(request_of(ALL_AGENTS_TARGET, QStringLiteral("MISSION_START"), {5})).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(ALL_AGENTS_TARGET, QStringLiteral("MISSION_STOP"))).isEmpty());
+    EXPECT_FALSE(protocol::validate_request(request_of(ALL_AGENTS_TARGET, QStringLiteral("REBOOT_FC"))).isEmpty());
+    EXPECT_TRUE(protocol::is_single_agent_only(CmdType::MISSION_START));
+    EXPECT_TRUE(protocol::is_single_agent_only(CmdType::MISSION_STOP));
+    EXPECT_TRUE(protocol::is_single_agent_only(CmdType::REBOOT_FC));
+    EXPECT_FALSE(protocol::is_single_agent_only(CmdType::HOLD));
+}

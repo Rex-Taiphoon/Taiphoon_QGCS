@@ -45,9 +45,19 @@ public slots:
      */
     void publish_validated(const gcs::CommandRequest& request);
 
+    /**
+     * @brief 發布已通過 Guard 驗證的航點任務上傳
+     * @param agent_ns 單一 Agent namespace
+     * @param mission 航點任務
+     */
+    void publish_mission_plan(const QString& agent_ns, const gcs::WaypointMissionData& mission);
+
 signals:
     /** @brief 命令發布結果 */
     void command_acked(const gcs::CommandAck& ack);
+
+    /** @brief 航點任務上傳的發布結果（command 為 MISSION_UPLOAD_ACK_NAME） */
+    void mission_upload_acked(const gcs::CommandAck& ack);
 
 private:
     IAgentLink* link_ = nullptr;

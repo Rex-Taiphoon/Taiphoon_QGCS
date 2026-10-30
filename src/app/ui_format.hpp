@@ -150,4 +150,72 @@ std::array<double, 3> to_display_position(const std::array<double, 3>& position,
  */
 std::array<double, 3> to_reported_position(const std::array<double, 3>& position, const DisplayOrigin& origin);
 
+
+/**
+ * @brief UAV 簡稱，例如 uav_1_agent → UAV_1
+ * @param agent_ns Agent namespace
+ * @return 簡稱
+ */
+QString agent_short_name(const QString& agent_ns);
+
+/**
+ * @brief Agent 事件代碼的中文名稱（介面文件 AgentEvent 一節）
+ * @param code AgentEvent.code
+ * @return 中文名稱；未定義的代碼顯示「Agent 事件 N」
+ */
+QString agent_event_label(uint16_t code);
+
+/**
+ * @brief PX4 VehicleCommandAck.result 的中文名稱
+ * @param result 結果碼
+ * @return 例如「暫時拒絕」；未定義的值顯示「未知」
+ */
+QString px4_command_result_label(int16_t result);
+
+/**
+ * @brief Agent 事件提示內容：相關命令、Agent 的英文說明與 PX4 結果碼
+ * @param event Agent 事件
+ * @return 例如「ARM；Arming denied（PX4 結果 1：暫時拒絕）」
+ */
+QString format_agent_event_message(const AgentEventData& event);
+
+/**
+ * @brief PX4 VehicleStatus 是否中斷（從未收到或超過 Agent 判斷狀態有效的時限）
+ * @param health AgentHealth
+ * @return 是否中斷
+ */
+bool is_px4_link_lost(const AgentHealthData& health);
+
+/**
+ * @brief PX4 連線文字
+ * @param health AgentHealth
+ * @return 「正常」「中斷 N 秒」或「未連線」
+ */
+QString px4_link_text(const AgentHealthData& health);
+
+/**
+ * @brief PX4 預檢是否未通過；PX4 連線中斷時預檢結果不可信，不視為未通過
+ * @param health AgentHealth
+ * @return 是否未通過
+ */
+bool is_preflight_failed(const AgentHealthData& health);
+
+/**
+ * @brief PX4 預檢文字
+ * @param health AgentHealth
+ * @return 「PASS」「FAIL」；PX4 連線中斷時為「—」
+ */
+QString preflight_text(const AgentHealthData& health);
+
+/**
+ * @brief 等待飛控的具體原因（取代籠統的「等待飛控」）
+ * @param has_state 是否收到 AgentState
+ * @param state 最新 AgentState
+ * @param has_health 是否收到 AgentHealth
+ * @param health 最新 AgentHealth
+ * @return 原因；PX4 狀態有效時為空字串
+ */
+QString flight_controller_wait_reason(bool has_state, const AgentStateData& state, bool has_health,
+                                      const AgentHealthData& health);
+
 }  // namespace gcs::ui

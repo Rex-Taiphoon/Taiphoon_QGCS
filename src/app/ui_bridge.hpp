@@ -8,6 +8,7 @@
  * 對外只發出 command_requested 與 shutdown_requested 兩種請求，
  * 由 ui_wiring.cpp 分別連到 GuardModule 與 AgentLifecycleModule（AGENTS.md）。
  * 高頻遙測先寫入快取，再由計時器以固定頻率刷新介面（N-02）。
+ * Agent 事件只把警告與錯誤彈出提示（同一事件短時間內只顯示一次），一般資訊只寫入日誌。
  */
 #pragma once
 
@@ -16,7 +17,9 @@
 #include "app/ui_format.hpp"
 #include "core/agent_types.hpp"
 #include "core/command_protocol.hpp"
+#include "modules/guard/guard_rules.hpp"
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 #include <QTimer>
@@ -54,19 +57,29 @@ class UiBridge : public QObject
     Q_PROPERTY(bool canLand READ can_land NOTIFY availabilityChanged)
     Q_PROPERTY(bool canFormation READ can_formation NOTIFY availabilityChanged)
     Q_PROPERTY(bool canShutdownAgent READ can_shutdown_agent NOTIFY availabilityChanged)
+    Q_PROPERTY(bool canRebootFc READ can_reboot_fc NOTIFY availabilityChanged)
+    Q_PROPERTY(bool canForceRebootFc READ can_force_reboot_fc NOTIFY availabilityChanged)
+    Q_PROPERTY(bool isRebootForceMode READ is_reboot_force_mode NOTIFY availabilityChanged)
+    Q_PROPERTY(QString rebootBlockedReason READ reboot_blocked_reason NOTIFY availabilityChanged)
 
 public:
     /// 介面刷新週期（毫秒），約 20 Hz
     static constexpr int REFRESH_INTERVAL_MS = 50;
     /// 命令待回應與 ARM／DISARM 解鎖確認的逾時（毫秒），與網頁版預設值相同
     static constexpr int DEFAULT_COMMAND_TIMEOUT_MS = 3000;
+    /// 同一 Agent、事件代碼與命令在此時間內（毫秒）只彈出一次提示
+    static constexpr qint64 EVENT_DEDUP_MS = 10000;
+    /// 預檢未通過事件（303）等待健康狀態確認的時間（毫秒）：health 約 1 Hz，至少涵蓋兩筆
+    static constexpr int DEFAULT_PREFLIGHT_CONFIRM_MS = 2500;
 
     /**
      * @brief 建立 UiBridge
      * @param command_timeout_ms 命令待回應與解鎖確認的逾時（毫秒）
+     * @param preflight_confirm_ms 預檢未通過事件等待健康狀態確認的時間（毫秒）
      * @param parent 父物件
      */
-    explicit UiBridge(int command_timeout_ms = DEFAULT_COMMAND_TIMEOUT_MS, QObject* parent = nullptr);
+    explicit UiBridge(int command_timeout_ms = DEFAULT_COMMAND_TIMEOUT_MS,
+                      int preflight_confirm_ms = DEFAULT_PREFLIGHT_CONFIRM_MS, QObject* parent = nullptr);
 
     QStringList online_agents() const { return online_agents_; }
     int online_count() const { return static_cast<int>(online_agents_.size()); }
@@ -91,6 +104,12 @@ public:
     bool can_land() const { return availability_.value(CmdType::MODE_LAND); }
     bool can_formation() const { return availability_.value(CmdType::FORMATION_CIRCLE); }
     bool can_shutdown_agent() const;
+    bool can_reboot_fc() const { return can_reboot_fc_; }
+    bool can_force_reboot_fc() const { return can_force_reboot_fc_; }
+    /// 選取單機的 PX4 狀態不明，重新啟動飛控只能強制
+    bool is_reboot_force_mode() const { return is_reboot_force_mode_; }
+    /// 目前方式（一般或強制）不可用的原因；可用時為空字串
+    QString reboot_blocked_reason() const { return reboot_blocked_reason_; }
 
     /**
      * @brief 選取目標
@@ -132,6 +151,22 @@ public slots:
     void on_trajectory_updated(const QString& agent_ns, const gcs::AgentTrajectoryData& trajectory);
     void on_fleet_changed(const gcs::FleetSnapshot& snapshot);
     void on_command_acked(const gcs::CommandAck& ack);
+
+    /**
+     * @brief 更新 Agent 健康狀態（PX4 連線、預檢與強制重新啟動飛控的判斷）
+     * @param agent_ns Agent namespace
+     * @param health 最新 AgentHealth
+     */
+    void on_health_updated(const QString& agent_ns, const gcs::AgentHealthData& health);
+
+    /**
+     * @brief Agent 事件：錯誤紅色提示、警告黃色提示、一般資訊只寫日誌
+     *
+     * 預檢未通過（303）在正常降落自動上鎖時可能短暫出現，先等健康狀態確認仍未通過才提示（介面文件事件代碼表）。
+     * @param agent_ns Agent namespace
+     * @param event Agent 事件
+     */
+    void on_agent_event(const QString& agent_ns, const gcs::AgentEventData& event);
 
     /**
      * @brief 更新 DDS 連線狀態
@@ -193,6 +228,40 @@ private:
      */
     void notify(ToastModel::Kind kind, const QString& title, const QString& message);
 
+    /**
+     * @brief 依嚴重程度彈出 Agent 事件提示；同一事件在 EVENT_DEDUP_MS 內重複時只寫日誌
+     * @param agent_ns Agent namespace
+     * @param event Agent 事件（警告或錯誤）
+     */
+    void show_agent_event(const QString& agent_ns, const AgentEventData& event);
+
+    /**
+     * @brief 開始以健康狀態確認預檢未通過事件；逾時仍未恢復才提示
+     * @param agent_ns Agent namespace
+     * @param event 預檢未通過事件
+     */
+    void begin_preflight_check(const QString& agent_ns, const AgentEventData& event);
+
+    /**
+     * @brief 收到健康狀態時檢查預檢是否已恢復
+     * @param agent_ns Agent namespace
+     * @param health 最新 AgentHealth
+     */
+    void resolve_preflight_check(const QString& agent_ns, const AgentHealthData& health);
+
+    /**
+     * @brief 依介面快取整理重新啟動飛控的判斷資訊（與 GuardModule 使用同一份規則）
+     * @param agent_ns Agent namespace
+     * @return 已知資訊
+     */
+    guard_rules::RebootFacts reboot_facts(const QString& agent_ns) const;
+
+    /**
+     * @brief 重新計算重新啟動飛控的可用狀態
+     * @return 是否有變動
+     */
+    bool recompute_reboot_availability();
+
     /// 等待解鎖狀態確認的項目
     struct ArmCheck
     {
@@ -200,7 +269,17 @@ private:
         bool is_expected_armed = false;
     };
 
+    /// 等待健康狀態確認的預檢未通過事件
+    struct PreflightCheck
+    {
+        quint64 id = 0;
+        AgentEventData event;
+        /// 事件之後是否收到健康狀態（沒有收到時無法確認，逾時照樣提示）
+        bool has_health_after = false;
+    };
+
     int command_timeout_ms_ = DEFAULT_COMMAND_TIMEOUT_MS;
+    int preflight_confirm_ms_ = DEFAULT_PREFLIGHT_CONFIRM_MS;
     FleetModel fleet_model_;
     ToastModel toast_model_;
     QTimer refresh_timer_;
@@ -212,6 +291,12 @@ private:
     QVariantMap selected_summary_;
     QVariantList trajectories_;
     QHash<CmdType, bool> availability_;
+    bool can_reboot_fc_ = false;
+    bool can_force_reboot_fc_ = false;
+    bool is_reboot_force_mode_ = false;
+    QString reboot_blocked_reason_;
+    /// Agent → 最後一次 PX4 狀態有效時的 AgentState；Agent 離線後保留（與 GuardModule 相同）
+    QHash<QString, AgentStateData> last_valid_states_;
     ui::DisplayOrigin display_origin_;
     bool is_link_connected_ = false;
     QString link_message_;
@@ -222,6 +307,12 @@ private:
 
     /// Agent namespace → 等待中的解鎖狀態確認；逾時計時器以識別碼確認仍是同一筆
     QHash<QString, ArmCheck> arm_checks_;
+
+    /// Agent namespace → 等待中的預檢確認；逾時計時器以識別碼確認仍是同一筆
+    QHash<QString, PreflightCheck> preflight_checks_;
+    /// "agent:code:command" → 上次彈出提示的時間（event_clock_ 毫秒）
+    QHash<QString, qint64> event_shown_ms_;
+    QElapsedTimer event_clock_;
 };
 
 }  // namespace gcs

@@ -24,23 +24,28 @@ struct ExpectedQos
     EndpointRole role;
     Reliability reliability;
     Durability durability;
+    int32_t depth;
 };
 
 constexpr int32_t EXPECTED_DEPTH = 10;
 
 const std::vector<ExpectedQos> INTERFACE_TABLE = {
-    {AgentChannel::STATE, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE},
-    {AgentChannel::ATTITUDE, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE},
-    {AgentChannel::NED_TARGET, EndpointRole::READER, Reliability::BEST_EFFORT, Durability::VOLATILE},
-    {AgentChannel::NED_TARGET, EndpointRole::WRITER, Reliability::RELIABLE, Durability::VOLATILE},
-    {AgentChannel::WAYPOINTS, EndpointRole::READER, Reliability::BEST_EFFORT, Durability::VOLATILE},
-    {AgentChannel::WAYPOINTS, EndpointRole::WRITER, Reliability::RELIABLE, Durability::VOLATILE},
-    {AgentChannel::PLANNING_TRAJECTORY, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE},
-    {AgentChannel::PLANNING_STATUS, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE},
-    {AgentChannel::FORMATION_EPOCHS, EndpointRole::READER, Reliability::RELIABLE, Durability::TRANSIENT_LOCAL},
-    {AgentChannel::COMMAND, EndpointRole::WRITER, Reliability::RELIABLE, Durability::VOLATILE},
-    {AgentChannel::SHUTDOWN_SERVICE, EndpointRole::WRITER, Reliability::RELIABLE, Durability::VOLATILE},
-    {AgentChannel::SHUTDOWN_SERVICE, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE},
+    {AgentChannel::STATE, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE, 10},
+    {AgentChannel::ATTITUDE, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE, 10},
+    {AgentChannel::NED_TARGET, EndpointRole::READER, Reliability::BEST_EFFORT, Durability::VOLATILE, 10},
+    {AgentChannel::NED_TARGET, EndpointRole::WRITER, Reliability::RELIABLE, Durability::VOLATILE, 10},
+    {AgentChannel::WAYPOINTS, EndpointRole::READER, Reliability::BEST_EFFORT, Durability::VOLATILE, 10},
+    {AgentChannel::WAYPOINTS, EndpointRole::WRITER, Reliability::RELIABLE, Durability::VOLATILE, 10},
+    {AgentChannel::PLANNING_TRAJECTORY, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE, 10},
+    {AgentChannel::PLANNING_STATUS, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE, 10},
+    {AgentChannel::FORMATION_EPOCHS, EndpointRole::READER, Reliability::RELIABLE, Durability::TRANSIENT_LOCAL, 10},
+    {AgentChannel::COMMAND, EndpointRole::WRITER, Reliability::RELIABLE, Durability::VOLATILE, 10},
+    {AgentChannel::SHUTDOWN_SERVICE, EndpointRole::WRITER, Reliability::RELIABLE, Durability::VOLATILE, 10},
+    {AgentChannel::SHUTDOWN_SERVICE, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE, 10},
+    {AgentChannel::MISSION_PLAN, EndpointRole::WRITER, Reliability::RELIABLE, Durability::VOLATILE, 10},
+    {AgentChannel::MISSION_STATUS, EndpointRole::READER, Reliability::RELIABLE, Durability::TRANSIENT_LOCAL, 1},
+    {AgentChannel::EVENTS, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE, 20},
+    {AgentChannel::HEALTH, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE, 1},
 };
 
 }  // namespace
@@ -53,7 +58,7 @@ TEST(QosProfile, MatchesInterfaceSection8)
         SCOPED_TRACE(static_cast<int>(expected.channel));
         EXPECT_EQ(profile.reliability, expected.reliability);
         EXPECT_EQ(profile.durability, expected.durability);
-        EXPECT_EQ(profile.depth, EXPECTED_DEPTH);
+        EXPECT_EQ(profile.depth, expected.depth);
     }
 }
 

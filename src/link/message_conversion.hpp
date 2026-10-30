@@ -1,6 +1,6 @@
 /**
  * @file message_conversion.hpp
- * @brief idlc 產生的 DDS 型別 → 核心型別的轉換
+ * @brief idlc 產生的 DDS 型別與核心型別的轉換
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  *
@@ -12,6 +12,8 @@
 
 #include "ros_common.h"
 #include "taiphoon_agent.h"
+
+#include <vector>
 
 namespace gcs::link
 {
@@ -37,5 +39,28 @@ WaypointSequenceData to_core(const taiphoon_agent_msg_dds__WaypointSequence_& sa
  * @return 核心型別
  */
 AgentTrajectoryData to_core(const taiphoon_agent_msg_dds__AgentTrajectory_& sample);
+
+/** @brief WaypointMissionStatus 轉換 @param sample DDS 樣本 @return 核心型別 */
+WaypointMissionStatusData to_core(const taiphoon_agent_msg_dds__WaypointMissionStatus_& sample);
+
+/** @brief AgentEvent 轉換 @param sample DDS 樣本 @return 核心型別 */
+AgentEventData to_core(const taiphoon_agent_msg_dds__AgentEvent_& sample);
+
+/** @brief AgentHealth 轉換 @param sample DDS 樣本 @return 核心型別 */
+AgentHealthData to_core(const taiphoon_agent_msg_dds__AgentHealth_& sample);
+
+/**
+ * @brief 建立要發布的 WaypointMission 樣本
+ *
+ * 樣本的航點序列指向 waypoint_buffer 的記憶體，且不由 DDS 釋放；
+ * 寫入完成前 waypoint_buffer 不得修改或釋放。
+ *
+ * @param mission 航點任務
+ * @param stamp 發布時間
+ * @param waypoint_buffer 航點緩衝（不可為 nullptr）
+ * @return DDS 樣本；waypoint_buffer 為 nullptr 時航點為空
+ */
+taiphoon_agent_msg_dds__WaypointMission_ to_dds(const WaypointMissionData& mission, const RosTime& stamp,
+                                                std::vector<taiphoon_agent_msg_dds__MissionWaypoint_>* waypoint_buffer);
 
 }  // namespace gcs::link

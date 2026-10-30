@@ -75,6 +75,7 @@ public:
     void unsubscribe_agent(const QString& agent_ns) override;
     QStringList discovered_state_agents() const override;
     bool publish_command(const QString& target, const QString& command_line, QString* error) override;
+    bool publish_mission_plan(const QString& agent_ns, const WaypointMissionData& mission, QString* error) override;
     bool request_shutdown(const QString& agent_ns, quint64 request_id, QString* error) override;
 
 private:
@@ -87,7 +88,10 @@ private:
         NED_TARGET,
         WAYPOINTS,
         TRAJECTORY,
-        SHUTDOWN_REPLY
+        SHUTDOWN_REPLY,
+        MISSION_STATUS,
+        EVENTS,
+        HEALTH
     };
 
     /// listener 的參數；生命週期必須長於對應 reader
@@ -104,6 +108,7 @@ private:
         std::vector<dds_entity_t> entities;
         std::vector<std::unique_ptr<ReaderContext>> contexts;
         dds_entity_t command_writer = 0;
+        dds_entity_t mission_plan_writer = 0;
         dds_entity_t shutdown_request_writer = 0;
         dds_entity_t shutdown_reply_reader = 0;
     };

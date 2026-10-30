@@ -21,6 +21,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 using namespace gcs;
 using namespace gcs::link;
@@ -298,4 +299,132 @@ TEST_F(CycloneAgentLinkTest, RestartKeepsSubscriptions)
             dds_write(writer, &sample);
             return state_count_ > 0;
         }));
+}
+
+TEST_F(CycloneAgentLinkTest, MissionPlanRequiresSubscriberThenIsDelivered)
+{
+    WaypointMissionData mission;
+    mission.mission_id = 77;
+    mission.altitude_frame = MISSION_ALTITUDE_PX4_LOCAL;
+    MissionWaypointData waypoint;
+    waypoint.latitude_deg = 25.0399700;
+    waypoint.longitude_deg = 121.5650000;
+    waypoint.altitude_m = 12.0F;
+    waypoint.dwell_s = 3.0F;
+    mission.waypoints = {waypoint, waypoint};
+    mission.waypoints[1].altitude_m = 18.0F;
+
+    QString error;
+    EXPECT_FALSE(link_.publish_mission_plan(AGENT_1, mission, &error));
+    link_.subscribe_agent(AGENT_1);
+    EXPECT_FALSE(link_.publish_mission_plan(AGENT_1, mission, &error));
+    EXPECT_TRUE(error.contains(QStringLiteral("沒有訂閱航點任務")));
+
+    const dds_entity_t reader = agent_reader(&taiphoon_agent_msg_dds__WaypointMission__desc,
+                                             "rt/uav_1_agent/mission/plan", AgentChannel::MISSION_PLAN);
+    ASSERT_GT(reader, 0);
+    ASSERT_TRUE(wait_until([&]() { return link_.publish_mission_plan(AGENT_1, mission, &error); }));
+
+    uint32_t received_id = 0;
+    std::vector<float> altitudes;
+    ASSERT_TRUE(wait_until(
+        [&]()
+        {
+            void* samples[1] = {nullptr};
+            dds_sample_info_t info{};
+            if (dds_take(reader, samples, &info, 1, 1) == 1 && info.valid_data)
+            {
+                const auto* plan = static_cast<const taiphoon_agent_msg_dds__WaypointMission_*>(samples[0]);
+                received_id = plan->mission_id;
+                for (uint32_t i = 0; i < plan->waypoints._length; ++i)
+                {
+                    altitudes.push_back(plan->waypoints._buffer[i].altitude_m);
+                }
+                dds_return_loan(reader, samples, 1);
+            }
+            return received_id != 0;
+        }));
+    EXPECT_EQ(received_id, 77U);
+    ASSERT_EQ(altitudes.size(), 2U);
+    EXPECT_FLOAT_EQ(altitudes[1], 18.0F);
+}
+
+TEST_F(CycloneAgentLinkTest, MissionStatusEventsAndHealthAreDecoded)
+{
+    WaypointMissionStatusData last_status;
+    AgentEventData last_event;
+    AgentHealthData last_health;
+    int status_count = 0;
+    int event_count = 0;
+    int health_count = 0;
+    // 接收者在區域變數之後建立、之前解構，lambda 不會存取已解構的變數
+    QObject receiver;
+    QObject::connect(&link_, &IAgentLink::mission_status_received, &receiver,
+                     [&](const QString&, const WaypointMissionStatusData& status)
+                     {
+                         last_status = status;
+                         ++status_count;
+                     });
+    QObject::connect(&link_, &IAgentLink::event_received, &receiver,
+                     [&](const QString&, const AgentEventData& event)
+                     {
+                         last_event = event;
+                         ++event_count;
+                     });
+    QObject::connect(&link_, &IAgentLink::health_received, &receiver,
+                     [&](const QString&, const AgentHealthData& health)
+                     {
+                         last_health = health;
+                         ++health_count;
+                     });
+
+    // mission/status 為 transient_local：先寫入再訂閱也要收到最後一筆
+    const dds_entity_t status_writer = agent_writer(&taiphoon_agent_msg_dds__WaypointMissionStatus__desc,
+                                                    "rt/uav_1_agent/mission/status", AgentChannel::MISSION_STATUS);
+    ASSERT_GT(status_writer, 0);
+    char status_detail[] = "";
+    taiphoon_agent_msg_dds__WaypointMissionStatus_ status{};
+    status.mission_id = 77;
+    status.state = static_cast<uint8_t>(AgentMissionState::RUNNING);
+    status.waypoint_count = 2;
+    status.detail = status_detail;
+    ASSERT_EQ(dds_write(status_writer, &status), DDS_RETCODE_OK);
+    link_.subscribe_agent(AGENT_1);
+    ASSERT_TRUE(wait_until([&]() { return status_count > 0; }));
+    EXPECT_EQ(last_status.mission_id, 77U);
+    EXPECT_EQ(last_status.state, static_cast<uint8_t>(AgentMissionState::RUNNING));
+
+    const dds_entity_t event_writer =
+        agent_writer(&taiphoon_agent_msg_dds__AgentEvent__desc, "rt/uav_1_agent/events", AgentChannel::EVENTS);
+    const dds_entity_t health_writer =
+        agent_writer(&taiphoon_agent_msg_dds__AgentHealth__desc, "rt/uav_1_agent/health", AgentChannel::HEALTH);
+    ASSERT_GT(event_writer, 0);
+    ASSERT_GT(health_writer, 0);
+    char command[] = "ARM";
+    char detail[] = "preflight fail";
+    taiphoon_agent_msg_dds__AgentEvent_ event{};
+    event.sequence_ = 5;
+    event.code = agent_event_code::PX4_COMMAND_REJECTED;
+    event.command = command;
+    event.px4_result = 1;
+    event.detail = detail;
+    taiphoon_agent_msg_dds__AgentHealth_ health{};
+    health.px4_status_age_s = 30.0F;
+    ASSERT_TRUE(wait_until(
+        [&]()
+        {
+            if (event_count == 0)
+            {
+                dds_write(event_writer, &event);
+            }
+            if (health_count == 0)
+            {
+                dds_write(health_writer, &health);
+            }
+            return event_count > 0 && health_count > 0;
+        }));
+    EXPECT_EQ(last_event.sequence, 5U);
+    EXPECT_EQ(last_event.command, QStringLiteral("ARM"));
+    EXPECT_EQ(last_event.detail, QStringLiteral("preflight fail"));
+    EXPECT_FLOAT_EQ(last_health.px4_status_age_s, 30.0F);
 }

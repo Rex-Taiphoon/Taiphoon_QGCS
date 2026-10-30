@@ -110,3 +110,34 @@ TEST_F(TelemetryModuleTest, ShutdownReleasesAllSubscriptions)
     telemetry_.shutdown();
     EXPECT_TRUE(link_.subscribed_agents.isEmpty());
 }
+
+TEST_F(TelemetryModuleTest, ForwardsMissionStatusEventsAndHealthOnlyForSubscribedAgents)
+{
+    QSignalSpy statuses(&telemetry_, &TelemetryModule::mission_status_updated);
+    QSignalSpy events(&telemetry_, &TelemetryModule::agent_event_received);
+    QSignalSpy healths(&telemetry_, &TelemetryModule::health_updated);
+    WaypointMissionStatusData status;
+    status.mission_id = 7;
+    AgentEventData event;
+    event.code = agent_event_code::PX4_COMMAND_REJECTED;
+    AgentHealthData health;
+    health.px4_status_age_s = 12.5F;
+
+    emit link_.mission_status_received(AGENT_1, status);
+    emit link_.event_received(AGENT_1, event);
+    emit link_.health_received(AGENT_1, health);
+    EXPECT_TRUE(statuses.isEmpty());
+    EXPECT_TRUE(events.isEmpty());
+    EXPECT_TRUE(healths.isEmpty());
+
+    telemetry_.on_agent_online(AGENT_1);
+    emit link_.mission_status_received(AGENT_1, status);
+    emit link_.event_received(AGENT_1, event);
+    emit link_.health_received(AGENT_1, health);
+    ASSERT_EQ(statuses.size(), 1);
+    ASSERT_EQ(events.size(), 1);
+    ASSERT_EQ(healths.size(), 1);
+    EXPECT_EQ(statuses.at(0).at(1).value<WaypointMissionStatusData>().mission_id, 7U);
+    EXPECT_EQ(events.at(0).at(1).value<AgentEventData>().code, agent_event_code::PX4_COMMAND_REJECTED);
+    EXPECT_FLOAT_EQ(healths.at(0).at(1).value<AgentHealthData>().px4_status_age_s, 12.5F);
+}

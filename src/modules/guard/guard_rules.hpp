@@ -1,6 +1,6 @@
 /**
  * @file guard_rules.hpp
- * @brief 防呆規則：資料驅動轉移表與 Arm／Takeoff 的 PX4 原生狀態規則（ADR-0003）
+ * @brief 防呆規則：資料驅動轉移表、Arm／Takeoff／重新啟動飛控的 PX4 原生狀態規則與航點任務上傳檢查（ADR-0003）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  *
@@ -11,6 +11,8 @@
 
 #include "core/agent_types.hpp"
 #include "core/command_protocol.hpp"
+
+#include <optional>
 
 namespace gcs::guard_rules
 {
@@ -48,12 +50,50 @@ bool is_arm_allowed_by_px4(const AgentStateData& state);
  */
 bool is_takeoff_allowed_by_px4(const AgentStateData& state);
 
+/// 判斷重新啟動飛控所需的已知資訊
+struct RebootFacts
+{
+    /// 最新 AgentState；Agent 收到第一筆 odometry 前不會發布
+    std::optional<AgentStateData> state;
+    /// 最後一次 PX4 狀態有效時的 AgentState（Agent 離線後仍保留）；從未有效時為空
+    std::optional<AgentStateData> last_valid_state;
+    /// 最新 AgentHealth
+    std::optional<AgentHealthData> health;
+};
+
 /**
- * @brief 單機完整判斷：PX4 狀態有效，且 Arm／Takeoff 依 PX4 規則、其餘依轉移表
+ * @brief 檢查重新啟動飛控（REBOOT_FC）
+ *
+ * 一般重新啟動：PX4 狀態有效、已上鎖且已落地。
+ * 強制重新啟動：只在 PX4 狀態不明（沒有 AgentState 或狀態無效）且收到 AgentHealth 時提供；
+ * 最後有效狀態、AgentHealth 保留的解鎖狀態或 AgentState 保留的落地狀態，任一顯示可能在空中就拒絕。
+ * 斷線後遙控器仍可能解鎖，最終保護是 PX4 解鎖時拒絕重新啟動（ADR-0020）。
+ *
+ * @param facts 已知資訊
+ * @param is_force 是否強制
+ * @return 空字串表示允許，否則為拒絕原因
+ */
+QString check_reboot(const RebootFacts& facts, bool is_force);
+
+/**
+ * @brief 單機完整判斷
+ *
+ * MISSION_STOP 只會讓 Agent 停在目前位置，任何狀態都允許（PX4 狀態無效時也允許）；
+ * REBOOT_FC 只判斷一般重新啟動（強制重新啟動需要更多資訊，改用 check_reboot）；
+ * 其餘命令需 PX4 狀態有效，Arm／Takeoff 依 PX4 規則、其餘依轉移表。
+ *
  * @param state 最新 AgentState
  * @param cmd 命令型別
  * @return 是否允許
  */
 bool is_command_allowed_for_agent(const AgentStateData& state, CmdType cmd);
+
+/**
+ * @brief 檢查航點任務上傳：開始條件與 MISSION_START 相同，並檢查航點內容與距離
+ * @param state 最新 AgentState
+ * @param mission 航點任務
+ * @return 空字串表示允許，否則為拒絕原因
+ */
+QString check_mission_upload(const AgentStateData& state, const WaypointMissionData& mission);
 
 }  // namespace gcs::guard_rules

@@ -9,8 +9,6 @@
  */
 #include "modules/guard/guard_module.hpp"
 
-#include "modules/guard/guard_rules.hpp"
-
 #include <QLoggingCategory>
 
 namespace
@@ -33,6 +31,8 @@ void GuardModule::shutdown()
     is_initialized_ = false;
     online_agents_.clear();
     agent_states_.clear();
+    agent_health_.clear();
+    last_valid_states_.clear();
 }
 
 bool GuardModule::health_check() const
@@ -48,6 +48,10 @@ FlightState GuardModule::agent_flight_state(const QString& agent_ns) const
 
 void GuardModule::on_state_updated(const QString& agent_ns, const AgentStateData& state)
 {
+    if (state.is_px4_state_valid)
+    {
+        last_valid_states_.insert(agent_ns, state);
+    }
     if (!state.is_online)
     {
         // Agent 自行回報離線時立即清除，避免沿用過期狀態放行命令。
@@ -56,6 +60,15 @@ void GuardModule::on_state_updated(const QString& agent_ns, const AgentStateData
     }
     online_agents_.insert(agent_ns);
     agent_states_.insert(agent_ns, state);
+}
+
+void GuardModule::on_health_updated(const QString& agent_ns, const AgentHealthData& health)
+{
+    // 離線後才送達的健康狀態不保存，避免 Agent 再上線時沿用舊資料
+    if (online_agents_.contains(agent_ns))
+    {
+        agent_health_.insert(agent_ns, health);
+    }
 }
 
 void GuardModule::on_agent_online(const QString& agent_ns)
@@ -67,6 +80,7 @@ void GuardModule::on_agent_offline(const QString& agent_ns)
 {
     online_agents_.remove(agent_ns);
     agent_states_.remove(agent_ns);
+    agent_health_.remove(agent_ns);
 }
 
 void GuardModule::request_command(const CommandRequest& request)
@@ -100,13 +114,44 @@ void GuardModule::request_command(const CommandRequest& request)
 
     QString guard_error;
     const bool is_allowed = (request.agent == ALL_AGENTS_TARGET) ? validate_for_all(cmd, &guard_error)
-                                                                  : validate_for_agent(request.agent, cmd, &guard_error);
+                                                                  : validate_for_agent(request, cmd, &guard_error);
     if (!is_allowed)
     {
         reject(agent, command, guard_error);
         return;
     }
     emit command_validated(request);
+}
+
+void GuardModule::request_mission_upload(const QString& agent_ns, const WaypointMissionData& mission)
+{
+    const QString agent = agent_ns.isEmpty() ? QStringLiteral("unknown") : agent_ns;
+    QString error;
+    if (!command_protocol::is_single_agent(agent_ns))
+    {
+        error = QStringLiteral("航點任務只支援單機");
+    }
+    else if (!is_initialized_)
+    {
+        error = QStringLiteral("GuardModule 未初始化");
+    }
+    else if (!online_agents_.contains(agent_ns))
+    {
+        error = QStringLiteral("Agent 不在線上或尚未發現");
+    }
+    else
+    {
+        const auto it = agent_states_.constFind(agent_ns);
+        error = it == agent_states_.cend() ? QStringLiteral("PX4 狀態尚未有效，拒絕上傳航點任務")
+                                           : guard_rules::check_mission_upload(*it, mission);
+    }
+    if (!error.isEmpty())
+    {
+        qCInfo(lc_guard) << "航點任務上傳拒絕：agent=" << agent << "reason=" << error;
+        emit mission_upload_acked(command_protocol::make_ack(agent, MISSION_UPLOAD_ACK_NAME, false, error));
+        return;
+    }
+    emit mission_upload_validated(agent_ns, mission);
 }
 
 bool GuardModule::validate_for_all(CmdType cmd, QString* error) const
@@ -141,16 +186,28 @@ bool GuardModule::validate_for_all(CmdType cmd, QString* error) const
     return true;
 }
 
-bool GuardModule::validate_for_agent(const QString& agent_ns, CmdType cmd, QString* error) const
+bool GuardModule::validate_for_agent(const CommandRequest& request, CmdType cmd, QString* error) const
 {
-    if (!online_agents_.contains(agent_ns))
+    if (!online_agents_.contains(request.agent))
     {
         *error = QStringLiteral("Agent 不在線上或尚未發現");
         return false;
     }
 
-    const auto it = agent_states_.constFind(agent_ns);
-    if (it == agent_states_.cend() || !it->is_px4_state_valid)
+    // Agent 收到 odometry 前不發布 AgentState，強制重新啟動只靠健康狀態判斷，必須在狀態檢查之前處理
+    if (cmd == CmdType::REBOOT_FC)
+    {
+        *error = guard_rules::check_reboot(reboot_facts(request.agent), command_protocol::is_forced_reboot(request));
+        return error->isEmpty();
+    }
+    const auto it = agent_states_.constFind(request.agent);
+    if (it == agent_states_.cend())
+    {
+        *error = QStringLiteral("PX4 狀態尚未有效，拒絕執行命令");
+        return false;
+    }
+    // MISSION_STOP 只會讓 Agent 停下，PX4 狀態暫時無效時也必須能停止任務
+    if (!it->is_px4_state_valid && cmd != CmdType::MISSION_STOP)
     {
         *error = QStringLiteral("PX4 狀態尚未有效，拒絕執行命令");
         return false;
@@ -162,6 +219,27 @@ bool GuardModule::validate_for_agent(const QString& agent_ns, CmdType cmd, QStri
         return false;
     }
     return true;
+}
+
+guard_rules::RebootFacts GuardModule::reboot_facts(const QString& agent_ns) const
+{
+    guard_rules::RebootFacts facts;
+    const auto state = agent_states_.constFind(agent_ns);
+    if (state != agent_states_.cend())
+    {
+        facts.state = *state;
+    }
+    const auto last_valid = last_valid_states_.constFind(agent_ns);
+    if (last_valid != last_valid_states_.cend())
+    {
+        facts.last_valid_state = *last_valid;
+    }
+    const auto health = agent_health_.constFind(agent_ns);
+    if (health != agent_health_.cend())
+    {
+        facts.health = *health;
+    }
+    return facts;
 }
 
 void GuardModule::reject(const QString& agent, const QString& command, const QString& message)

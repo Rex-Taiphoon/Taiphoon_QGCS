@@ -100,3 +100,42 @@ TEST(CommandModuleInitTest, RequiresLink)
     EXPECT_FALSE(command.init());
     EXPECT_FALSE(command.health_check());
 }
+
+TEST_F(CommandModuleTest, MissionPlanPublishedWithSeparateAck)
+{
+    WaypointMissionData mission;
+    mission.mission_id = 9;
+    mission.waypoints.resize(2);
+    QSignalSpy command_acked(&command_, &CommandModule::command_acked);
+    QSignalSpy upload_acked(&command_, &CommandModule::mission_upload_acked);
+    command_.publish_mission_plan(QStringLiteral("uav_2_agent"), mission);
+
+    ASSERT_EQ(link_.published_missions.size(), 1U);
+    EXPECT_EQ(link_.published_missions[0].agent_ns, QStringLiteral("uav_2_agent"));
+    EXPECT_EQ(link_.published_missions[0].mission.mission_id, 9U);
+    EXPECT_EQ(link_.published_missions[0].mission.waypoints.size(), 2U);
+    // 上傳不是命令：只發出上傳回報，不經 command_acked（UI 的命令提示）
+    EXPECT_EQ(command_acked.size(), 0);
+    ASSERT_EQ(upload_acked.size(), 1);
+    const auto ack = upload_acked.at(0).at(0).value<CommandAck>();
+    EXPECT_TRUE(ack.is_ok);
+    EXPECT_EQ(ack.command, MISSION_UPLOAD_ACK_NAME);
+}
+
+TEST_F(CommandModuleTest, MissionPlanRejectedForAllAndOnLinkFailure)
+{
+    QSignalSpy upload_acked(&command_, &CommandModule::mission_upload_acked);
+    command_.publish_mission_plan(ALL_AGENTS_TARGET, WaypointMissionData{});
+    EXPECT_TRUE(link_.published_missions.empty());
+    ASSERT_EQ(upload_acked.size(), 1);
+    EXPECT_FALSE(upload_acked.at(0).at(0).value<CommandAck>().is_ok);
+
+    // 舊版 Agent 沒有訂閱 mission/plan：必須回報失敗
+    link_.is_mission_channel_ready = false;
+    command_.publish_mission_plan(QStringLiteral("uav_1_agent"), WaypointMissionData{});
+    EXPECT_TRUE(link_.published_missions.empty());
+    ASSERT_EQ(upload_acked.size(), 2);
+    const auto ack = upload_acked.at(1).at(0).value<CommandAck>();
+    EXPECT_FALSE(ack.is_ok);
+    EXPECT_TRUE(ack.message.contains(QStringLiteral("航點任務")));
+}
