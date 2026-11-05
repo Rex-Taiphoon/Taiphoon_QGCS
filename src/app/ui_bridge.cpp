@@ -541,8 +541,15 @@ bool UiBridge::recompute_reboot_availability()
         const QString normal_reason = guard_rules::check_reboot(facts, false);
         const QString force_reason = guard_rules::check_reboot(facts, true);
         can_reboot = normal_reason.isEmpty();
-        can_force = force_reason.isEmpty();
-        reason = is_force_mode ? force_reason : normal_reason;
+        can_force = IS_FORCE_REBOOT_ENABLED && force_reason.isEmpty();
+        if (is_force_mode && !IS_FORCE_REBOOT_ENABLED)
+        {
+            reason = QStringLiteral("飛控狀態不明，無法確認是否在地面；強制重新啟動待實機驗證後開放");
+        }
+        else
+        {
+            reason = is_force_mode ? force_reason : normal_reason;
+        }
     }
     const bool is_changed = can_reboot != can_reboot_fc_ || can_force != can_force_reboot_fc_
                             || is_force_mode != is_reboot_force_mode_ || reason != reboot_blocked_reason_;

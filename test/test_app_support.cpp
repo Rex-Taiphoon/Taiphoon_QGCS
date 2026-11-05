@@ -251,6 +251,34 @@ TEST(UiFormatTest, AgentEventAndHealthTexts)
     event.command = QStringLiteral("REBOOT_FC");
     event.px4_result = 2;
     EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("REBOOT_FC；VehicleStatus stale（PX4 結果 2：拒絕）"));
+}
+
+TEST(UiFormatTest, GeofenceDetailsAreTranslated)
+{
+    AgentEventData event;
+    event.code = agent_event_code::PLANNER_COMMAND_REJECTED;
+    event.command = QStringLiteral("MOVE_FORWARD");
+    event.detail = QStringLiteral("Goal outside geofence");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("MOVE_FORWARD；目標超出場域圍籬，已拒絕"));
+    event.command = QStringLiteral("MOVE_POINT");
+    event.detail = QStringLiteral("Goal invalid or outside geofence");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("MOVE_POINT；目標無效或超出場域圍籬，已拒絕"));
+    event.command = QStringLiteral("MOVE_LEFT");
+    event.detail = QStringLiteral("Formation slot outside geofence");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("MOVE_LEFT；編隊移動後會超出場域圍籬，已拒絕"));
+    event.command = QStringLiteral("FORMATION");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("FORMATION；隊形超出場域圍籬，已拒絕"));
+
+    // 其他拒絕原因維持 Agent 原文
+    event.detail = QStringLiteral("Formation busy");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("FORMATION；Formation busy"));
+
+    event.code = agent_event_code::PLANNER_EMERGENCY_BRAKE;
+    event.command.clear();
+    event.detail = QStringLiteral("trajectory revalidation failed: geofence_violation");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("軌跡將超出場域圍籬，緊急煞停"));
+    event.detail = QStringLiteral("trajectory revalidation failed: collision");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("trajectory revalidation failed: collision"));
 
     AgentHealthData health;
     EXPECT_TRUE(ui::is_px4_link_lost(health));

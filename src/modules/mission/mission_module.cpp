@@ -463,7 +463,10 @@ QString MissionModule::reason_text(const WaypointMissionStatusData& status)
         text = QStringLiteral("Agent 判定航點內容不合法（第 %1 個航點）").arg(waypoint);
         break;
     case AgentMissionReason::OUT_OF_RANGE:
-        text = QStringLiteral("第 %1 個航點超出 Agent 允許的距離").arg(waypoint);
+        // 超出地理圍籬沿用 OUT_OF_RANGE，只能由 detail 區分（Agent docs/qgcs-adaptation-geofence.md 第 3 節）
+        text = status.detail.contains(QLatin1String("geofence"))
+                   ? QStringLiteral("第 %1 個航點超出場域圍籬").arg(waypoint)
+                   : QStringLiteral("第 %1 個航點超出 Agent 允許的距離").arg(waypoint);
         break;
     case AgentMissionReason::NOT_READY:
         text = QStringLiteral("Agent 尚未就緒（沒有有效狀態或座標換算尚未建立）");

@@ -60,11 +60,17 @@ class UiBridge : public QObject
     Q_PROPERTY(bool canRebootFc READ can_reboot_fc NOTIFY availabilityChanged)
     Q_PROPERTY(bool canForceRebootFc READ can_force_reboot_fc NOTIFY availabilityChanged)
     Q_PROPERTY(bool isRebootForceMode READ is_reboot_force_mode NOTIFY availabilityChanged)
+    Q_PROPERTY(bool isForceRebootEnabled READ is_force_reboot_enabled CONSTANT)
     Q_PROPERTY(QString rebootBlockedReason READ reboot_blocked_reason NOTIFY availabilityChanged)
 
 public:
     /// 介面刷新週期（毫秒），約 20 Hz
     static constexpr int REFRESH_INTERVAL_MS = 50;
+    /**
+     * 是否提供強制重新啟動飛控（REBOOT_FC 1）。Agent 的實機驗證（解鎖時 PX4 拒絕重新啟動）通過前不提供，
+     * 介面隱藏滑桿；GuardModule 規則不變，gcs_headless 仍可送出供 Agent 驗證。
+     */
+    static constexpr bool IS_FORCE_REBOOT_ENABLED = false;
     /// 命令待回應與 ARM／DISARM 解鎖確認的逾時（毫秒），與網頁版預設值相同
     static constexpr int DEFAULT_COMMAND_TIMEOUT_MS = 3000;
     /// 同一 Agent、事件代碼與命令在此時間內（毫秒）只彈出一次提示
@@ -108,6 +114,7 @@ public:
     bool can_force_reboot_fc() const { return can_force_reboot_fc_; }
     /// 選取單機的 PX4 狀態不明，重新啟動飛控只能強制
     bool is_reboot_force_mode() const { return is_reboot_force_mode_; }
+    static bool is_force_reboot_enabled() { return IS_FORCE_REBOOT_ENABLED; }
     /// 目前方式（一般或強制）不可用的原因；可用時為空字串
     QString reboot_blocked_reason() const { return reboot_blocked_reason_; }
 

@@ -205,8 +205,21 @@ TEST_F(MissionModuleTest, AgentRejectionReportsWaypointAndReason)
     mission_.on_mission_status_updated(AGENT_1, rejected);
     EXPECT_EQ(last_status().phase, MissionPhase::REJECTED);
     EXPECT_TRUE(last_status().message.contains(QStringLiteral("第 2 個航點"))) << last_status().message.toStdString();
+    EXPECT_TRUE(last_status().message.contains(QStringLiteral("允許的距離"))) << last_status().message.toStdString();
     EXPECT_FALSE(mission_.is_running(AGENT_1));
     EXPECT_EQ(commands_.count(), 0);
+}
+
+TEST_F(MissionModuleTest, GeofenceRejectionIsReportedSeparately)
+{
+    const uint32_t mission_id = start_uploaded();
+    WaypointMissionStatusData rejected = agent_status(mission_id, AgentMissionState::REJECTED, 1);
+    rejected.reason = static_cast<uint8_t>(AgentMissionReason::OUT_OF_RANGE);
+    rejected.detail = QStringLiteral("waypoint outside geofence");
+    mission_.on_mission_status_updated(AGENT_1, rejected);
+    EXPECT_EQ(last_status().phase, MissionPhase::REJECTED);
+    EXPECT_TRUE(last_status().message.contains(QStringLiteral("第 2 個航點超出場域圍籬")))
+        << last_status().message.toStdString();
 }
 
 TEST_F(MissionModuleTest, StatusOfOtherMissionIgnoredWhileStarting)

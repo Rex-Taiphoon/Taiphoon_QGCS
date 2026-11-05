@@ -685,13 +685,17 @@ TEST_F(UiBridgeTest, RebootAvailabilityFollowsGuardRules)
     EXPECT_FALSE(bridge_->is_reboot_force_mode());
     EXPECT_TRUE(bridge_->reboot_blocked_reason().isEmpty());
 
-    // 狀態不明且最後一次有效時上鎖落地：只能強制
+    // 狀態不明且最後一次有效時上鎖落地：只能強制；強制重新啟動尚未開放時介面不提供
     emit link_.health_received(AGENT_1, make_health(true));
     emit link_.state_received(AGENT_1, make_state(FlightState::ERROR, false, true, PX4_NAV_STATE_OFFBOARD, false));
     bridge_->refresh_now();
     EXPECT_TRUE(bridge_->is_reboot_force_mode());
     EXPECT_FALSE(bridge_->can_reboot_fc());
-    EXPECT_TRUE(bridge_->can_force_reboot_fc());
+    EXPECT_EQ(bridge_->can_force_reboot_fc(), UiBridge::IS_FORCE_REBOOT_ENABLED);
+    if (!UiBridge::IS_FORCE_REBOOT_ENABLED)
+    {
+        EXPECT_TRUE(bridge_->reboot_blocked_reason().contains(QStringLiteral("實機驗證")));
+    }
 
     // 最後一次有效時在空中：滑桿停用並顯示原因
     emit link_.state_received(AGENT_1, make_state(FlightState::HOVER, true, false));
@@ -699,7 +703,10 @@ TEST_F(UiBridgeTest, RebootAvailabilityFollowsGuardRules)
     bridge_->refresh_now();
     EXPECT_TRUE(bridge_->is_reboot_force_mode());
     EXPECT_FALSE(bridge_->can_force_reboot_fc());
-    EXPECT_TRUE(bridge_->reboot_blocked_reason().contains(QStringLiteral("最後一次")));
+    if (UiBridge::IS_FORCE_REBOOT_ENABLED)
+    {
+        EXPECT_TRUE(bridge_->reboot_blocked_reason().contains(QStringLiteral("最後一次")));
+    }
 
     // Guard 同樣拒絕，Link 沒有收到命令
     bridge_->sendCommand(QStringLiteral("REBOOT_FC"), {1});
@@ -714,8 +721,9 @@ TEST_F(UiBridgeTest, ForcedRebootWithHealthOnlyReachesLink)
     emit link_.health_received(AGENT_1, make_health(true));
     bridge_->selectAgent(AGENT_1);
     EXPECT_TRUE(bridge_->is_reboot_force_mode());
-    EXPECT_TRUE(bridge_->can_force_reboot_fc());
+    EXPECT_EQ(bridge_->can_force_reboot_fc(), UiBridge::IS_FORCE_REBOOT_ENABLED);
 
+    // 介面不提供時 Guard 規則不變：命令路徑仍可送出（供 gcs_headless 驗證）
     bridge_->sendCommand(QStringLiteral("REBOOT_FC"), {1});
     ASSERT_EQ(link_.published_commands.size(), 1U);
     EXPECT_EQ(link_.published_commands[0].command_line, QStringLiteral("REBOOT_FC 1"));

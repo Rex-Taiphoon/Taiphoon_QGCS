@@ -9,7 +9,7 @@
  * L1：Takeoff、RTL、Land、Disarm、重新啟動飛控與編隊命令先暫存到確認列（顯示「是否執行？」），按 EXEC 才送出；
  *     確認列在選取目標改變、命令不再可用或逾時後自動清除，EXEC 時再核對目標與可用狀態。
  *     編隊點選隊形後展開參數，同一列右側出現閃爍的 CONFIRM，按下即暫存到確認列。
- * L2：Arm 與強制重新啟動飛控（PX4 狀態不明時）需滑桿。面板底部常駐顯示解鎖狀態與 DISARM。
+ * L2：Arm 與強制重新啟動飛控（PX4 狀態不明時，目前尚未開放）需滑桿。面板底部常駐顯示解鎖狀態與 DISARM。
  * MISSION：單機航點任務與語音口令；按鈕開始任務先進確認列，需按 EXEC。
  *          語音口令（解鎖、起飛 3 m、巡邏、降落）只限單機，倒數 5 秒後自動執行，可按 CLR／Esc 取消或提前 EXEC；
  *          解鎖、起飛、降落倒數結束後與按鈕相同經 UiBridge 與 GuardModule 送出。狀態與規則皆取自 MissionController。
@@ -41,6 +41,8 @@ Rectangle {
     readonly property bool isSingle: bridge.isSingleSelected
     readonly property bool isAll: bridge.isAllSelected
     readonly property bool hasTarget: isSingle || isAll
+    /// 顯示強制重新啟動飛控滑桿：PX4 狀態不明且強制重新啟動已開放
+    readonly property bool isForceRebootShown: bridge.isRebootForceMode && bridge.isForceRebootEnabled
     readonly property var summary: bridge.selectedSummary
     readonly property bool isWaitingForFlightController: isSingle && summary.isWaitingForFlightController === true
     readonly property string modeLabel: isSingle ? (summary.modeLabel || qsTr("未知"))
@@ -324,18 +326,21 @@ Rectangle {
                         onClicked: root.stage("DISARM", [], title)
                     }
                     Divider {}
-                    // 重新啟動飛控：PX4 狀態有效時為一般列（EXEC 確認）；狀態不明時改為紅色滑桿強制重新啟動
+                    // 重新啟動飛控：PX4 狀態有效時為一般列（EXEC 確認）；狀態不明時改為紅色滑桿強制重新啟動。
+                    // 強制重新啟動尚未開放（isForceRebootEnabled）時不顯示滑桿，一般列停用並以提示說明原因
                     LskRow {
-                        visible: !root.bridge.isRebootForceMode
+                        visible: !root.isForceRebootShown
                         title: qsTr("REBOOT FC 重新啟動飛控")
                         risk: Theme.commandDanger
                         enabled: root.bridge.canRebootFc
-                        tag: root.rowTag(enabled, true, root.isSingle ? qsTr("限上鎖並落地") : qsTr("限單機"))
+                        tag: root.rowTag(enabled, true, root.bridge.isRebootForceMode
+                                         ? qsTr("飛控狀態不明")
+                                         : (root.isSingle ? qsTr("限上鎖並落地") : qsTr("限單機")))
                         tooltip: root.bridge.rebootBlockedReason
                         onClicked: root.stage("REBOOT_FC", [], title)
                     }
                     SlideToConfirm {
-                        visible: root.bridge.isRebootForceMode
+                        visible: root.isForceRebootShown
                         label: qsTr("滑動以強制重新啟動飛控")
                         accentColor: Theme.commandDanger
                         enabled: root.bridge.canForceRebootFc
@@ -345,7 +350,7 @@ Rectangle {
                         onConfirmed: root.send("REBOOT_FC", [1])
                     }
                     Label {
-                        visible: root.bridge.isRebootForceMode
+                        visible: root.isForceRebootShown
                         text: qsTr("飛控狀態不明，無法確認是否在地面")
                         color: Theme.caution
                         font.pixelSize: Theme.fontLabel
@@ -357,7 +362,7 @@ Rectangle {
                     }
                     // 被強制重新啟動的安全條件擋下時顯示原因（例如最後一次狀態有效時已解鎖）
                     Label {
-                        visible: root.bridge.isRebootForceMode && !root.bridge.canForceRebootFc
+                        visible: root.isForceRebootShown && !root.bridge.canForceRebootFc
                         text: root.bridge.rebootBlockedReason
                         color: Theme.textDim
                         font.pixelSize: Theme.fontLabel

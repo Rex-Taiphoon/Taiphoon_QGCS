@@ -90,6 +90,39 @@ std::optional<Quaternion> normalized(const std::array<float, 4>& q)
     return Quaternion{q[0] / norm, q[1] / norm, q[2] / norm, q[3] / norm};
 }
 
+/**
+ * @brief Agent 地理圍籬相關英文說明的中文提示（Agent docs/qgcs-adaptation-geofence.md 第 3 節）
+ * @param event Agent 事件
+ * @return 中文提示；不是圍籬相關的說明時為空字串
+ */
+QString geofence_detail_text(const AgentEventData& event)
+{
+    namespace ec = agent_event_code;
+    if (event.code == ec::PLANNER_COMMAND_REJECTED)
+    {
+        if (event.detail == QLatin1String("Goal outside geofence"))
+        {
+            return QStringLiteral("目標超出場域圍籬，已拒絕");
+        }
+        if (event.detail == QLatin1String("Goal invalid or outside geofence"))
+        {
+            return QStringLiteral("目標無效或超出場域圍籬，已拒絕");
+        }
+        if (event.detail == QLatin1String("Formation slot outside geofence"))
+        {
+            // FORMATION 為換隊形；其餘為全體移動
+            return event.command.startsWith(QLatin1String("FORMATION"))
+                       ? QStringLiteral("隊形超出場域圍籬，已拒絕")
+                       : QStringLiteral("編隊移動後會超出場域圍籬，已拒絕");
+        }
+    }
+    else if (event.code == ec::PLANNER_EMERGENCY_BRAKE && event.detail.contains(QLatin1String("geofence_violation")))
+    {
+        return QStringLiteral("軌跡將超出場域圍籬，緊急煞停");
+    }
+    return {};
+}
+
 }  // namespace
 
 QString flight_mode_label(int flight_mode)
@@ -358,7 +391,12 @@ QString format_agent_event_message(const AgentEventData& event)
     {
         parts.append(event.command);
     }
-    if (!event.detail.isEmpty())
+    const QString geofence_text = geofence_detail_text(event);
+    if (!geofence_text.isEmpty())
+    {
+        parts.append(geofence_text);
+    }
+    else if (!event.detail.isEmpty())
     {
         parts.append(event.detail);
     }

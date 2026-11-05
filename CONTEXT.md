@@ -70,6 +70,7 @@ _Avoid_：任務中止（中止是 Agent 回報的 ABORTED，任務已結束）
 
 **重新啟動飛控 (Reboot Flight Controller)**：
 `REBOOT_FC` 命令，請 Agent 重新啟動 PX4 飛控，只能指定單機。一般重新啟動需飛控狀態有效、未解鎖且已落地；飛控狀態不明時只能強制重新啟動（`REBOOT_FC 1`，滑桿確認），且最後一次飛控狀態有效時、以及 Agent 保留的最後解鎖與落地狀態都不能顯示可能在空中。
+強制重新啟動在 Agent 實機驗證通過前不在介面提供（`UiBridge::IS_FORCE_REBOOT_ENABLED`），Guard 規則不變。
 _Avoid_：關閉 Agent、shutdown（shutdown service 是結束 Agent 程序，不影響飛控）
 
 **Agent 事件 (Agent Event)**：
