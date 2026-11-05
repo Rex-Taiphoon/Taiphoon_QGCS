@@ -21,6 +21,7 @@ namespace
 // 鍵名與網頁版 localStorage 對應，方便對照
 const QString KEY_AUTO_FOLLOW = QStringLiteral("ui/auto_follow");
 const QString KEY_SHOW_ATTITUDE = QStringLiteral("ui/show_attitude");
+const QString KEY_SHOW_WAYPOINTS = QStringLiteral("ui/show_waypoints");
 const QString KEY_TAKEOFF_HEIGHT = QStringLiteral("command/takeoff_height");
 const QString KEY_YAW_DEGREES = QStringLiteral("command/yaw_degrees");
 const QString KEY_CIRCLE_RADIUS = QStringLiteral("command/form_circle_radius");
@@ -45,6 +46,7 @@ const QString KEY_ORIGIN_DISPLAY_LONGITUDE = QStringLiteral("site/display_origin
 // 預設值與範圍沿用網頁版
 constexpr bool DEFAULT_AUTO_FOLLOW = true;
 constexpr bool DEFAULT_SHOW_ATTITUDE = true;
+constexpr bool DEFAULT_SHOW_WAYPOINTS = true;
 
 /// 數值設定的預設值與合法範圍
 struct NumberSpec
@@ -197,6 +199,17 @@ bool AppSettings::show_attitude() const
 void AppSettings::set_show_attitude(bool is_enabled)
 {
     settings_->setValue(KEY_SHOW_ATTITUDE, is_enabled);
+    emit changed();
+}
+
+bool AppSettings::show_waypoints() const
+{
+    return settings_->value(KEY_SHOW_WAYPOINTS, DEFAULT_SHOW_WAYPOINTS).toBool();
+}
+
+void AppSettings::set_show_waypoints(bool is_enabled)
+{
+    settings_->setValue(KEY_SHOW_WAYPOINTS, is_enabled);
     emit changed();
 }
 
@@ -460,6 +473,7 @@ void AppSettings::resetUiSettings()
 {
     settings_->setValue(KEY_AUTO_FOLLOW, DEFAULT_AUTO_FOLLOW);
     settings_->setValue(KEY_SHOW_ATTITUDE, DEFAULT_SHOW_ATTITUDE);
+    settings_->setValue(KEY_SHOW_WAYPOINTS, DEFAULT_SHOW_WAYPOINTS);
     emit changed();
 }
 

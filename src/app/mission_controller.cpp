@@ -7,6 +7,7 @@
 #include "app/mission_controller.hpp"
 
 #include "core/command_protocol.hpp"
+#include "modules/guard/guard_rules.hpp"
 #include "modules/mission/mission_module.hpp"
 #include "voice/voice_keywords.hpp"
 
@@ -34,6 +35,31 @@ constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
 constexpr double TENTHS_PER_METER = 10.0;
 constexpr int MS_PER_SECOND = 1000;
 const QString VOICE_TITLE = QStringLiteral("語音口令");
+const QString COMMAND_ARM = QStringLiteral("ARM");
+const QString COMMAND_TAKEOFF = QStringLiteral("TAKEOFF");
+const QString COMMAND_LAND = QStringLiteral("MODE_LAND");
+
+/**
+ * @brief 語音飛行命令的中文動作名稱
+ * @param command 命令名稱
+ * @return 動作名稱
+ */
+QString command_action(const QString& command)
+{
+    if (command == COMMAND_ARM)
+    {
+        return QStringLiteral("解鎖");
+    }
+    if (command == COMMAND_TAKEOFF)
+    {
+        return QStringLiteral("起飛至 %1 m").arg(MissionController::VOICE_TAKEOFF_HEIGHT_M);
+    }
+    if (command == COMMAND_LAND)
+    {
+        return QStringLiteral("降落");
+    }
+    return command;
+}
 
 /**
  * @brief 兩個航點的水平距離
@@ -92,8 +118,9 @@ void MissionController::on_confirm_timeout()
     }
     if (pending_->is_auto_start)
     {
-        // 倒數結束：與按 EXEC 相同，開始前再核對一次目標與飛行狀態
-        qCInfo(lc_mission_ui) << "語音倒數結束，自動開始航點任務";
+        // 倒數結束：與按 EXEC 相同，執行前再核對一次目標與飛行狀態
+        qCInfo(lc_mission_ui) << "語音倒數結束，自動執行" << (pending_->command.isEmpty() ? "航點任務" : "命令")
+                              << pending_->command;
         confirmStart();
         return;
     }
@@ -304,9 +331,41 @@ QString MissionController::confirm_text() const
     {
         return QString();
     }
-    const QString format = pending_->is_auto_start ? QStringLiteral("%1 即將自動執行航點任務（%2 個航點）")
+    const QString name = ui::agent_short_name(pending_->plan.agent);
+    if (!pending_->command.isEmpty())
+    {
+        return QStringLiteral("%1 即將%2").arg(name, command_action(pending_->command));
+    }
+    const QString format = pending_->is_auto_start ? QStringLiteral("%1 即將巡邏：執行航點任務（%2 個航點）")
                                                    : QStringLiteral("%1 執行航點任務（%2 個航點）？");
-    return format.arg(ui::agent_short_name(pending_->plan.agent)).arg(pending_->plan.waypoints.size());
+    return format.arg(name).arg(pending_->plan.waypoints.size());
+}
+
+QString MissionController::command_block_reason(const QString& command) const
+{
+    if (!is_single_selected())
+    {
+        return QStringLiteral("需選取單機");
+    }
+    const auto it = states_.constFind(selected_agent_);
+    if (it == states_.cend() || !it->is_px4_state_valid)
+    {
+        return QStringLiteral("等待飛控");
+    }
+    if (!guard_rules::is_command_allowed_for_agent(*it, command_protocol::parse_command(command)))
+    {
+        const QString mode = ui::flight_mode_label(it->flight_mode);
+        if (command == COMMAND_ARM)
+        {
+            return QStringLiteral("目前狀態（%1）無法解鎖，需已落地、未解鎖且在 Offboard 模式").arg(mode);
+        }
+        if (command == COMMAND_TAKEOFF)
+        {
+            return QStringLiteral("目前狀態（%1）無法起飛，需已落地、已解鎖且在 Offboard 模式").arg(mode);
+        }
+        return QStringLiteral("目前狀態（%1）無法%2").arg(mode, command_action(command));
+    }
+    return QString();
 }
 
 void MissionController::set_selected_agent(const QString& agent)
@@ -359,7 +418,7 @@ void MissionController::addWaypoint(double latitude, double longitude)
         }
     }
     points.append({reported[0], reported[1], altitude});
-    clear_pending();
+    clear_pending_mission();
     emit changed();
 }
 
@@ -375,7 +434,7 @@ void MissionController::removeWaypoint(int index)
         return;
     }
     points.removeAt(index);
-    clear_pending();
+    clear_pending_mission();
     emit changed();
 }
 
@@ -386,7 +445,7 @@ void MissionController::clearWaypoints()
         return;
     }
     waypoints_.remove(selected_agent_);
-    clear_pending();
+    clear_pending_mission();
     emit changed();
 }
 
@@ -403,7 +462,7 @@ void MissionController::setWaypointAltitude(int index, double altitude_m)
         return;
     }
     points[index].altitude_m = altitude_m;
-    clear_pending();
+    clear_pending_mission();
     emit changed();
 }
 
@@ -420,15 +479,37 @@ void MissionController::request_start(bool is_auto_start)
         notify(ToastModel::Kind::WARNING, QStringLiteral("無法開始航點任務"), reason);
         return;
     }
-    clear_pending();
     PendingStart pending;
     pending.plan.agent = selected_agent_;
     pending.plan.waypoints = waypoints_.value(selected_agent_);
-    pending.requested_ms = clock_.elapsed();
     pending.is_auto_start = is_auto_start;
+    start_pending(pending);
+}
+
+void MissionController::request_voice_command(const QString& command, const QVariantList& params)
+{
+    const QString reason = command_block_reason(command);
+    if (!reason.isEmpty())
+    {
+        notify(ToastModel::Kind::WARNING, QStringLiteral("無法%1").arg(command_action(command)), reason);
+        return;
+    }
+    PendingStart pending;
+    pending.plan.agent = selected_agent_;
+    pending.command = command;
+    pending.params = params;
+    pending.is_auto_start = true;
+    start_pending(pending);
+}
+
+void MissionController::start_pending(const PendingStart& pending)
+{
+    // 新的口令取代前一個暫存的動作：一次只倒數一個，避免操作人員不知道哪個會先執行
+    clear_pending();
     pending_ = pending;
-    confirm_timer_.start(is_auto_start ? auto_start_delay_ms_ : confirm_timeout_ms_);
-    if (is_auto_start)
+    pending_->requested_ms = clock_.elapsed();
+    confirm_timer_.start(pending.is_auto_start ? auto_start_delay_ms_ : confirm_timeout_ms_);
+    if (pending.is_auto_start)
     {
         countdown_timer_.start();
         last_countdown_seconds_ = auto_start_seconds();
@@ -444,15 +525,38 @@ void MissionController::request_start(bool is_auto_start)
     emit confirmRequested();
 }
 
+void MissionController::clear_pending_mission()
+{
+    if (is_mission_pending())
+    {
+        clear_pending();
+    }
+}
+
 void MissionController::confirmStart()
 {
     if (!pending_.has_value())
     {
         return;
     }
-    const MissionPlan plan = pending_->plan;
+    const PendingStart pending = *pending_;
+    const MissionPlan& plan = pending.plan;
     clear_pending();
     emit changed();
+    if (!pending.command.isEmpty())
+    {
+        // 執行前再檢查一次：倒數期間目標或飛行狀態都可能改變；最終仍由 GuardModule 驗證
+        const QString reason = command_block_reason(pending.command);
+        if (plan.agent != selected_agent_ || !reason.isEmpty())
+        {
+            notify(ToastModel::Kind::WARNING, QStringLiteral("未%1").arg(command_action(pending.command)),
+                   reason.isEmpty() ? QStringLiteral("選取目標已改變") : reason);
+            return;
+        }
+        qCInfo(lc_mission_ui) << "語音命令送出：" << plan.agent << pending.command << pending.params;
+        emit flight_command_requested(pending.command, pending.params);
+        return;
+    }
     // 確認時再檢查一次：等待期間目標、航點或飛行狀態都可能改變
     const QString reason = block_reason();
     if (plan.agent != selected_agent_ || !reason.isEmpty())
@@ -471,9 +575,10 @@ void MissionController::cancelStart()
     {
         return;
     }
+    const QString what = pending_->command.isEmpty() ? QStringLiteral("航點任務") : pending_->command;
     const bool was_auto_start = pending_->is_auto_start;
     clear_pending();
-    qCInfo(lc_mission_ui) << (was_auto_start ? "已取消倒數中的航點任務" : "已取消待確認的航點任務");
+    qCInfo(lc_mission_ui).noquote() << (was_auto_start ? "已取消倒數中的" : "已取消待確認的") << what;
     emit changed();
 }
 
@@ -497,11 +602,18 @@ void MissionController::on_state_updated(const QString& agent_ns, const AgentSta
         return;
     }
     // 待確認期間離開懸停：確認時的狀態已與提示不同，直接取消
-    if (pending_.has_value() && pending_->plan.agent == agent_ns && !block_reason().isEmpty())
+    if (pending_.has_value() && pending_->plan.agent == agent_ns)
     {
-        clear_pending();
-        notify(ToastModel::Kind::WARNING, QStringLiteral("航點任務未開始"),
-               QStringLiteral("飛行狀態已改變，已取消待確認的任務"));
+        const QString command = pending_->command;
+        const QString reason = command.isEmpty() ? block_reason() : command_block_reason(command);
+        if (!reason.isEmpty())
+        {
+            clear_pending();
+            notify(ToastModel::Kind::WARNING,
+                   command.isEmpty() ? QStringLiteral("航點任務未開始")
+                                     : QStringLiteral("未%1").arg(command_action(command)),
+                   QStringLiteral("飛行狀態已改變，已取消：%1").arg(reason));
+        }
     }
     emit changed();
 }
@@ -557,46 +669,33 @@ void MissionController::on_fleet_changed(const FleetSnapshot& snapshot)
 void MissionController::on_voice_keyword(const QString& keyword)
 {
     qCInfo(lc_mission_ui).noquote() << "語音口令：" << keyword;
-    if (keyword == voice::KEYWORD_START_MISSION)
+    const bool is_known = keyword == voice::KEYWORD_PATROL || keyword == voice::KEYWORD_ARM
+                          || keyword == voice::KEYWORD_TAKEOFF || keyword == voice::KEYWORD_LAND;
+    if (!is_known)
     {
-        if (!is_single_selected())
-        {
-            notify(ToastModel::Kind::WARNING, VOICE_TITLE,
-                   QStringLiteral("語音任務只支援單機控制，請先選取一台無人機"));
-            return;
-        }
-        // 語音開始改為倒數：時間到自動開始，期間可說「取消」或按 CLR
+        return;
+    }
+    if (!is_single_selected())
+    {
+        notify(ToastModel::Kind::WARNING, VOICE_TITLE, QStringLiteral("語音口令只支援單機控制，請先選取一台無人機"));
+        return;
+    }
+    // 所有口令都倒數後才執行：誤辨識時操作人員可在倒數期間按 CLR 或 Esc 取消
+    if (keyword == voice::KEYWORD_PATROL)
+    {
         request_start(true);
-        return;
     }
-    if (keyword == voice::KEYWORD_CONFIRM)
+    else if (keyword == voice::KEYWORD_ARM)
     {
-        if (!pending_.has_value())
-        {
-            notify(ToastModel::Kind::WARNING, VOICE_TITLE, QStringLiteral("沒有待確認的任務"));
-            return;
-        }
-        if (clock_.elapsed() - pending_->requested_ms < VOICE_CONFIRM_MIN_DELAY_MS)
-        {
-            notify(ToastModel::Kind::WARNING, VOICE_TITLE, QStringLiteral("請在確認提示出現後，再按住說「確認」"));
-            return;
-        }
-        confirmStart();
-        return;
+        request_voice_command(COMMAND_ARM, {});
     }
-    if (keyword == voice::KEYWORD_CANCEL)
+    else if (keyword == voice::KEYWORD_TAKEOFF)
     {
-        cancelStart();
-        return;
+        request_voice_command(COMMAND_TAKEOFF, {VOICE_TAKEOFF_HEIGHT_M});
     }
-    if (keyword == voice::KEYWORD_STOP_MISSION)
+    else
     {
-        if (!can_stop())
-        {
-            notify(ToastModel::Kind::WARNING, VOICE_TITLE, QStringLiteral("目前沒有執行中的任務"));
-            return;
-        }
-        stopMission();
+        request_voice_command(COMMAND_LAND, {});
     }
 }
 

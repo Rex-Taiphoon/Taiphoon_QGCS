@@ -175,12 +175,15 @@ int main(int argc, char* argv[])
     QObject::connect(&bridge, &gcs::UiBridge::selectionChanged, &mission,
                      [&bridge, &mission]() { mission.set_selected_agent(bridge.selected_agent()); });
 
-    // 語音口令：只在按住 F2 或畫面按鈕時收音，口令交給 MissionController 處理
+    // 語音口令：只在按住 F2 或畫面按鈕時收音，口令交給 MissionController 倒數；
+    // 解鎖、起飛、降落倒數結束後與按鈕相同經 UiBridge 送往 GuardModule
     gcs::VoiceController voice;
     voice.initialize(gcs::voice::KeywordSpotter::default_voice_dir());
     app.installEventFilter(&voice);
     QObject::connect(&voice, &gcs::VoiceController::keyword_detected, &mission,
                      &gcs::MissionController::on_voice_keyword);
+    QObject::connect(&mission, &gcs::MissionController::flight_command_requested, &bridge,
+                     &gcs::UiBridge::sendCommand);
 
     // 影像串流：URL 設定與面板狀態；播放器由 QML 依機隊清單逐台建立（ADR-0019）
 #ifdef GCS_HAS_VIDEO

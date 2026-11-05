@@ -15,6 +15,7 @@ Taiphoon_QGCS 以 MIT 授權發布，並包含下列第三方元件。各元件�
 | sherpa-onnx（C API） | 1.13.8 | Apache-2.0 | 官方預編譯動態函式庫，執行期載入（語音口令；iOS 版不含） | https://github.com/k2-fsa/sherpa-onnx |
 | ONNX Runtime | 1.28.2 | MIT | 隨 sherpa-onnx 預編譯檔附帶的動態函式庫 | https://github.com/microsoft/onnxruntime |
 | 中文關鍵詞模型 sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01 | 2024-01-01 | Apache-2.0（模型說明）；訓練資料 WenetSpeech 已取得使用許可 | 未修改的模型檔（encoder／decoder／joiner、tokens.txt） | https://github.com/k2-fsa/sherpa-onnx/releases/tag/kws-models |
+| GTCRN 語音降噪模型 gtcrn_simple.onnx | 2024 | MIT | 未修改的模型檔，吵雜環境中先降噪再辨識語音口令 | https://github.com/Xiaobin-Rong/gtcrn |
 
 ## Qt（LGPL-3.0）
 

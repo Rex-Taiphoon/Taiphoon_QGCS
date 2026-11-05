@@ -10,8 +10,9 @@
  *     確認列在選取目標改變、命令不再可用或逾時後自動清除，EXEC 時再核對目標與可用狀態。
  *     編隊點選隊形後展開參數，同一列右側出現閃爍的 CONFIRM，按下即暫存到確認列。
  * L2：Arm 與強制重新啟動飛控（PX4 狀態不明時）需滑桿。面板底部常駐顯示解鎖狀態與 DISARM。
- * MISSION：單機航點任務與語音口令；開始任務一樣先進確認列：按鈕開始需按 EXEC 或說「確認」，
- *          語音「請執行任務」倒數 5 秒後自動開始（可取消或提前 EXEC）。狀態與規則皆取自 MissionController。
+ * MISSION：單機航點任務與語音口令；按鈕開始任務先進確認列，需按 EXEC。
+ *          語音口令（解鎖、起飛 3 m、巡邏、降落）只限單機，倒數 5 秒後自動執行，可按 CLR／Esc 取消或提前 EXEC；
+ *          解鎖、起飛、降落倒數結束後與按鈕相同經 UiBridge 與 GuardModule 送出。狀態與規則皆取自 MissionController。
  */
 import QtQuick
 import QtQuick.Controls
@@ -156,12 +157,14 @@ Rectangle {
         }
     }
 
-    // 語音「請執行任務」也會出現確認列：展開面板並切到任務頁，讓操作人員看到要確認的內容
+    // 語音口令與任務開始都會出現確認列：展開面板讓操作人員看到倒數；航點任務另切到任務頁
     Connections {
         target: root.mission
         function onConfirmRequested() {
             root.isOpen = true
-            root.activeTab = root.missionTab
+            if (root.mission.isMissionPending) {
+                root.activeTab = root.missionTab
+            }
         }
     }
 
@@ -829,7 +832,7 @@ Rectangle {
                         // 狀態不明時 Agent 可能仍在執行，也要能停止
                         enabled: root.mission.canStop
                         tag: enabled ? qsTr("停在原地") : qsTr("未執行")
-                        tooltip: qsTr("停止航點任務，要求無人機停在目前位置懸停（也可說「停止任務」）")
+                        tooltip: qsTr("停止航點任務，要求無人機停在目前位置懸停")
                         onClicked: root.mission.stopMission()
                     }
                     Label {
@@ -847,48 +850,81 @@ Rectangle {
                     }
                     Divider {}
 
-                    // 語音口令：按住 PTT 或 F2 說話，放開後辨識
+                    // 語音口令：按住麥克風按鈕或 F2 說話，放開後辨識；口令清單在滑鼠移到這一列時顯示
                     RowLayout {
+                        id: voiceRow
+
+                        /// 尚未使用過語音：顯示操作提示（含麥克風圖示）
+                        readonly property bool isIdle: root.voice.isAvailable && !root.voice.isListening
+                                                       && root.voice.lastResult.length === 0
+
                         spacing: Theme.spaceSm
                         Layout.fillWidth: true
                         Layout.leftMargin: Theme.spaceLg
                         Layout.rightMargin: Theme.spaceMd
                         Layout.preferredHeight: 44
 
+                        HoverHandler { id: voiceHover }
+                        ToolTip.visible: voiceHover.hovered
+                        ToolTip.delay: 300
+                        ToolTip.text: !root.voice.isAvailable
+                                      ? root.voice.unavailableReason
+                                      : qsTr("口令（只限單機，倒數 5 秒後執行）\n"
+                                             + "解鎖：ARM\n"
+                                             + "起飛：起飛至 3 m\n"
+                                             + "巡邏：開始航點任務\n"
+                                             + "降落：LAND\n"
+                                             + "倒數中按 CLR 或 Esc 取消")
+
                         FieldLabel { text: "VOICE" }
+                        // 提示文字中的麥克風以向量圖示呈現，不依賴平台字型是否含 Emoji
+                        RowLayout {
+                            visible: voiceRow.isIdle
+                            spacing: Theme.spaceXs
+                            Layout.fillWidth: true
+
+                            Label {
+                                text: qsTr("按住 F2 或")
+                                color: Theme.textBody
+                                font.pixelSize: Theme.fontSmall
+                            }
+                            Icon {
+                                name: "mic"
+                                color: Theme.accent
+                                lineWidth: 1.8
+                                Layout.preferredWidth: 14
+                                Layout.preferredHeight: 14
+                            }
+                            Label {
+                                text: qsTr("下達指令")
+                                color: Theme.textBody
+                                font.pixelSize: Theme.fontSmall
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
                         Label {
+                            visible: !voiceRow.isIdle
                             text: !root.voice.isAvailable ? qsTr("不可用")
                                                           : (root.voice.isListening ? qsTr("聆聽中…")
-                                                                                    : (root.voice.lastResult
-                                                                                       || qsTr("按住 F2 或 PTT 說話")))
+                                                                                    : root.voice.lastResult)
                             color: !root.voice.isAvailable ? Theme.textDim
                                                            : (root.voice.isListening ? Theme.caution : Theme.textBody)
                             font.pixelSize: Theme.fontSmall
                             elide: Text.ElideRight
                             Layout.fillWidth: true
-                            ToolTip.visible: voiceHover.hovered && !root.voice.isAvailable
-                            ToolTip.text: root.voice.unavailableReason
-                            HoverHandler { id: voiceHover }
                         }
                         ScratchButton {
-                            text: "PTT"
+                            iconName: "mic"
                             accentColor: root.voice.isListening ? Theme.background : Theme.accent
                             isFilled: root.voice.isListening
                             fillColor: Theme.caution
                             enabled: root.voice.isAvailable
-                            tooltip: qsTr("按住說出口令（也可按住 F2）")
-                            Accessible.name: qsTr("按住說話")
+                            Accessible.name: qsTr("按住下達語音指令")
                             onPressed: root.voice.beginListening()
                             onReleased: root.voice.endListening()
                             onCanceled: root.voice.endListening()
                         }
-                    }
-                    Label {
-                        text: qsTr("口令：請執行任務（倒數 5 秒自動開始，可說取消）；停止任務")
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontLabel
-                        Layout.leftMargin: Theme.spaceLg
-                        Layout.bottomMargin: Theme.spaceSm
                     }
                 }
             }
@@ -936,8 +972,8 @@ Rectangle {
                 }
             }
 
-            // 航點任務確認列：按鈕暫存於此，按 EXEC 或說「確認」才開始，10 秒未確認自動取消；
-            // 語音「請執行任務」則倒數 5 秒自動開始，期間可按 CLR、Esc 或說「取消」，按 EXEC 提前開始
+            // 航點任務與語音口令確認列：按鈕開始任務暫存於此，按 EXEC 才開始，10 秒未確認自動取消；
+            // 語音口令則倒數 5 秒自動執行，期間可按 CLR 或 Esc 取消，按 EXEC 提前執行
             Rectangle {
                 visible: root.mission.isConfirmPending
                 color: Theme.cautionInset
@@ -968,12 +1004,12 @@ Rectangle {
                         font.family: Theme.fontMono
                         font.pixelSize: Theme.fontTitle
                         font.bold: true
-                        Accessible.name: qsTr("%1 秒後開始").arg(root.mission.autoStartSeconds)
+                        Accessible.name: qsTr("%1 秒後執行").arg(root.mission.autoStartSeconds)
                     }
                     ScratchButton {
                         text: "CLR"
                         accentColor: Theme.textMuted
-                        tooltip: qsTr("取消航點任務（或按 Esc、說「取消」）")
+                        tooltip: root.mission.isAutoStartPending ? qsTr("取消（或按 Esc）") : qsTr("取消航點任務")
                         onClicked: root.mission.cancelStart()
                     }
                     ScratchButton {
@@ -981,9 +1017,8 @@ Rectangle {
                         accentColor: Theme.background
                         isFilled: true
                         fillColor: Theme.caution
-                        tooltip: root.mission.isAutoStartPending ? qsTr("立即開始航點任務（不等倒數）")
-                                                                 : qsTr("開始航點任務（或說「確認」）")
-                        Accessible.name: qsTr("執行航點任務")
+                        tooltip: root.mission.isAutoStartPending ? qsTr("立即執行（不等倒數）") : qsTr("開始航點任務")
+                        Accessible.name: root.mission.confirmText
                         onClicked: root.mission.confirmStart()
                     }
                 }

@@ -1,6 +1,6 @@
 /**
  * @file SettingsDialog.qml
- * @brief 進階設定：自動跟隨、網路設定、地圖顯示位置、Agent 關閉、除錯工具與結束 GCS（網頁版 SettingsPanel）
+ * @brief 進階設定：自動跟隨、航點顯示、網路設定、地圖顯示位置、Agent 關閉、除錯工具與結束 GCS（網頁版 SettingsPanel）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
@@ -100,6 +100,29 @@ Popup {
                         Label { text: qsTr("自動跟隨選中無人機"); color: Theme.textBody; font.pixelSize: Theme.fontBase }
                         Label {
                             text: qsTr("選取單一無人機時，地圖自動置中於其位置")
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSmall
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+
+                // 航點顯示：只影響地圖，航點與任務照常保留
+                RowLayout {
+                    spacing: 12
+                    Layout.fillWidth: true
+                    CheckBox {
+                        checked: root.settings.showWaypoints
+                        onToggled: root.settings.showWaypoints = checked
+                        Accessible.name: qsTr("地圖顯示任務航點")
+                    }
+                    ColumnLayout {
+                        spacing: 2
+                        Layout.fillWidth: true
+                        Label { text: qsTr("地圖顯示任務航點"); color: Theme.textBody; font.pixelSize: Theme.fontBase }
+                        Label {
+                            text: qsTr("關閉後地圖不顯示航點與路線，任務仍照常執行；在任務頁編輯航點時仍會顯示")
                             color: Theme.textMuted
                             font.pixelSize: Theme.fontSmall
                             wrapMode: Text.WordWrap

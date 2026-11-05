@@ -31,6 +31,8 @@ class AppSettings : public QObject
     // 介面設定（網頁版 settingsStore）
     Q_PROPERTY(bool autoFollow READ auto_follow WRITE set_auto_follow NOTIFY changed)
     Q_PROPERTY(bool showAttitude READ show_attitude WRITE set_show_attitude NOTIFY changed)
+    /// 地圖是否顯示航點任務的航點與路線（編輯航點時一律顯示）
+    Q_PROPERTY(bool showWaypoints READ show_waypoints WRITE set_show_waypoints NOTIFY changed)
     // 飛行控制記憶值（網頁版 CommandPanel 的 localStorage）
     Q_PROPERTY(double takeoffHeight READ takeoff_height WRITE set_takeoff_height NOTIFY changed)
     Q_PROPERTY(double yawDegrees READ yaw_degrees WRITE set_yaw_degrees NOTIFY changed)
@@ -68,6 +70,8 @@ public:
     void set_auto_follow(bool is_enabled);
     bool show_attitude() const;
     void set_show_attitude(bool is_enabled);
+    bool show_waypoints() const;
+    void set_show_waypoints(bool is_enabled);
 
     double takeoff_height() const;
     void set_takeoff_height(double value);

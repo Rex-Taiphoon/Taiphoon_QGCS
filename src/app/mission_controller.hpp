@@ -6,8 +6,10 @@
  *
  * 位於主執行緒。航點以 Agent 回報的 WGS84 座標保存，提供給 QML 時才依地圖顯示原點換算；
  * 地圖點選的位置先反向換算再保存，任務不受顯示原點影響。
- * 按鈕開始任務需經確認：先暫存，10 秒內按確認或說「確認」才送給 MissionModule。
- * 語音「請執行任務」改為倒數：辨識後倒數 5 秒自動開始，期間可取消或按 EXEC 提前開始。
+ * 按鈕開始任務需經確認：先暫存，10 秒內按 EXEC 才送給 MissionModule。
+ * 語音口令（解鎖、起飛、巡邏、降落）一律倒數：辨識後倒數 5 秒自動執行，期間可按 CLR／Esc 取消或按 EXEC 提前執行。
+ * 「巡邏」開始航點任務；其餘三個口令在倒數結束時以 flight_command_requested 交給 UiBridge::sendCommand，
+ * 與按鈕相同經 GuardModule 驗證後才發布，本類別不直接產生 Agent 命令。
  * 只支援單機；航點不保存，關閉程式或該機離線即清除。
  */
 #pragma once
@@ -47,6 +49,7 @@ class MissionController : public QObject
     Q_PROPERTY(bool canStop READ can_stop NOTIFY changed)
     Q_PROPERTY(QString statusText READ status_text NOTIFY changed)
     Q_PROPERTY(bool isConfirmPending READ is_confirm_pending NOTIFY changed)
+    Q_PROPERTY(bool isMissionPending READ is_mission_pending NOTIFY changed)
     Q_PROPERTY(QString confirmText READ confirm_text NOTIFY changed)
     Q_PROPERTY(bool isAutoStartPending READ is_auto_start_pending NOTIFY changed)
     Q_PROPERTY(int autoStartSeconds READ auto_start_seconds NOTIFY countdownChanged)
@@ -54,19 +57,19 @@ class MissionController : public QObject
 public:
     /// 開始任務的確認時限（毫秒）
     static constexpr int CONFIRM_TIMEOUT_MS = 10000;
-    /// 語音「請執行任務」到自動開始的倒數（毫秒）
+    /// 語音口令到自動執行的倒數（毫秒）
     static constexpr int AUTO_START_DELAY_MS = 5000;
     /// 倒數秒數的更新間隔（毫秒）
     static constexpr int COUNTDOWN_TICK_MS = 200;
-    /// 語音「確認」需在確認提示出現後至少這麼久才接受（毫秒）：同一句話同時說出兩個口令不算確認
-    static constexpr int VOICE_CONFIRM_MIN_DELAY_MS = 800;
     /// 沒有高度資料時新航點的高度（公尺）
     static constexpr double DEFAULT_ALTITUDE_M = 5.0;
+    /// 語音「起飛」的目標高度（公尺）；不沿用面板上的起飛高度，口令的結果才固定可預期
+    static constexpr double VOICE_TAKEOFF_HEIGHT_M = 3.0;
 
     /**
      * @brief 建立控制器
      * @param confirm_timeout_ms 確認時限（毫秒），測試可縮短
-     * @param auto_start_delay_ms 語音開始的倒數（毫秒），測試可縮短
+     * @param auto_start_delay_ms 語音口令的倒數（毫秒），測試可縮短
      * @param parent 父物件
      */
     explicit MissionController(int confirm_timeout_ms = CONFIRM_TIMEOUT_MS,
@@ -95,8 +98,10 @@ public:
     bool can_stop() const;
     QString status_text() const;
     bool is_confirm_pending() const { return pending_.has_value(); }
+    /** @brief 暫存的是否為航點任務（不是語音飛行命令） @return 是否為任務 */
+    bool is_mission_pending() const { return pending_.has_value() && pending_->command.isEmpty(); }
     QString confirm_text() const;
-    /** @brief 暫存的任務是否為語音倒數（時間到自動開始） @return 是否倒數中 */
+    /** @brief 暫存的動作是否為語音倒數（時間到自動執行） @return 是否倒數中 */
     bool is_auto_start_pending() const { return pending_.has_value() && pending_->is_auto_start; }
     /** @brief 自動開始前剩餘的秒數（無條件進位） @return 秒數；未倒數時為 0 */
     int auto_start_seconds() const;
@@ -142,10 +147,10 @@ public:
     /** @brief 要求開始任務：條件符合時暫存，等待確認 */
     Q_INVOKABLE void requestStart();
 
-    /** @brief 確認開始暫存的任務（語音倒數中則提前開始） */
+    /** @brief 確認執行暫存的任務或語音命令（語音倒數中則提前執行） */
     Q_INVOKABLE void confirmStart();
 
-    /** @brief 取消暫存的任務 */
+    /** @brief 取消暫存的任務或語音命令 */
     Q_INVOKABLE void cancelStart();
 
     /** @brief 停止選取單機的任務（要求停在目前位置） */
@@ -165,7 +170,7 @@ public slots:
     void on_fleet_changed(const gcs::FleetSnapshot& snapshot);
 
     /**
-     * @brief 語音辨識到的口令
+     * @brief 語音辨識到的口令：解鎖、起飛、巡邏、降落一律只限單機，條件符合時開始倒數
      * @param keyword voice_keywords.hpp 定義的口令名稱
      */
     void on_voice_keyword(const QString& keyword);
@@ -174,22 +179,55 @@ signals:
     void changed();
     /** @brief 自動開始的剩餘秒數改變 */
     void countdownChanged();
-    /** @brief 確認提示或倒數出現（QML 可據此切到任務頁） */
+    /** @brief 確認提示或倒數出現（QML 可據此展開面板） */
     void confirmRequested();
     /** @brief 開始任務；只連到 MissionModule::start_mission */
     void mission_start_requested(const gcs::MissionPlan& plan);
     /** @brief 停止任務；只連到 MissionModule::stop_mission */
     void mission_stop_requested(const QString& agent_ns);
+    /**
+     * @brief 語音倒數結束的飛行命令（目前選取的單機）；只連到 UiBridge::sendCommand，由其送往 GuardModule
+     * @param command 命令名稱（ARM、TAKEOFF、MODE_LAND）
+     * @param params 數值參數
+     */
+    void flight_command_requested(const QString& command, const QVariantList& params);
 
 private:
-    /// 等待確認的任務
+    /// 等待確認或倒數中的動作
     struct PendingStart
     {
+        /// 航點任務；語音飛行命令只使用 plan.agent
         MissionPlan plan;
+        /// 語音飛行命令名稱；空字串表示航點任務
+        QString command;
+        QVariantList params;
         qint64 requested_ms = 0;
-        /// 語音開始：時間到自動開始，而不是取消
+        /// 語音口令：時間到自動執行，而不是取消
         bool is_auto_start = false;
     };
+
+    /**
+     * @brief 語音飛行命令：條件符合時開始倒數
+     * @param command 命令名稱
+     * @param params 數值參數
+     */
+    void request_voice_command(const QString& command, const QVariantList& params);
+
+    /**
+     * @brief 選取單機目前是否可送出飛行命令（與按鈕相同依 Guard 規則判斷，最終仍由 GuardModule 驗證）
+     * @param command 命令名稱
+     * @return 不能送出的原因；空字串表示可以送出
+     */
+    QString command_block_reason(const QString& command) const;
+
+    /**
+     * @brief 開始倒數或等待確認
+     * @param pending 暫存的動作
+     */
+    void start_pending(const PendingStart& pending);
+
+    /** @brief 航點改變時只取消暫存的航點任務，語音飛行命令不受影響 */
+    void clear_pending_mission();
 
     /**
      * @brief 條件符合時暫存任務

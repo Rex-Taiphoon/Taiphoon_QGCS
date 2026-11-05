@@ -5,8 +5,8 @@
  * @date 2026-10-26
  *
  * 關鍵詞格式為「拼音 token（聲母與帶聲調韻母，以空白分隔）@口令」，每行一種念法；
- * token 必須存在於模型的 tokens.txt。同一口令可列多種念法，台灣口語常把捲舌音說成不捲舌，
- * 因此「執」「止」另列 z 開頭的念法。
+ * token 必須存在於模型的 tokens.txt。口令只有兩個字，容易被一般談話誤觸，
+ * 因此四個口令的聲母與韻母刻意互不相同，誤觸則由收到口令後的 5 秒倒數讓操作人員取消。
  */
 #pragma once
 
@@ -15,21 +15,19 @@
 namespace gcs::voice
 {
 
-/// 開始航點任務（需再確認）
-inline const QString KEYWORD_START_MISSION = QStringLiteral("請執行任務");
-/// 停止航點任務並懸停
-inline const QString KEYWORD_STOP_MISSION = QStringLiteral("停止任務");
-/// 確認待執行的任務
-inline const QString KEYWORD_CONFIRM = QStringLiteral("確認");
-/// 取消待執行的任務
-inline const QString KEYWORD_CANCEL = QStringLiteral("取消");
+/// 解鎖（ARM）
+inline const QString KEYWORD_ARM = QStringLiteral("解鎖");
+/// 起飛到預設高度
+inline const QString KEYWORD_TAKEOFF = QStringLiteral("起飛");
+/// 開始航點任務
+inline const QString KEYWORD_PATROL = QStringLiteral("巡邏");
+/// 降落（MODE_LAND）
+inline const QString KEYWORD_LAND = QStringLiteral("降落");
 
 /// 送給 sherpa-onnx 的關鍵詞定義（UTF-8）
-inline constexpr const char* KEYWORD_DEFINITIONS = "q ǐng zh í x íng r èn w ù @請執行任務\n"
-                                                   "q ǐng z í x íng r èn w ù @請執行任務\n"
-                                                   "t íng zh ǐ r èn w ù @停止任務\n"
-                                                   "t íng z ǐ r èn w ù @停止任務\n"
-                                                   "q uè r èn @確認\n"
-                                                   "q ǔ x iāo @取消\n";
+inline constexpr const char* KEYWORD_DEFINITIONS = "j iě s uǒ @解鎖\n"
+                                                   "q ǐ f ēi @起飛\n"
+                                                   "x ún l uó @巡邏\n"
+                                                   "j iàng l uò @降落\n";
 
 }  // namespace gcs::voice

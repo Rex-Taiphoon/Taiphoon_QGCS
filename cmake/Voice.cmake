@@ -6,9 +6,10 @@
 #
 # 程式以 QLibrary 在執行期載入 sherpa-onnx，連結期不依賴它；檔案放在建置目錄的 bin/voice/：
 #   bin/voice/            sherpa-onnx C API 與 onnxruntime 動態函式庫
-#   bin/voice/model/      關鍵詞模型（encoder／decoder／joiner 與 tokens.txt）
+#   bin/voice/model/      關鍵詞模型（encoder／decoder／joiner 與 tokens.txt）與 GTCRN 降噪模型
 # 安裝規則見 Packaging.cmake（macOS 的動態函式庫放 bundle 的 Frameworks）；缺少時語音口令停用，其餘功能不受影響。
-# 已下載過模型時可設定 GCS_KWS_MODEL_URL 為本機檔案路徑（例如 C:/Downloads/xxx.tar.bz2），避免重複下載。
+# 已下載過模型時可設定 GCS_KWS_MODEL_URL／GCS_DENOISER_MODEL_URL 為本機檔案路徑（例如 C:/Downloads/xxx.tar.bz2），
+# 避免重複下載。
 # =============================================================================
 option(GCS_ENABLE_VOICE "建置語音口令（sherpa-onnx 關鍵詞辨識）" ON)
 
@@ -58,6 +59,33 @@ if(GCS_ENABLE_VOICE)
     )
     FetchContent_MakeAvailable(sherpa_onnx_prebuilt kws_model)
 
+    # GTCRN 串流降噪模型（MIT）：吵雜環境先降噪再辨識；單一 .onnx 檔，雜湊為官方檔案下載後計算
+    set(GCS_DENOISER_MODEL_URL
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/gtcrn_simple.onnx"
+        CACHE STRING "降噪模型下載位置；可改為本機已下載檔案的路徑")
+    set(GCS_DENOISER_MODEL_FILE "${CMAKE_BINARY_DIR}/_deps/gtcrn/gtcrn_simple.onnx")
+    set(GCS_DENOISER_MODEL_SHA256 "e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534")
+    if(NOT EXISTS "${GCS_DENOISER_MODEL_FILE}")
+        if(EXISTS "${GCS_DENOISER_MODEL_URL}")
+            file(COPY_FILE "${GCS_DENOISER_MODEL_URL}" "${GCS_DENOISER_MODEL_FILE}")
+            file(SHA256 "${GCS_DENOISER_MODEL_FILE}" GCS_DENOISER_ACTUAL_SHA256)
+            if(NOT GCS_DENOISER_ACTUAL_SHA256 STREQUAL GCS_DENOISER_MODEL_SHA256)
+                file(REMOVE "${GCS_DENOISER_MODEL_FILE}")
+                message(FATAL_ERROR "降噪模型雜湊不符：${GCS_DENOISER_MODEL_URL}")
+            endif()
+        else()
+            file(DOWNLOAD "${GCS_DENOISER_MODEL_URL}" "${GCS_DENOISER_MODEL_FILE}"
+                EXPECTED_HASH SHA256=${GCS_DENOISER_MODEL_SHA256}
+                STATUS GCS_DENOISER_MODEL_STATUS
+            )
+            list(GET GCS_DENOISER_MODEL_STATUS 0 GCS_DENOISER_MODEL_CODE)
+            if(NOT GCS_DENOISER_MODEL_CODE EQUAL 0)
+                file(REMOVE "${GCS_DENOISER_MODEL_FILE}")
+                message(FATAL_ERROR "下載降噪模型失敗：${GCS_DENOISER_MODEL_STATUS}")
+            endif()
+        endif()
+    endif()
+
     # -lib 預編譯檔只含動態函式庫；C API 標頭取自同一版本的原始碼標籤（只用其中的型別定義）
     set(GCS_SHERPA_ONNX_INCLUDE_DIR "${CMAKE_BINARY_DIR}/_deps/sherpa_onnx_include")
     set(GCS_SHERPA_ONNX_HEADER "${GCS_SHERPA_ONNX_INCLUDE_DIR}/sherpa-onnx/c-api/c-api.h")
@@ -91,6 +119,7 @@ if(GCS_ENABLE_VOICE)
         "${kws_model_SOURCE_DIR}/decoder-epoch-12-avg-2-chunk-16-left-64.onnx"
         "${kws_model_SOURCE_DIR}/joiner-epoch-12-avg-2-chunk-16-left-64.onnx"
         "${kws_model_SOURCE_DIR}/tokens.txt"
+        "${GCS_DENOISER_MODEL_FILE}"
     )
     # 安裝規則（Packaging.cmake）直接取用這兩份清單，不安裝建置目錄中可能殘留的其他檔案
     file(COPY ${GCS_SHERPA_ONNX_RUNTIME_LIBS} DESTINATION "${GCS_VOICE_RUNTIME_DIR}" FOLLOW_SYMLINK_CHAIN)

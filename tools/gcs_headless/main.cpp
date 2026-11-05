@@ -8,7 +8,7 @@
  * 以日誌輸出機隊、遙測摘要與命令回報。命令一律經 GuardModule.request_command 送出，
  * 預設不送出任何命令；--command 必須搭配 --allow-commands 才會執行。
  * 航點任務（--mission／--mission-relative）在命令之後開始；加上 --voice-wav 時改由語音檔觸發，
- * 與桌面程式相同經 MissionController 的確認流程，任務中的命令同樣經 Guard。
+ * 與桌面程式相同經 MissionController 的倒數流程；語音的解鎖、起飛、降落與任務中的命令同樣經 Guard。
  */
 #include "app/core_runtime.hpp"
 #include "app/mission_controller.hpp"
@@ -255,7 +255,7 @@ int main(int argc, char* argv[])
         QStringLiteral("同 --mission，航點改以開始時位置的北向公尺,東向公尺,高度表示"), QStringLiteral("spec"));
     const QCommandLineOption voice_wav_option(
         QStringLiteral("voice-wav"),
-        QStringLiteral("改由語音檔觸發航點任務：依序每 3 秒辨識一個 16 位元 PCM WAV，可重複"), QStringLiteral("file"));
+        QStringLiteral("改由語音檔觸發航點任務（巡邏）或解鎖、起飛、降落：依序每 3 秒辨識一個 16 位元 PCM WAV，可重複"), QStringLiteral("file"));
     parser.addOptions({domain_option, interface_option, peer_option, no_multicast_option, participant_index_option,
                        external_address_option, duration_option, warmup_option, command_option, allow_commands_option,
                        shutdown_option, mission_option, mission_relative_option, voice_wav_option});
@@ -458,6 +458,23 @@ int main(int argc, char* argv[])
                                   runtime.command(), runtime.lifecycle(), runtime.mission()};
         wire_mission(modules, &mission_controller);
         mission_controller.set_selected_agent(mission_spec.agent);
+        // 語音「解鎖」「起飛」「降落」倒數結束：與桌面程式的 UiBridge 相同，一律經 Guard 送出
+        QObject::connect(&mission_controller, &MissionController::flight_command_requested, &receiver,
+                         [&runtime, agent = mission_spec.agent](const QString& command, const QVariantList& params)
+                         {
+                             CommandRequest request;
+                             request.agent = agent;
+                             request.command = command;
+                             for (const QVariant& value : params)
+                             {
+                                 bool is_number = false;
+                                 const double number = value.toDouble(&is_number);
+                                 request.params.push_back(is_number ? number : std::nan(""));
+                             }
+                             print_line(QStringLiteral("[request] %1 %2").arg(request.agent, request.command));
+                             GuardModule* guard = runtime.guard();
+                             QMetaObject::invokeMethod(guard, [guard, request]() { guard->request_command(request); });
+                         });
         QObject::connect(runtime.mission(), &MissionModule::mission_status_changed, &receiver,
                          [](const MissionStatus& status)
                          {

@@ -134,8 +134,10 @@ install(FILES "${PROJECT_SOURCE_DIR}/resources/fonts/OFL.txt" DESTINATION ${GCS_
 # Noto Sans TC 字型（OFL-1.1）內嵌於程式資源，授權條文另附
 install(FILES "${PROJECT_SOURCE_DIR}/resources/fonts/NotoSansTC-OFL.txt" DESTINATION ${GCS_LICENSE_DIR}/noto-sans-tc
     RENAME OFL.txt COMPONENT ${GCS_INSTALL_COMPONENT})
-# 語音口令：sherpa-onnx（Apache-2.0）與 ONNX Runtime（MIT）
+# 語音口令：sherpa-onnx（Apache-2.0）、ONNX Runtime（MIT）與 GTCRN 降噪模型（MIT）
 if(GCS_HAS_SHERPA_ONNX)
+    install(FILES "${PROJECT_SOURCE_DIR}/packaging/licenses/gtcrn-LICENSE.txt"
+        DESTINATION ${GCS_LICENSE_DIR}/gtcrn RENAME LICENSE.txt COMPONENT ${GCS_INSTALL_COMPONENT})
     install(FILES "${PROJECT_SOURCE_DIR}/packaging/licenses/sherpa-onnx-LICENSE.txt"
         DESTINATION ${GCS_LICENSE_DIR}/sherpa-onnx RENAME LICENSE.txt COMPONENT ${GCS_INSTALL_COMPONENT})
     install(FILES "${PROJECT_SOURCE_DIR}/packaging/licenses/onnxruntime-LICENSE.txt"

@@ -1,6 +1,6 @@
 /**
  * @file test_mission_controller.cpp
- * @brief 航點任務介面：航點編輯、顯示原點換算、開始前確認、語音倒數、語音口令與狀態不明時停止
+ * @brief 航點任務介面：航點編輯、顯示原點換算、開始前確認、語音口令倒數（巡邏、解鎖、起飛、降落）與狀態不明時停止
  * @author Taiphoon GCS Team
  * @date 2026-10-26
  */
@@ -69,6 +69,7 @@ protected:
     MissionController controller_{SHORT_CONFIRM_MS, SHORT_AUTO_START_MS};
     QSignalSpy started_{&controller_, &MissionController::mission_start_requested};
     QSignalSpy stopped_{&controller_, &MissionController::mission_stop_requested};
+    QSignalSpy commands_{&controller_, &MissionController::flight_command_requested};
 };
 
 }  // namespace
@@ -172,15 +173,15 @@ TEST_F(MissionControllerTest, VoiceStartIsSingleAgentOnlyAndStartsAfterCountdown
     controller_.addWaypoint(25.0001, 121.5);
 
     controller_.set_selected_agent(ALL_AGENTS_TARGET);
-    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
+    controller_.on_voice_keyword(voice::KEYWORD_PATROL);
     EXPECT_FALSE(controller_.is_confirm_pending());
     controller_.set_selected_agent(AGENT_1);
 
     QSignalSpy countdown(&controller_, &MissionController::countdownChanged);
-    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
+    controller_.on_voice_keyword(voice::KEYWORD_PATROL);
     ASSERT_TRUE(controller_.is_auto_start_pending());
     EXPECT_EQ(controller_.auto_start_seconds(), SHORT_AUTO_START_MS / 1000);
-    EXPECT_TRUE(controller_.confirm_text().contains(QStringLiteral("自動")));
+    EXPECT_TRUE(controller_.confirm_text().contains(QStringLiteral("巡邏")));
     EXPECT_EQ(started_.count(), 0);
 
     // 倒數結束自動開始，不需要再按 EXEC 或說「確認」
@@ -196,17 +197,15 @@ TEST_F(MissionControllerTest, VoiceCountdownCanBeCancelledOrSkipped)
     controller_.addWaypoint(25.0001, 121.5);
 
     // CLR：倒數結束後也不會開始
-    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
+    controller_.on_voice_keyword(voice::KEYWORD_PATROL);
     controller_.cancelStart();
     EXPECT_FALSE(controller_.is_confirm_pending());
     QTest::qWait(SHORT_AUTO_START_MS + TIMER_MARGIN_MS / 2);
     EXPECT_EQ(started_.count(), 0);
 
-    // 同一句話接著說「確認」不算提前開始，仍照常倒數
-    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
-    controller_.on_voice_keyword(voice::KEYWORD_CONFIRM);
-    EXPECT_EQ(started_.count(), 0);
+    controller_.on_voice_keyword(voice::KEYWORD_PATROL);
     EXPECT_TRUE(controller_.is_auto_start_pending());
+    EXPECT_TRUE(controller_.is_mission_pending());
 
     // EXEC 提前開始
     controller_.confirmStart();
@@ -220,18 +219,18 @@ TEST_F(MissionControllerTest, VoiceCountdownStopsWhenTargetStateOrWaypointsChang
 {
     controller_.addWaypoint(25.0001, 121.5);
 
-    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
+    controller_.on_voice_keyword(voice::KEYWORD_PATROL);
     controller_.on_state_updated(AGENT_1, state_at(FlightState::MOVING));
     EXPECT_FALSE(controller_.is_confirm_pending());
     controller_.on_state_updated(AGENT_1, state_at(FlightState::HOVER));
 
-    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
+    controller_.on_voice_keyword(voice::KEYWORD_PATROL);
     controller_.set_selected_agent(AGENT_2);
     EXPECT_FALSE(controller_.is_confirm_pending());
     controller_.set_selected_agent(AGENT_1);
 
     // 倒數中改航點：倒數的是舊航線，直接取消
-    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
+    controller_.on_voice_keyword(voice::KEYWORD_PATROL);
     controller_.addWaypoint(25.0002, 121.5);
     EXPECT_FALSE(controller_.is_confirm_pending());
 
@@ -254,17 +253,98 @@ TEST_F(MissionControllerTest, ButtonStartStillNeedsConfirmation)
     EXPECT_EQ(started_.count(), 0);
 }
 
-TEST_F(MissionControllerTest, VoiceCancelAndStop)
+TEST_F(MissionControllerTest, VoiceFlightCommandsCountDownThenRequestCommand)
 {
-    controller_.addWaypoint(25.0001, 121.5);
-    controller_.on_voice_keyword(voice::KEYWORD_START_MISSION);
-    controller_.on_voice_keyword(voice::KEYWORD_CANCEL);
+    // 解鎖：已落地、未解鎖、Offboard
+    controller_.on_state_updated(AGENT_1, make_state(FlightState::OFFBOARD_ACTIVE, false, true));
+    controller_.on_voice_keyword(voice::KEYWORD_ARM);
+    ASSERT_TRUE(controller_.is_auto_start_pending());
+    EXPECT_FALSE(controller_.is_mission_pending());
+    EXPECT_TRUE(controller_.confirm_text().contains(QStringLiteral("解鎖")));
+    EXPECT_EQ(commands_.count(), 0);
+    QTRY_COMPARE_WITH_TIMEOUT(commands_.count(), 1, SHORT_AUTO_START_MS + TIMER_MARGIN_MS);
+    EXPECT_EQ(commands_.takeFirst().at(0).toString(), QStringLiteral("ARM"));
+
+    // 起飛：已解鎖後固定 3 公尺，不沿用面板高度
+    controller_.on_state_updated(AGENT_1, make_state(FlightState::ARMED, true, true));
+    controller_.on_voice_keyword(voice::KEYWORD_TAKEOFF);
+    ASSERT_TRUE(controller_.is_auto_start_pending());
+    controller_.confirmStart();
+    ASSERT_EQ(commands_.count(), 1);
+    const QList<QVariant> takeoff = commands_.takeFirst();
+    EXPECT_EQ(takeoff.at(0).toString(), QStringLiteral("TAKEOFF"));
+    const QVariantList params = takeoff.at(1).toList();
+    ASSERT_EQ(params.size(), 1);
+    EXPECT_NEAR(params.at(0).toDouble(), MissionController::VOICE_TAKEOFF_HEIGHT_M, 1e-9);
+
+    // 降落：懸停中
+    controller_.on_state_updated(AGENT_1, state_at(FlightState::HOVER));
+    controller_.on_voice_keyword(voice::KEYWORD_LAND);
+    controller_.confirmStart();
+    ASSERT_EQ(commands_.count(), 1);
+    EXPECT_EQ(commands_.takeFirst().at(0).toString(), QStringLiteral("MODE_LAND"));
+    EXPECT_EQ(started_.count(), 0);
+}
+
+TEST_F(MissionControllerTest, VoiceFlightCommandsNeedSingleAgentAndAllowedState)
+{
+    // 懸停中不能解鎖或起飛：只提示，不倒數
+    controller_.on_voice_keyword(voice::KEYWORD_ARM);
+    controller_.on_voice_keyword(voice::KEYWORD_TAKEOFF);
+    EXPECT_FALSE(controller_.is_confirm_pending());
+    EXPECT_EQ(toasts_.rowCount(), 2);
+
+    // 全體不支援語音口令
+    controller_.set_selected_agent(ALL_AGENTS_TARGET);
+    controller_.on_voice_keyword(voice::KEYWORD_LAND);
+    EXPECT_FALSE(controller_.is_confirm_pending());
+    controller_.set_selected_agent(AGENT_1);
+
+    // 未知口令（例如舊版的「確認」）忽略
+    controller_.on_voice_keyword(QStringLiteral("確認"));
     EXPECT_FALSE(controller_.is_confirm_pending());
 
-    // 沒有任務時說「停止任務」只提示
-    controller_.on_voice_keyword(voice::KEYWORD_STOP_MISSION);
-    EXPECT_EQ(stopped_.count(), 0);
+    QTest::qWait(SHORT_AUTO_START_MS + TIMER_MARGIN_MS / 2);
+    EXPECT_EQ(commands_.count(), 0);
+}
 
+TEST_F(MissionControllerTest, VoiceFlightCommandIsDroppedOnCancelSelectionOrStateChange)
+{
+    controller_.on_voice_keyword(voice::KEYWORD_LAND);
+    controller_.cancelStart();
+    EXPECT_FALSE(controller_.is_confirm_pending());
+
+    controller_.on_voice_keyword(voice::KEYWORD_LAND);
+    controller_.set_selected_agent(AGENT_2);
+    EXPECT_FALSE(controller_.is_confirm_pending());
+    controller_.set_selected_agent(AGENT_1);
+
+    // 倒數中開始降落（例如按鈕已送出）：狀態不再允許，取消
+    controller_.on_voice_keyword(voice::KEYWORD_LAND);
+    controller_.on_state_updated(AGENT_1, state_at(FlightState::LAND));
+    EXPECT_FALSE(controller_.is_confirm_pending());
+
+    // 修改航點不影響倒數中的飛行命令；新的口令取代前一個
+    controller_.on_state_updated(AGENT_1, state_at(FlightState::HOVER));
+    controller_.on_voice_keyword(voice::KEYWORD_PATROL);
+    EXPECT_FALSE(controller_.is_confirm_pending());
+    controller_.addWaypoint(25.0001, 121.5);
+    controller_.on_voice_keyword(voice::KEYWORD_PATROL);
+    EXPECT_TRUE(controller_.is_mission_pending());
+    controller_.on_voice_keyword(voice::KEYWORD_LAND);
+    EXPECT_FALSE(controller_.is_mission_pending());
+    controller_.addWaypoint(25.0002, 121.5);
+    EXPECT_TRUE(controller_.is_auto_start_pending());
+
+    QTest::qWait(SHORT_AUTO_START_MS + TIMER_MARGIN_MS / 2);
+    EXPECT_EQ(started_.count(), 0);
+    ASSERT_EQ(commands_.count(), 1);
+    EXPECT_EQ(commands_.takeFirst().at(0).toString(), QStringLiteral("MODE_LAND"));
+}
+
+TEST_F(MissionControllerTest, StopButtonWhileRunning)
+{
+    controller_.addWaypoint(25.0001, 121.5);
     MissionStatus status;
     status.agent = AGENT_1;
     status.phase = MissionPhase::MOVING;
@@ -276,7 +356,7 @@ TEST_F(MissionControllerTest, VoiceCancelAndStop)
     EXPECT_FALSE(controller_.can_edit());
     EXPECT_EQ(controller_.status_text(), status.message);
 
-    controller_.on_voice_keyword(voice::KEYWORD_STOP_MISSION);
+    controller_.stopMission();
     ASSERT_EQ(stopped_.count(), 1);
     EXPECT_EQ(stopped_.takeFirst().at(0).toString(), AGENT_1);
 }
@@ -361,7 +441,7 @@ TEST_F(MissionControllerTest, StartingShowsUploadingAndLostStillAllowsStop)
     EXPECT_EQ(controller_.start_block_reason(), QStringLiteral("上傳中"));
     EXPECT_TRUE(controller_.can_stop());
 
-    // 狀態不明：Agent 可能仍在執行，停止任務仍可按（按鈕與語音）
+    // 狀態不明：Agent 可能仍在執行，停止任務仍可按
     status.phase = MissionPhase::LOST;
     status.message = QStringLiteral("超過 5 秒沒有收到任務狀態，無法得知任務進度");
     controller_.on_mission_status(status);
@@ -370,13 +450,12 @@ TEST_F(MissionControllerTest, StartingShowsUploadingAndLostStillAllowsStop)
     EXPECT_TRUE(controller_.can_stop());
     EXPECT_TRUE(controller_.status_text().startsWith(QStringLiteral("狀態不明，Agent 繼續執行")));
     controller_.stopMission();
-    controller_.on_voice_keyword(voice::KEYWORD_STOP_MISSION);
-    EXPECT_EQ(stopped_.count(), 2);
+    EXPECT_EQ(stopped_.count(), 1);
 
     status.phase = MissionPhase::ABORTED;
     status.message = QStringLiteral("操作人員停止任務");
     controller_.on_mission_status(status);
     EXPECT_FALSE(controller_.can_stop());
     controller_.stopMission();
-    EXPECT_EQ(stopped_.count(), 2);
+    EXPECT_EQ(stopped_.count(), 1);
 }

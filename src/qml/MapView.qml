@@ -25,6 +25,8 @@ Item {
     /// 否則疊圖層停在上限而底圖繼續放大，機體間距不再隨縮放改變且與底圖錯位。
     /// 24 級約 1 公尺 118 像素（緯度 25 度），近距離編隊仍能分辨各機與航點
     readonly property real maximumZoom: 24
+    /// 是否顯示航點與路線：進階設定可關閉，編輯航點時一律顯示，否則看不到剛點下的位置
+    readonly property bool isWaypointVisible: settings.showWaypoints || mission.isEditing
 
     /**
      * @brief 將縮放層級限制在可用範圍
@@ -209,9 +211,10 @@ Item {
             }
         }
 
-        // 航點任務路線：選取機為青色，其他機淡化；位於無人機標記下方
+        // 航點任務路線：選取機為青色，其他機淡化；位於無人機標記下方。
+        // 進階設定可隱藏航點，編輯中一律顯示；以空模型隱藏，MapItemView 的 visible 不一定套用到地圖項目
         MapItemView {
-            model: root.mission.routes
+            model: root.isWaypointVisible ? root.mission.routes : []
             delegate: MapPolyline {
                 required property var modelData
 
@@ -223,7 +226,7 @@ Item {
 
         // 航點編號；目前要前往的航點以實心標示
         MapItemView {
-            model: root.mission.waypointMarkers
+            model: root.isWaypointVisible ? root.mission.waypointMarkers : []
             delegate: MapQuickItem {
                 id: waypointMarker
 

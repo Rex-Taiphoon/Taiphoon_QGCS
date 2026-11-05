@@ -69,8 +69,12 @@ TEST(AppSettingsTest, DefaultsAndRangeValidation)
     EXPECT_NEAR(settings.takeoff_height(), 8.5, EPSILON);
 
     settings.set_auto_follow(false);
+    EXPECT_TRUE(settings.show_waypoints());
+    settings.set_show_waypoints(false);
+    EXPECT_FALSE(settings.show_waypoints());
     settings.resetUiSettings();
     EXPECT_TRUE(settings.auto_follow());
+    EXPECT_TRUE(settings.show_waypoints());
     // 恢復預設值不影響飛行參數記憶
     EXPECT_NEAR(settings.takeoff_height(), 8.5, EPSILON);
 }
