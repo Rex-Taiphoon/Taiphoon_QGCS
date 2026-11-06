@@ -8,8 +8,8 @@
 
 #include "core/command_protocol.hpp"
 
-#include <QCollator>
 #include <QLoggingCategory>
+#include <QRegularExpression>
 
 #include <algorithm>
 #include <map>
@@ -27,6 +27,41 @@ namespace
 
 /// 尚未列入線上清單
 constexpr qint64 NOT_ONLINE = -1;
+
+/**
+ * @brief 取出 uav_N_agent 的機號
+ * @param agent Agent 命名空間
+ * @return 機號；格式不符時為 -1
+ */
+qint64 agent_number(const QString& agent)
+{
+    static const QRegularExpression PATTERN(QStringLiteral("^uav_([0-9]+)_agent$"));
+    const QRegularExpressionMatch match = PATTERN.match(agent);
+    bool is_ok = false;
+    const qint64 number = match.hasMatch() ? match.captured(1).toLongLong(&is_ok) : -1;
+    return is_ok ? number : -1;
+}
+
+/**
+ * @brief 依機號排序（uav_2 在 uav_10 之前），不依賴系統語系；格式不符者排在後面並依字串排序
+ * @param a 第一個 Agent
+ * @param b 第二個 Agent
+ * @return a 是否排在 b 之前
+ */
+bool is_agent_before(const QString& a, const QString& b)
+{
+    const qint64 number_a = agent_number(a);
+    const qint64 number_b = agent_number(b);
+    if ((number_a >= 0) != (number_b >= 0))
+    {
+        return number_a >= 0;
+    }
+    if (number_a != number_b)
+    {
+        return number_a < number_b;
+    }
+    return a < b;
+}
 
 /**
  * @brief 圍籬狀況的日誌文字
@@ -268,11 +303,8 @@ void GeofenceModule::refresh()
             next.rows.push_back(make_row(it.key(), *it));
         }
     }
-    QCollator collator;
-    collator.setNumericMode(true);
-    std::sort(next.rows.begin(), next.rows.end(), [&collator](const GeofenceAgentRow& a, const GeofenceAgentRow& b) {
-        return collator.compare(a.agent, b.agent) < 0;
-    });
+    std::sort(next.rows.begin(), next.rows.end(),
+              [](const GeofenceAgentRow& a, const GeofenceAgentRow& b) { return is_agent_before(a.agent, b.agent); });
 
     // 多數機目前的版本；票數相同時取較新的版本
     std::map<uint32_t, int> votes;
