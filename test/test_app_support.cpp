@@ -410,3 +410,78 @@ TEST(LogFileTest, WritesInfoAndAboveToDatedFile)
     ASSERT_TRUE(file.open(QIODevice::ReadOnly | QIODevice::Text));
     EXPECT_FALSE(QString::fromUtf8(file.readAll()).contains(QStringLiteral("after-uninstall")));
 }
+
+TEST(UiFormatTest, GeofenceUpdateEventsAreTranslated)
+{
+    AgentEventData event;
+    event.code = agent_event_code::PLANNER_GEOFENCE_TARGET_CANCELLED;
+    EXPECT_EQ(ui::agent_event_label(event.code), QStringLiteral("圍籬更新取消目標"));
+    event.command = QStringLiteral("FORMATION");
+    event.detail = QStringLiteral("Formation slot outside updated geofence; holding");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("FORMATION；新圍籬使隊形越界，已解散並原地懸停"));
+    event.command = QStringLiteral("MISSION");
+    event.detail = QStringLiteral("Waypoint mission waypoint 3 outside updated geofence; holding");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("MISSION；新圍籬使第 3 個航點越界，任務已中止"));
+    event.detail = QStringLiteral("Waypoint mission waypoint 12 outside updated geofence; loaded mission cleared");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("MISSION；新圍籬使第 12 個航點越界，任務已中止"));
+    event.command = QStringLiteral("MOVE");
+    event.detail = QStringLiteral("Goal outside updated geofence; holding");
+    EXPECT_EQ(ui::format_agent_event_message(event), QStringLiteral("MOVE；新圍籬使目標越界，已原地懸停"));
+}
+
+TEST(UiFormatTest, PlannerStatusUsesStateThenReason)
+{
+    PlannerStatusData status;
+    const auto view = [&status](uint8_t state, const char* reason)
+    {
+        status.state = state;
+        status.reason = QString::fromUtf8(reason);
+        return ui::planner_status_view(status);
+    };
+    constexpr auto RUNNING = static_cast<uint8_t>(PlannerState::RUNNING);
+    constexpr auto HOLD = static_cast<uint8_t>(PlannerState::HOLD);
+    constexpr auto ERROR_STATE = static_cast<uint8_t>(PlannerState::ERROR);
+
+    EXPECT_EQ(view(RUNNING, "ok").text, QStringLiteral("飛往目標"));
+    EXPECT_EQ(view(RUNNING, "ok").level, ui::StatusLevel::NORMAL);
+    EXPECT_EQ(view(RUNNING, "Progress stalled; following active trajectory to completion").text,
+              QStringLiteral("進度停滯，沿目前路線飛往目標"));
+    EXPECT_EQ(view(RUNNING, "Progress stalled; following active trajectory to completion").level,
+              ui::StatusLevel::NOTICE);
+    EXPECT_EQ(view(RUNNING, "Peer deconfliction escape toward 1.0 2.0").text, QStringLiteral("避讓同儕中"));
+
+    EXPECT_EQ(view(HOLD, "Flight mission inactive").text, QStringLiteral("未起飛"));
+    EXPECT_EQ(view(HOLD, "formation_converged").level, ui::StatusLevel::NORMAL);
+    EXPECT_EQ(view(HOLD, "local_goal_selection_failed").text, QStringLiteral("等待可行路徑（場域受限）"));
+    EXPECT_EQ(view(HOLD, "optimized_no_feasible_horizontal_path").level, ui::StatusLevel::NOTICE);
+    EXPECT_EQ(view(HOLD, "Peer deconfliction: waiting for uav_2").text, QStringLiteral("等待同儕讓路"));
+    EXPECT_EQ(view(HOLD, "peer clock skew agent=2 offset=+0.8 s exceeds 0.5 s; check time sync").text,
+              QStringLiteral("同儕時鐘偏差過大，請檢查對時"));
+
+    // 到位煞停只是一般資訊，與避碰煞停分開
+    const auto reached = view(HOLD, "Emergency brake: target reached while moving");
+    EXPECT_EQ(reached.level, ui::StatusLevel::NORMAL);
+    EXPECT_TRUE(reached.is_target_reached_brake);
+    const auto brake = view(HOLD, "optimized_emergency_brake: collision ahead");
+    EXPECT_EQ(brake.level, ui::StatusLevel::CAUTION);
+    EXPECT_FALSE(brake.is_target_reached_brake);
+    EXPECT_EQ(view(HOLD, "Emergency brake: peer too close").level, ui::StatusLevel::CAUTION);
+
+    // 未知 reason 照原文顯示
+    EXPECT_EQ(view(HOLD, "some new reason").text, QStringLiteral("暫停：some new reason"));
+    EXPECT_EQ(view(RUNNING, "new running reason").text, QStringLiteral("飛行中：new running reason"));
+    EXPECT_EQ(view(ERROR_STATE, "Emergency brake generation failed").level, ui::StatusLevel::DANGER);
+    EXPECT_TRUE(view(9, "x").text.contains(QStringLiteral("9")));
+}
+
+TEST(UiFormatTest, GeofencePhaseAndResultTexts)
+{
+    EXPECT_EQ(ui::geofence_phase_label(GeofenceAgentPhase::ACTIVE), QStringLiteral("生效"));
+    EXPECT_EQ(ui::geofence_phase_level(GeofenceAgentPhase::REJECTED), ui::StatusLevel::DANGER);
+    EXPECT_EQ(ui::geofence_phase_level(GeofenceAgentPhase::MISMATCH), ui::StatusLevel::CAUTION);
+    EXPECT_EQ(ui::geofence_phase_level(GeofenceAgentPhase::PENDING), ui::StatusLevel::NOTICE);
+    EXPECT_TRUE(ui::geofence_result_text(static_cast<uint8_t>(GeofenceResult::REJECTED_TOO_FAR), "far")
+                    .contains(QStringLiteral("5 km")));
+    EXPECT_TRUE(ui::geofence_result_text(static_cast<uint8_t>(GeofenceResult::REJECTED_INVALID), "self intersect")
+                    .endsWith(QStringLiteral("self intersect")));
+}

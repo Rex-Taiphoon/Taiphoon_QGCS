@@ -192,3 +192,99 @@ TEST(MessageConversionTest, WaypointMissionPointsAtCallerBuffer)
     EXPECT_EQ(without_buffer.waypoints._length, 0U);
     EXPECT_EQ(without_buffer.waypoints._buffer, nullptr);
 }
+
+TEST(MessageConversionTest, GeofenceStatusAndPlannerStatusMapOneToOne)
+{
+    char detail[] = "rejected: self intersecting";
+    taiphoon_agent_msg_dds__GeofenceVertex_ vertices[3] = {{25.1, 121.1}, {25.2, 121.2}, {25.3, 121.3}};
+    taiphoon_agent_msg_dds__GeofenceStatus_ status{};
+    status.stamp.sec = 3;
+    status.state = 2;
+    status.fence_id = 4000000001U;
+    status.margin_m = 0.75F;
+    status.vertices._length = 3;
+    status.vertices._maximum = 3;
+    status.vertices._buffer = vertices;
+    status.last_request_id = 4000000002U;
+    status.last_result = 2;
+    status.position_inside = false;
+    status.detail = detail;
+    const GeofenceStatusData converted = link::to_core(status);
+    EXPECT_EQ(converted.stamp.sec, 3);
+    EXPECT_EQ(converted.state, 2);
+    EXPECT_EQ(converted.fence_id, 4000000001U);
+    EXPECT_FLOAT_EQ(converted.margin_m, 0.75F);
+    ASSERT_EQ(converted.vertices.size(), 3U);
+    EXPECT_NEAR(converted.vertices[2].latitude_deg, 25.3, EPSILON);
+    EXPECT_NEAR(converted.vertices[2].longitude_deg, 121.3, EPSILON);
+    EXPECT_EQ(converted.last_request_id, 4000000002U);
+    EXPECT_EQ(converted.last_result, 2);
+    EXPECT_FALSE(converted.is_position_inside);
+    EXPECT_EQ(converted.detail, QString::fromUtf8(detail));
+
+    // DISABLED：頂點為空、字串為空指標也安全
+    taiphoon_agent_msg_dds__GeofenceStatus_ disabled{};
+    disabled.position_inside = true;
+    const GeofenceStatusData converted_disabled = link::to_core(disabled);
+    EXPECT_TRUE(converted_disabled.vertices.empty());
+    EXPECT_TRUE(converted_disabled.detail.isEmpty());
+
+    char reason[] = "Emergency brake: target reached while moving";
+    taiphoon_agent_msg_dds__PlannerStatus_ planner{};
+    planner.stamp.sec = 9;
+    planner.state = 2;
+    planner.trajectory_id = 77;
+    planner.map_valid = true;
+    planner.localization_valid = true;
+    planner.peer_data_valid = false;
+    planner.planning_time_ms = 12.5F;
+    planner.min_obstacle_distance_m = 3.5F;
+    planner.min_peer_distance_m = 1.9F;
+    planner.reason = reason;
+    const PlannerStatusData converted_planner = link::to_core(planner);
+    EXPECT_EQ(converted_planner.stamp.sec, 9);
+    EXPECT_EQ(converted_planner.state, 2);
+    EXPECT_EQ(converted_planner.trajectory_id, 77U);
+    EXPECT_TRUE(converted_planner.is_map_valid);
+    EXPECT_TRUE(converted_planner.is_localization_valid);
+    EXPECT_FALSE(converted_planner.is_peer_data_valid);
+    EXPECT_FLOAT_EQ(converted_planner.planning_time_ms, 12.5F);
+    EXPECT_FLOAT_EQ(converted_planner.min_obstacle_distance_m, 3.5F);
+    EXPECT_FLOAT_EQ(converted_planner.min_peer_distance_m, 1.9F);
+    EXPECT_EQ(converted_planner.reason, QString::fromUtf8(reason));
+}
+
+TEST(MessageConversionTest, GeofencePointsAtCallerBuffer)
+{
+    GeofenceData fence;
+    fence.fence_id = 12;
+    fence.action = GeofenceAction::SET;
+    fence.margin_m = 1.5F;
+    fence.vertices = {{25.033964321, 121.564468123}, {25.0341, 121.5645}, {25.0342, 121.5643}};
+    const RosTime stamp{5, 6};
+
+    std::vector<taiphoon_agent_msg_dds__GeofenceVertex_> buffer;
+    const taiphoon_agent_msg_dds__Geofence_ sample = link::to_dds(fence, stamp, &buffer);
+    EXPECT_EQ(sample.stamp.sec, 5);
+    EXPECT_EQ(sample.stamp.nanosec, 6U);
+    EXPECT_EQ(sample.fence_id, 12U);
+    EXPECT_EQ(sample.action, 1);
+    EXPECT_FLOAT_EQ(sample.margin_m, 1.5F);
+    ASSERT_EQ(sample.vertices._length, 3U);
+    EXPECT_EQ(sample.vertices._buffer, buffer.data());
+    EXPECT_FALSE(sample.vertices._release);
+    EXPECT_NEAR(sample.vertices._buffer[0].latitude_deg, 25.033964321, EPSILON);
+    EXPECT_NEAR(sample.vertices._buffer[0].longitude_deg, 121.564468123, EPSILON);
+
+    // 清除：動作為 2，沒有頂點
+    GeofenceData clear;
+    clear.fence_id = 13;
+    clear.action = GeofenceAction::CLEAR;
+    const taiphoon_agent_msg_dds__Geofence_ cleared = link::to_dds(clear, stamp, &buffer);
+    EXPECT_EQ(cleared.action, 2);
+    EXPECT_EQ(cleared.vertices._length, 0U);
+
+    const taiphoon_agent_msg_dds__Geofence_ without_buffer = link::to_dds(fence, stamp, nullptr);
+    EXPECT_EQ(without_buffer.vertices._length, 0U);
+    EXPECT_EQ(without_buffer.vertices._buffer, nullptr);
+}

@@ -141,3 +141,29 @@ TEST_F(TelemetryModuleTest, ForwardsMissionStatusEventsAndHealthOnlyForSubscribe
     EXPECT_EQ(events.at(0).at(1).value<AgentEventData>().code, agent_event_code::PX4_COMMAND_REJECTED);
     EXPECT_FLOAT_EQ(healths.at(0).at(1).value<AgentHealthData>().px4_status_age_s, 12.5F);
 }
+
+TEST(TelemetryForwardingTest, GeofenceAndPlannerStatusOnlyForSubscribedAgents)
+{
+    FakeAgentLink link;
+    TelemetryModule telemetry(&link);
+    ASSERT_TRUE(telemetry.init());
+    QSignalSpy fences(&telemetry, &TelemetryModule::geofence_status_updated);
+    QSignalSpy planners(&telemetry, &TelemetryModule::planner_status_updated);
+    GeofenceStatusData fence;
+    fence.fence_id = 3;
+    PlannerStatusData planner;
+    planner.trajectory_id = 8;
+
+    emit link.geofence_status_received(AGENT_1, fence);
+    emit link.planner_status_received(AGENT_1, planner);
+    EXPECT_TRUE(fences.isEmpty());
+    EXPECT_TRUE(planners.isEmpty());
+
+    telemetry.on_agent_online(AGENT_1);
+    emit link.geofence_status_received(AGENT_1, fence);
+    emit link.planner_status_received(AGENT_1, planner);
+    ASSERT_EQ(fences.size(), 1);
+    ASSERT_EQ(planners.size(), 1);
+    EXPECT_EQ(fences.at(0).at(1).value<GeofenceStatusData>().fence_id, 3U);
+    EXPECT_EQ(planners.at(0).at(1).value<PlannerStatusData>().trajectory_id, 8U);
+}

@@ -19,6 +19,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -77,6 +78,7 @@ public:
     bool publish_command(const QString& target, const QString& command_line, QString* error) override;
     bool publish_mission_plan(const QString& agent_ns, const WaypointMissionData& mission, QString* error) override;
     bool request_shutdown(const QString& agent_ns, quint64 request_id, QString* error) override;
+    bool publish_geofence(const GeofenceData& fence, QString* error) override;
 
 private:
     /// listener 要處理的資料種類
@@ -91,7 +93,9 @@ private:
         SHUTDOWN_REPLY,
         MISSION_STATUS,
         EVENTS,
-        HEALTH
+        HEALTH,
+        GEOFENCE_STATUS,
+        PLANNER_STATUS
     };
 
     /// listener 的參數；生命週期必須長於對應 reader
@@ -127,12 +131,22 @@ private:
     dds_entity_t create_listened_reader(const dds_topic_descriptor_t* descriptor, const std::string& dds_topic,
                                         const dds_qos_t* qos, ReaderContext* context);
     bool create_agent_endpoints(const QString& agent_ns);
+    /**
+     * @brief 寫入圍籬樣本（不更新 last_geofence_）
+     * @param fence 圍籬設定
+     * @param error 失敗原因（可為 nullptr）
+     * @return 是否成功
+     */
+    bool write_geofence(const GeofenceData& fence, QString* error);
     void delete_agent_endpoints(const QString& agent_ns);
 
     dds_entity_t domain_ = 0;
     dds_entity_t participant_ = 0;
     dds_entity_t discovery_reader_ = 0;
     dds_entity_t all_command_writer_ = 0;
+    dds_entity_t all_geofence_writer_ = 0;
+    /// 最後一次發布的圍籬；網路設定改變重建 writer 後重新寫入，讓晚加入的 Agent 仍能取得
+    std::optional<GeofenceData> last_geofence_;
     uint32_t domain_id_ = 0;
     /// 本程式的 service client 識別碼，用於辨識屬於自己的 shutdown 回應
     uint64_t client_guid_ = 0;

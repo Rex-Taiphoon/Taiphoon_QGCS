@@ -31,7 +31,9 @@ enum class AgentChannel
     MISSION_PLAN,          ///< /{ns}/mission/plan
     MISSION_STATUS,        ///< /{ns}/mission/status
     EVENTS,                ///< /{ns}/events
-    HEALTH                 ///< /{ns}/health
+    HEALTH,                ///< /{ns}/health
+    GEOFENCE,              ///< /uav_all_agent/geofence
+    GEOFENCE_STATUS        ///< /{ns}/geofence/status
 };
 
 /// GCS 端點角色

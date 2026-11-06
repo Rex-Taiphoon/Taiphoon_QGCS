@@ -18,6 +18,8 @@ add_library(gcs_core STATIC
     command_protocol.hpp
     command_protocol.cpp
     gcs_module.hpp
+    geofence_geometry.hpp
+    geofence_geometry.cpp
     i_agent_link.hpp
     module_manager.hpp
     module_manager.cpp
@@ -25,6 +27,8 @@ add_library(gcs_core STATIC
     ${GCS_MODULES_DIR}/command/command_module.cpp
     ${GCS_MODULES_DIR}/fleet/fleet_module.hpp
     ${GCS_MODULES_DIR}/fleet/fleet_module.cpp
+    ${GCS_MODULES_DIR}/geofence/geofence_module.hpp
+    ${GCS_MODULES_DIR}/geofence/geofence_module.cpp
     ${GCS_MODULES_DIR}/guard/guard_module.hpp
     ${GCS_MODULES_DIR}/guard/guard_module.cpp
     ${GCS_MODULES_DIR}/guard/guard_rules.hpp

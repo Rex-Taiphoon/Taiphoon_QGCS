@@ -59,6 +59,17 @@ public slots:
      * @param mission 航點任務
      */
     void request_mission_upload(const QString& agent_ns, const gcs::WaypointMissionData& mission);
+    /**
+     * @brief 接收地理圍籬設定或清除請求並驗證
+     * @param fence 圍籬設定
+     */
+    void request_geofence(const gcs::GeofenceData& fence);
+    /**
+     * @brief 更新 Agent 回報的圍籬狀態（航點預檢的依據）
+     * @param agent_ns Agent namespace
+     * @param status 最新 GeofenceStatus
+     */
+    void on_geofence_status_updated(const QString& agent_ns, const gcs::GeofenceStatusData& status);
 
     /**
      * @brief 更新 Agent 狀態
@@ -92,6 +103,10 @@ signals:
 
     /** @brief 航點任務上傳被拒絕的回報（command 為 MISSION_UPLOAD_ACK_NAME） */
     void mission_upload_acked(const gcs::CommandAck& ack);
+    /** @brief 圍籬設定驗證通過，只能連到 CommandModule */
+    void geofence_validated(const gcs::GeofenceData& fence);
+    /** @brief 圍籬設定被拒絕的回報（command 為 GEOFENCE_ACK_NAME） */
+    void geofence_acked(const gcs::CommandAck& ack);
 
 private:
     /**
@@ -135,6 +150,8 @@ private:
     QHash<QString, AgentHealthData> agent_health_;
     /// Agent → 最後一次 PX4 狀態有效時的 AgentState；離線後保留，PX4 斷線再上線時仍能判斷是否可能在空中
     QHash<QString, AgentStateData> last_valid_states_;
+    /// Agent → 最新 GeofenceStatus（只保存線上 Agent）
+    QHash<QString, GeofenceStatusData> agent_geofences_;
 };
 
 }  // namespace gcs

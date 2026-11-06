@@ -35,6 +35,8 @@ constexpr int SHUTDOWN_UI_TIMEOUT_MS = 6000;
 constexpr int MIN_FORMATION_AGENT_COUNT = 2;
 /// 回報位置文字的小數位數：1e-7 度約 1 公分，與設定頁的座標格式一致
 constexpr int REPORTED_POSITION_DECIMALS = 7;
+/// 超過此時間沒有規劃狀態即顯示「—」（毫秒）
+constexpr qint64 PLANNER_STALE_MS = 3000;
 
 /**
  * @brief 組合待回應鍵
@@ -308,6 +310,24 @@ void UiBridge::on_health_updated(const QString& agent_ns, const AgentHealthData&
     mark_dirty();
 }
 
+void UiBridge::on_planner_status_updated(const QString& agent_ns, const PlannerStatusData& status)
+{
+    AgentView& view = views_[agent_ns];
+    view.planner = status;
+    view.has_planner = true;
+    view.planner_received_ms = event_clock_.elapsed();
+    const ui::PlannerStatusView text = ui::planner_status_view(status);
+    QString& logged = planner_logged_text_[agent_ns];
+    if (logged != text.text)
+    {
+        logged = text.text;
+        // 到位煞停與停滯都是預期情況，只寫日誌；原文一併記錄以便對照 Agent 日誌
+        qCInfo(lc_ui).noquote() << QStringLiteral("%1 規劃：%2（%3）")
+                                       .arg(ui::agent_short_name(agent_ns), text.text, status.reason);
+    }
+    mark_dirty();
+}
+
 void UiBridge::on_agent_event(const QString& agent_ns, const AgentEventData& event)
 {
     const auto severity = static_cast<AgentEventSeverity>(event.severity);
@@ -576,6 +596,21 @@ void UiBridge::rebuild_summary()
     summary.insert(QStringLiteral("isPx4LinkLost"), has_health && ui::is_px4_link_lost(health));
     summary.insert(QStringLiteral("preflightText"), has_health ? ui::preflight_text(health) : QStringLiteral("—"));
     summary.insert(QStringLiteral("isPreflightFailed"), has_health && ui::is_preflight_failed(health));
+    const bool has_planner = it != views_.cend() && it->has_planner
+                             && event_clock_.elapsed() - it->planner_received_ms <= PLANNER_STALE_MS;
+    if (has_planner)
+    {
+        const ui::PlannerStatusView planner = ui::planner_status_view(it->planner);
+        summary.insert(QStringLiteral("plannerText"), planner.text);
+        summary.insert(QStringLiteral("plannerLevel"), static_cast<int>(planner.level));
+        summary.insert(QStringLiteral("plannerReason"), it->planner.reason);
+    }
+    else
+    {
+        summary.insert(QStringLiteral("plannerText"), QStringLiteral("—"));
+        summary.insert(QStringLiteral("plannerLevel"), static_cast<int>(ui::StatusLevel::NORMAL));
+        summary.insert(QStringLiteral("plannerReason"), QString());
+    }
     // 取代籠統的「等待飛控」，例如「PX4 資料中斷 12 秒」
     summary.insert(QStringLiteral("waitReason"),
                    ui::flight_controller_wait_reason(has_state, has_state ? it->state : AgentStateData{}, has_health,

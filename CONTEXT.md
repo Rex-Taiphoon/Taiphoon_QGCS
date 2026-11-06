@@ -82,3 +82,19 @@ _Avoid_：命令回報（命令結果仍以 command ack 為準）、日誌
 口令辨識後一律倒數 5 秒才執行：巡邏開始航點任務，解鎖、起飛（3 m）、降落與按鈕相同經 UiBridge 與 GuardModule 送出，
 不會繞過 Guard 直接成為 Agent 命令。
 _Avoid_：語音辨識（泛指時）、語音控制（不能用語音下任意命令）
+
+**地理圍籬 (Geofence)**：
+地面站設定、全體 Agent 共用的水平多邊形場域（3～64 個 WGS84 頂點與 margin），發布到 `/uav_all_agent/geofence`。Agent 啟動時沒有圍籬，只能由 GCS 設定；設定與清除都經 Guard 驗證。地圖上顯示的圍籬以各機回報的 `geofence/status` 為準，QGCS 重新啟動後也能還原。
+_Avoid_：電子圍欄、禁航區（圍籬是允許飛行的範圍）、PX4 geofence（PX4 本身的圍籬，QGCS 不設定）
+
+**圍籬版本 (Fence ID)**：
+`Geofence.fence_id`，每次設定或清除都遞增且不可為 0。QGCS 從各機回報的 `fence_id` 與 `last_request_id` 最大值接續；各機版本不同時以多數機的版本顯示，並標示不一致的機。
+_Avoid_：圍籬編號（不是第幾個圍籬，而是同一個圍籬的修改次數）
+
+**margin**：
+機體中心與圍籬邊界的最小水平距離（0～10 m，預設 0.5 m）。地圖以內縮虛線表示；航點離邊界小於 margin 時 Guard 拒絕上傳。
+_Avoid_：緩衝區、安全距離（後者指機間距離）
+
+**規劃狀態 (Planner Status)**：
+Agent 路徑規劃器的狀態（`planning/status`），分為飛往目標（RUNNING）、懸停或等待（HOLD）與錯誤（ERROR）。機群表 PLAN 列依此顯示一行中文；等待同儕或可行路徑是提示，不是錯誤，Agent 會自動重試。
+_Avoid_：任務階段（MODE 欄的 AgentState 飛行階段）

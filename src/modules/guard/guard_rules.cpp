@@ -9,6 +9,8 @@
  */
 #include "modules/guard/guard_rules.hpp"
 
+#include "core/geofence_geometry.hpp"
+
 #include <cmath>
 #include <map>
 #include <set>
@@ -335,6 +337,44 @@ QString check_mission_upload(const AgentStateData& state, const WaypointMissionD
                 .arg(i + 1)
                 .arg(std::round(range))
                 .arg(mission_limits::MAX_RANGE_M);
+        }
+    }
+    return QString();
+}
+
+QString check_geofence_request(const GeofenceData& fence)
+{
+    if (fence.fence_id == 0)
+    {
+        return QStringLiteral("圍籬版本號不可為 0");
+    }
+    if (fence.action == GeofenceAction::CLEAR)
+    {
+        return QString();
+    }
+    if (fence.action != GeofenceAction::SET)
+    {
+        return QStringLiteral("不支援的圍籬動作");
+    }
+    return geofence_geometry::validate(fence.vertices, fence.margin_m);
+}
+
+QString check_mission_geofence(const GeofenceStatusData& fence, const WaypointMissionData& mission)
+{
+    if (fence.state != static_cast<uint8_t>(GeofenceState::ACTIVE)
+        || fence.vertices.size() < static_cast<std::size_t>(geofence_limits::MIN_VERTICES))
+    {
+        return QString();
+    }
+    for (std::size_t i = 0; i < mission.waypoints.size(); ++i)
+    {
+        const MissionWaypointData& waypoint = mission.waypoints.at(i);
+        const GeofenceVertexData point{waypoint.latitude_deg, waypoint.longitude_deg};
+        if (!geofence_geometry::is_inside_with_margin(fence.vertices, fence.margin_m, point))
+        {
+            return QStringLiteral("第 %1 個航點超出場域圍籬（需距邊界 %2 m 以上）")
+                .arg(i + 1)
+                .arg(static_cast<double>(fence.margin_m), 0, 'f', 1);
         }
     }
     return QString();

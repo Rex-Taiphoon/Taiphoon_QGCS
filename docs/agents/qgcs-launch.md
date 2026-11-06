@@ -141,6 +141,10 @@ Windows 版是視窗程式，`--help`、`--version` 會跳出對話框而非輸�
 | `--shutdown <uav_N_agent>` | 最後呼叫該 Agent 的 shutdown service；會終止 Agent 程序，非必要不要使用 |
 | `--mission <uav_N_agent>:<緯度>,<經度>,<高度>[;...]` | 在 `--command` 之後開始單機航點任務（Agent 回報的 WGS84、相對高度公尺）；需 `--allow-commands`，Agent 須在懸停 |
 | `--mission-relative <uav_N_agent>:<北>,<東>,<高度>[;...]` | 同上，航點以開始時位置的北向、東向公尺表示；與 `--mission` 擇一 |
+| `--geofence <緯度>,<經度>;<緯度>,<經度>;...` | 在 `--command` 之前設定全體地理圍籬（3～64 點，WGS84，依序相連且不可自交）；經 GeofenceModule 與 GuardModule 發布到 `/uav_all_agent/geofence`，需 `--allow-commands`（v1.3.1 起） |
+| `--geofence-relative <uav_N_agent>:<北>,<東>;...` | 同上，頂點以該機目前位置的北向、東向公尺表示；與 `--geofence`、`--geofence-clear` 擇一 |
+| `--geofence-margin <公尺>` | 圍籬 margin，0～10，預設 0.5 |
+| `--geofence-clear` | 在 `--command` 之前清除全體地理圍籬，需 `--allow-commands` |
 | `--voice-wav <檔案.wav>` | 改由語音檔觸發航點任務：航點載入後每 3 秒辨識一個 16 位元 PCM WAV，可重複；口令與桌面程式相同：「巡邏」倒數 5 秒後開始任務，「解鎖」「起飛」（3 m）「降落」倒數 5 秒後經 GuardModule 送出（v1.4.0 起；舊版的「請執行任務」「確認」已移除） |
 
 航點任務的上傳、`MISSION_START` 與 `MISSION_STOP` 都經 GuardModule，由 Agent 執行（需支援航點任務的 Agent 版本）；`--voice-wav` 需建置目錄的 `bin/voice/`（sherpa-onnx 與模型）。
@@ -153,6 +157,15 @@ Windows 版是視窗程式，`--help`、`--version` 會跳出對話框而非輸�
     --no-multicast --peer <主機IP> --participant-index 51 --warmup 5 --duration 110 `
     --mission-relative "uav_1_agent:15,0,6;15,15,6;0,15,5" `
     --voice-wav test\data\voice\patrol.wav --allow-commands
+```
+
+例如以 uav_1 目前位置為中心設定 20 m × 20 m 的圍籬後起飛：
+
+```powershell
+& "<bin 目錄>\gcs_headless.exe" --interface <主機IP> --external-address 192.168.65.254 `
+    --no-multicast --peer <主機IP> --participant-index 51 --warmup 8 --duration 40 `
+    --geofence-relative "uav_1_agent:-10,-10;-10,10;10,10;10,-10" --geofence-margin 0.5 `
+    --command uav_1_agent:ARM --command uav_1_agent:TAKEOFF:3 --allow-commands
 ```
 
 命令名稱與參數以 `../Taiphoon_Agent_Interfaces/taiphoon-agent-interface.md` 的命令協定為準；
@@ -202,6 +215,9 @@ Guard 依目前飛行狀態拒絕不允許的命令時，會輸出失敗的 `[ac
 | `[health] uav_N_agent status_age=... odometry_age=... global_age=... preflight=... failsafe=... arming=... arming_reason=... flags_valid=... flags=0x... offboard=...` | 與 `[state]` 同時輸出的 Agent 健康狀態；`*_age` 為秒數，從未收到為 -1 |
 | `[voice] <檔名> → <口令>` | 語音檔辨識結果；未辨識到時為「（未辨識到口令）」 |
 | `[notice] <標題>：<說明>` | 與桌面程式彈出相同的警告，例如不在懸停時說「巡邏」 |
+| `[request] geofence ...`／`[request] geofence clear` | 已交給 GeofenceModule 的圍籬設定或清除；`[ack] all GEOFENCE 成功/失敗 <訊息>` 為 Guard 驗證與發布結果 |
+| `[geofence] uav_N_agent <生效／等待 Home／等待回報／未回報／被拒／版本不一致／無圍籬> fence_id=... result=... inside=... <說明>` | 各機圍籬狀態（不論是否設定都會輸出，列有變化才輸出）；`inside=0` 表示該機在圍籬（含 margin）外 |
+| `[geofence] 顯示 fence_id=... 頂點 N 個 margin=... 一致=... 已送出=...` | 多數機目前的圍籬版本、各機是否一致與本次送出的版本 |
 | `結束：收到 N 台 Agent 的狀態，失敗回報 M 筆` | 最後一行摘要 |
 
 結束碼：至少收到 1 台 Agent 的狀態為 0，否則為 1（核心啟動失敗、命令格式錯誤、未加 `--allow-commands` 也是 1）。

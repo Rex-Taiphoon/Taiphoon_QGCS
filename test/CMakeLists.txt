@@ -28,6 +28,8 @@ set(GCS_CORE_TESTS
     test_telemetry_module
     test_agent_lifecycle_module
     test_mission_module
+    test_geofence_geometry
+    test_geofence_module
     test_gcs_wiring
 )
 
@@ -78,6 +80,7 @@ set(GCS_UI_TESTS
     test_app_support
     test_network_controller
     test_mission_controller
+    test_geofence_controller
     test_video_controller
 )
 

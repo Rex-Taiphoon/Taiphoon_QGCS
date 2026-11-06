@@ -33,6 +33,7 @@ void GuardModule::shutdown()
     agent_states_.clear();
     agent_health_.clear();
     last_valid_states_.clear();
+    agent_geofences_.clear();
 }
 
 bool GuardModule::health_check() const
@@ -81,6 +82,7 @@ void GuardModule::on_agent_offline(const QString& agent_ns)
     online_agents_.remove(agent_ns);
     agent_states_.remove(agent_ns);
     agent_health_.remove(agent_ns);
+    agent_geofences_.remove(agent_ns);
 }
 
 void GuardModule::request_command(const CommandRequest& request)
@@ -144,6 +146,11 @@ void GuardModule::request_mission_upload(const QString& agent_ns, const Waypoint
         const auto it = agent_states_.constFind(agent_ns);
         error = it == agent_states_.cend() ? QStringLiteral("PX4 狀態尚未有效，拒絕上傳航點任務")
                                            : guard_rules::check_mission_upload(*it, mission);
+        const auto fence = agent_geofences_.constFind(agent_ns);
+        if (error.isEmpty() && fence != agent_geofences_.cend())
+        {
+            error = guard_rules::check_mission_geofence(*fence, mission);
+        }
     }
     if (!error.isEmpty())
     {
@@ -152,6 +159,34 @@ void GuardModule::request_mission_upload(const QString& agent_ns, const Waypoint
         return;
     }
     emit mission_upload_validated(agent_ns, mission);
+}
+
+void GuardModule::request_geofence(const GeofenceData& fence)
+{
+    QString error;
+    if (!is_initialized_)
+    {
+        error = QStringLiteral("GuardModule 未初始化");
+    }
+    else
+    {
+        error = guard_rules::check_geofence_request(fence);
+    }
+    if (!error.isEmpty())
+    {
+        qCInfo(lc_guard) << "地理圍籬設定拒絕：fence_id=" << fence.fence_id << "reason=" << error;
+        emit geofence_acked(command_protocol::make_ack(ALL_AGENTS_TARGET, GEOFENCE_ACK_NAME, false, error));
+        return;
+    }
+    emit geofence_validated(fence);
+}
+
+void GuardModule::on_geofence_status_updated(const QString& agent_ns, const GeofenceStatusData& status)
+{
+    if (online_agents_.contains(agent_ns))
+    {
+        agent_geofences_.insert(agent_ns, status);
+    }
 }
 
 bool GuardModule::validate_for_all(CmdType cmd, QString* error) const

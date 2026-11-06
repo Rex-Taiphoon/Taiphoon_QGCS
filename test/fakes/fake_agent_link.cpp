@@ -52,6 +52,20 @@ bool FakeAgentLink::publish_mission_plan(const QString& agent_ns, const Waypoint
     return true;
 }
 
+bool FakeAgentLink::publish_geofence(const GeofenceData& fence, QString* error)
+{
+    if (!is_geofence_channel_ready)
+    {
+        if (error != nullptr)
+        {
+            *error = QStringLiteral("DDS 尚未啟動");
+        }
+        return false;
+    }
+    published_geofences.push_back(fence);
+    return true;
+}
+
 bool FakeAgentLink::request_shutdown(const QString& agent_ns, quint64 request_id, QString* error)
 {
     if (!is_shutdown_service_ready)

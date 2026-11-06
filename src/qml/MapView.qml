@@ -1,7 +1,7 @@
 /**
  * @file MapView.qml
  * @brief 全幅地圖：反相深色 OSM 底圖、透明疊圖層上的航向箭頭與名稱、EGO-Swarm 軌跡、航點任務路線與點選新增、
- *        自動跟隨（ADR-0016）
+ *        地理圍籬顯示與編輯、自動跟隨（ADR-0016）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  */
@@ -17,6 +17,7 @@ Item {
     required property var bridge
     required property var settings
     required property var mission
+    required property var geofence
 
     /// 尚未取得有效 GPS 時的預設中心（台北），與網頁版相同
     readonly property var defaultCenter: QtPositioning.coordinate(25.03997, 121.51195)
@@ -27,6 +28,29 @@ Item {
     readonly property real maximumZoom: 24
     /// 是否顯示航點與路線：進階設定可關閉，編輯航點時一律顯示，否則看不到剛點下的位置
     readonly property bool isWaypointVisible: settings.showWaypoints || mission.isEditing
+    /// 拖曳中的圍籬頂點與暫時位置；放開時才寫回 GeofenceController，拖曳期間模型不重建，委派不會被中斷
+    property int draggingVertex: -1
+    property var draggingCoordinate: null
+    /// 圍籬草稿的路徑（含拖曳中的暫時位置）
+    readonly property var draftCoordinates: geofence.draftPath.map(
+        (p, i) => (i === draggingVertex && draggingCoordinate !== null)
+                  ? draggingCoordinate : QtPositioning.coordinate(p.latitude, p.longitude))
+    readonly property color draftColor: geofence.isDraftSelfIntersecting ? Theme.danger : Theme.accent
+
+    /**
+     * @brief 點選位置是否壓在圍籬草稿的頂點上（點頂點不新增頂點）
+     * @param position 疊圖層座標
+     * @return 是否在頂點附近
+     */
+    function isNearDraftVertex(position) {
+        for (const coordinate of draftCoordinates) {
+            const point = overlay.fromCoordinate(coordinate, false)
+            if (Math.hypot(point.x - position.x, point.y - position.y) < 12) {
+                return true
+            }
+        }
+        return false
+    }
 
     /**
      * @brief 將縮放層級限制在可用範圍
@@ -211,6 +235,41 @@ Item {
             }
         }
 
+        // 生效中的圍籬：琥珀色實線加淡填色；編輯時淡化，讓草稿成為焦點
+        MapPolygon {
+            visible: root.geofence.hasFence
+            opacity: root.geofence.isEditing ? 0.35 : 1
+            border.width: 2
+            border.color: Theme.caution
+            color: Qt.alpha(Theme.caution, 0.06)
+            path: root.geofence.fencePath.map(p => QtPositioning.coordinate(p.latitude, p.longitude))
+        }
+        // margin：向內縮的虛線（無法內縮時不顯示）
+        MapItemView {
+            model: root.geofence.hasFence && !root.geofence.isEditing ? root.geofence.fenceInsetDashes : []
+            delegate: MapPolyline {
+                required property var modelData
+
+                line.width: 1
+                line.color: Qt.alpha(Theme.caution, 0.8)
+                path: modelData.path.map(p => QtPositioning.coordinate(p.latitude, p.longitude))
+            }
+        }
+        // 編輯中的草稿：青色；邊互相交叉時改為紅色
+        MapPolygon {
+            visible: root.geofence.isEditing && root.draftCoordinates.length >= 3
+            border.width: 2
+            border.color: root.draftColor
+            color: Qt.alpha(root.draftColor, 0.08)
+            path: root.draftCoordinates
+        }
+        MapPolyline {
+            visible: root.geofence.isEditing && root.draftCoordinates.length === 2
+            line.width: 2
+            line.color: root.draftColor
+            path: root.draftCoordinates
+        }
+
         // 航點任務路線：選取機為青色，其他機淡化；位於無人機標記下方。
         // 進階設定可隱藏航點，編輯中一律顯示；以空模型隱藏，MapItemView 的 visible 不一定套用到地圖項目
         MapItemView {
@@ -251,6 +310,76 @@ Item {
                         color: waypointMarker.modelData.isCurrent ? Theme.background : Theme.accent
                         font.family: Theme.fontMono
                         font.pixelSize: 11
+                    }
+                }
+            }
+        }
+
+        // 圍籬草稿頂點：拖曳移動、右鍵刪除
+        MapItemView {
+            model: root.geofence.isEditing ? root.geofence.draftPoints : []
+            delegate: MapQuickItem {
+                id: vertexMarker
+
+                required property var modelData
+
+                z: 2
+                coordinate: (root.draggingVertex === modelData.index && root.draggingCoordinate !== null)
+                            ? root.draggingCoordinate
+                            : QtPositioning.coordinate(modelData.latitude, modelData.longitude)
+                anchorPoint.x: sourceItem.width / 2
+                anchorPoint.y: sourceItem.height / 2
+
+                sourceItem: Rectangle {
+                    id: vertexBox
+
+                    width: 16
+                    height: 16
+                    color: vertexDrag.active || vertexHover.hovered ? root.draftColor : Theme.background
+                    border.color: root.draftColor
+                    border.width: 1.5
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: vertexMarker.modelData.index + 1
+                        color: vertexDrag.active || vertexHover.hovered ? Theme.background : root.draftColor
+                        font.family: Theme.fontMono
+                        font.pixelSize: 9
+                    }
+
+                    HoverHandler {
+                        id: vertexHover
+
+                        cursorShape: Qt.SizeAllCursor
+                    }
+                    ToolTip.visible: vertexHover.hovered && !vertexDrag.active
+                    ToolTip.delay: 600
+                    ToolTip.text: qsTr("拖曳移動，右鍵刪除")
+                    DragHandler {
+                        id: vertexDrag
+
+                        target: null
+                        onActiveChanged: {
+                            if (active) {
+                                root.draggingVertex = vertexMarker.modelData.index
+                                return
+                            }
+                            const index = root.draggingVertex
+                            const coordinate = root.draggingCoordinate
+                            root.draggingVertex = -1
+                            root.draggingCoordinate = null
+                            if (coordinate !== null) {
+                                root.geofence.moveVertex(index, coordinate.latitude, coordinate.longitude)
+                            }
+                        }
+                        onCentroidChanged: if (active) {
+                            const point = vertexBox.mapToItem(overlay, centroid.position.x, centroid.position.y)
+                            root.draggingCoordinate = overlay.toCoordinate(point, false)
+                        }
+                    }
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: root.geofence.removeVertex(vertexMarker.modelData.index)
                     }
                 }
             }
@@ -395,16 +524,27 @@ Item {
             rotationScale: 1 / 120
             property: "zoomLevel"
         }
-        // 航點編輯：點選地圖新增航點（拖曳仍為平移），游標改為十字
+        // 航點編輯：點選地圖新增航點（拖曳仍為平移），游標改為十字；圍籬編輯中優先新增圍籬頂點
         TapHandler {
-            enabled: root.mission.isEditing
+            enabled: root.mission.isEditing && !root.geofence.isEditing
             onTapped: (eventPoint, button) => {
                 const coordinate = overlay.toCoordinate(eventPoint.position, false)
                 root.mission.addWaypoint(coordinate.latitude, coordinate.longitude)
             }
         }
+        // 圍籬編輯：點選地圖在最後一個頂點之後新增頂點；點在既有頂點上不新增
+        TapHandler {
+            enabled: root.geofence.isEditing
+            onTapped: (eventPoint, button) => {
+                if (root.isNearDraftVertex(eventPoint.position)) {
+                    return
+                }
+                const coordinate = overlay.toCoordinate(eventPoint.position, false)
+                root.geofence.addVertex(coordinate.latitude, coordinate.longitude)
+            }
+        }
         HoverHandler {
-            enabled: root.mission.isEditing
+            enabled: root.mission.isEditing || root.geofence.isEditing
             cursorShape: Qt.CrossCursor
         }
         DragHandler {
@@ -416,6 +556,29 @@ Item {
                 // 使用者手動拖曳：暫停自動置中，直到選取目標位置改變
                 root.lastAutoCenterKey = root.bridge.selectedAgent + ":manual"
             }
+        }
+    }
+
+    // 上方中央：圍籬警示（各機版本不一致、有飛機在圍籬外）
+    Rectangle {
+        visible: root.geofence.mapWarningText.length > 0
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: Theme.spaceLg
+        width: Math.min(fenceWarning.implicitWidth + 2 * Theme.spaceMd, parent.width - 2 * Theme.spaceLg)
+        height: fenceWarning.implicitHeight + Theme.spaceSm
+        color: Theme.cautionInset
+        border.color: Theme.caution
+
+        Label {
+            id: fenceWarning
+
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, parent.width - 2 * Theme.spaceMd)
+            text: qsTr("圍籬：") + root.geofence.mapWarningText
+            color: Theme.caution
+            elide: Text.ElideRight
+            font.pixelSize: Theme.fontSmall
         }
     }
 

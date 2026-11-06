@@ -100,4 +100,22 @@ QtObject {
 
     readonly property int disabledOpacityPercent: 35
     readonly property real disabledOpacity: 0.35
+
+    /**
+     * @brief 狀態等級（ui::StatusLevel）對應的文字顏色
+     * @param level 0 一般、1 提示、2 警告、3 危險
+     * @return 顏色
+     */
+    function levelColor(level) {
+        switch (level) {
+        case 1:
+            return accent
+        case 2:
+            return caution
+        case 3:
+            return danger
+        default:
+            return textValue
+        }
+    }
 }

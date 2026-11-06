@@ -191,7 +191,9 @@ enum class AgentMissionReason : uint8_t
     COMMAND_OVERRIDE = 11,
     FLIGHT_STATE = 12,
     LANDED = 13,
-    LEG_TIMEOUT = 14
+    LEG_TIMEOUT = 14,
+    /// 地理圍籬更新後，尚未完成的航點落在圍籬外
+    GEOFENCE_UPDATE = 15
 };
 
 /// WaypointMissionStatus（Agent 執行航點任務的狀態）
@@ -248,6 +250,7 @@ inline constexpr uint16_t PX4_RESTART_DETECTED = 305;
 inline constexpr uint16_t PLANNER_COMMAND_REJECTED = 400;
 inline constexpr uint16_t PLANNER_EMERGENCY_BRAKE = 401;
 inline constexpr uint16_t PLANNER_FAILURE_PERSISTENT = 402;
+inline constexpr uint16_t PLANNER_GEOFENCE_TARGET_CANCELLED = 403;
 inline constexpr uint16_t SAFETY_POSITION_DEVIATION = 500;
 }  // namespace agent_event_code
 
@@ -320,6 +323,115 @@ struct AgentHealthData
     /// failsafe_flag 位元
     uint32_t failsafe_flags = 0;
     bool is_offboard_session_active = false;
+};
+
+/// GeofenceVertex（地理圍籬頂點，WGS84，只使用水平位置）
+struct GeofenceVertexData
+{
+    double latitude_deg = 0.0;
+    double longitude_deg = 0.0;
+
+    bool operator==(const GeofenceVertexData& other) const
+    {
+        return latitude_deg == other.latitude_deg && longitude_deg == other.longitude_deg;
+    }
+    bool operator!=(const GeofenceVertexData& other) const { return !(*this == other); }
+};
+
+/// 圍籬設定結果（CommandAck.command）的名稱；圍籬不是命令，回報只送給 GeofenceModule
+inline const QString GEOFENCE_ACK_NAME = QStringLiteral("GEOFENCE");
+
+/// Geofence.action
+enum class GeofenceAction : uint8_t
+{
+    SET = 1,
+    CLEAR = 2
+};
+
+/// 地理圍籬限制（介面文件 3.15）
+namespace geofence_limits
+{
+inline constexpr int MIN_VERTICES = 3;
+inline constexpr int MAX_VERTICES = 64;
+inline constexpr float MIN_MARGIN_M = 0.0F;
+inline constexpr float MAX_MARGIN_M = 10.0F;
+/// 適配文件建議的預設 margin
+inline constexpr float DEFAULT_MARGIN_M = 0.5F;
+}  // namespace geofence_limits
+
+/// Geofence（GCS → 全體 Agent 的圍籬設定；stamp 由 link 層於發布時填入）
+struct GeofenceData
+{
+    /// 版本號，不得為 0；每次修改遞增
+    uint32_t fence_id = 0;
+    GeofenceAction action = GeofenceAction::SET;
+    /// 機體中心與邊界的最小水平距離（公尺）；CLEAR 時忽略
+    float margin_m = geofence_limits::DEFAULT_MARGIN_M;
+    /// 依序相連、不重複第一點；CLEAR 時忽略
+    std::vector<GeofenceVertexData> vertices;
+};
+
+/// GeofenceStatus.state
+enum class GeofenceState : uint8_t
+{
+    DISABLED = 0,
+    PENDING = 1,
+    ACTIVE = 2
+};
+
+/// GeofenceStatus.last_result
+enum class GeofenceResult : uint8_t
+{
+    NONE = 0,
+    ACCEPTED = 1,
+    REJECTED_INVALID = 2,
+    REJECTED_TOO_FAR = 3
+};
+
+/// GeofenceStatus（各 Agent 目前的圍籬與最近一次設定結果，介面文件 3.16）
+struct GeofenceStatusData
+{
+    RosTime stamp;
+    /// GeofenceState 的原始數值
+    uint8_t state = 0;
+    /// 目前生效或等待中的版本；DISABLED 時為 0
+    uint32_t fence_id = 0;
+    float margin_m = 0.0F;
+    std::vector<GeofenceVertexData> vertices;
+    /// 最近一次處理的 Geofence.fence_id
+    uint32_t last_request_id = 0;
+    /// GeofenceResult 的原始數值；拒絕時 Agent 保留原本的圍籬
+    uint8_t last_result = 0;
+    /// 目前位置在圍籬（含 margin）內；沒有圍籬或沒有位置時為 true
+    bool is_position_inside = true;
+    /// Agent 的英文補充說明
+    QString detail;
+};
+
+/// PlannerStatus.state（介面文件 3.7）
+enum class PlannerState : uint8_t
+{
+    IDLE = 0,
+    RUNNING = 1,
+    HOLD = 2,
+    ERROR = 3
+};
+
+/// PlannerStatus（EGO-Swarm Planner 狀態與安全指標）
+struct PlannerStatusData
+{
+    RosTime stamp;
+    /// PlannerState 的原始數值
+    uint8_t state = 0;
+    uint32_t trajectory_id = 0;
+    bool is_map_valid = false;
+    bool is_localization_valid = false;
+    bool is_peer_data_valid = false;
+    float planning_time_ms = 0.0F;
+    float min_obstacle_distance_m = 0.0F;
+    float min_peer_distance_m = 0.0F;
+    /// 英文說明；內容可能隨版本增加
+    QString reason;
 };
 
 /// UI 送出的命令請求
@@ -399,6 +511,71 @@ struct MissionStatus
     QString message;
 };
 
+/// 單一 Agent 的圍籬狀況（GeofenceModule 依 GeofenceStatus 與最近一次設定整理）
+enum class GeofenceAgentPhase : uint8_t
+{
+    /// 已送出設定，等待該機回報
+    WAITING,
+    /// 數秒內沒有回報（可能離線或 Agent 版本過舊）
+    NO_REPORT,
+    /// 沒有圍籬
+    NONE,
+    /// 已接受，等待 planner Home 建立
+    PENDING,
+    /// 生效中
+    ACTIVE,
+    /// 拒絕最近一次設定，保留原本的圍籬
+    REJECTED,
+    /// 與多數機的圍籬版本不同
+    MISMATCH
+};
+
+/// GeofenceOverview 的一列
+struct GeofenceAgentRow
+{
+    QString agent;
+    GeofenceAgentPhase phase = GeofenceAgentPhase::NO_REPORT;
+    /// 該機目前的圍籬版本（沒有圍籬或沒有回報時為 0）
+    uint32_t fence_id = 0;
+    /// GeofenceResult 的原始數值
+    uint8_t last_result = 0;
+    /// 目前位置在圍籬（含 margin）內；沒有回報時為 true
+    bool is_position_inside = true;
+    /// Agent 的英文補充說明
+    QString detail;
+
+    bool operator==(const GeofenceAgentRow& other) const
+    {
+        return agent == other.agent && phase == other.phase && fence_id == other.fence_id
+               && last_result == other.last_result && is_position_inside == other.is_position_inside
+               && detail == other.detail;
+    }
+};
+
+/// 機隊的圍籬總覽（GeofenceModule → UI）
+struct GeofenceOverview
+{
+    /// 線上 Agent，依編號排序
+    std::vector<GeofenceAgentRow> rows;
+    /// 顯示用圍籬：多數機目前的版本；沒有圍籬時為 0 且 vertices 為空
+    uint32_t fence_id = 0;
+    float margin_m = 0.0F;
+    std::vector<GeofenceVertexData> vertices;
+    /// 有回報的機是否都是同一版本
+    bool is_consistent = true;
+    /// 本次執行最近一次送出的設定版本；尚未送出為 0
+    uint32_t requested_fence_id = 0;
+    GeofenceAction requested_action = GeofenceAction::SET;
+
+    bool operator==(const GeofenceOverview& other) const
+    {
+        return rows == other.rows && fence_id == other.fence_id && margin_m == other.margin_m
+               && vertices == other.vertices && is_consistent == other.is_consistent
+               && requested_fence_id == other.requested_fence_id && requested_action == other.requested_action;
+    }
+    bool operator!=(const GeofenceOverview& other) const { return !(*this == other); }
+};
+
 /**
  * @brief 註冊所有跨執行緒傳遞的核心型別
  *
@@ -417,8 +594,12 @@ Q_DECLARE_METATYPE(gcs::WaypointMissionData)
 Q_DECLARE_METATYPE(gcs::WaypointMissionStatusData)
 Q_DECLARE_METATYPE(gcs::AgentEventData)
 Q_DECLARE_METATYPE(gcs::AgentHealthData)
+Q_DECLARE_METATYPE(gcs::GeofenceData)
+Q_DECLARE_METATYPE(gcs::GeofenceStatusData)
+Q_DECLARE_METATYPE(gcs::PlannerStatusData)
 Q_DECLARE_METATYPE(gcs::CommandRequest)
 Q_DECLARE_METATYPE(gcs::CommandAck)
 Q_DECLARE_METATYPE(gcs::FleetSnapshot)
 Q_DECLARE_METATYPE(gcs::MissionPlan)
 Q_DECLARE_METATYPE(gcs::MissionStatus)
+Q_DECLARE_METATYPE(gcs::GeofenceOverview)

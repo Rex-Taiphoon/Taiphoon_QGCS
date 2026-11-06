@@ -14,12 +14,16 @@
  * MISSION_START／MISSION_STOP 由 Mission.command_requested → Guard.request_command，與 UI 命令走同一道閘門；
  * Agent 回報的任務狀態 Telemetry.mission_status_updated → Mission；
  * Fleet.agent_offline 與 fleet_changed 的離線清單（含資料停滯）→ Mission 回報失去聯繫（Agent 會繼續執行）。
+ * 地理圍籬（Qt 版新增，ADR-0021）：Geofence.geofence_requested → Guard.request_geofence → Command.publish_geofence，
+ * 兩種 geofence_acked → Geofence；Telemetry.geofence_status_updated → Guard（航點預檢）、Geofence（總覽）；
+ * Fleet.fleet_changed → Geofence（只列線上 Agent）。
  * UI（UiBridge）的連線於 M4 加入；UI 只能連到 Guard.request_command 與 Lifecycle.request_shutdown。
  */
 #include "app/gcs_wiring.hpp"
 
 #include "modules/command/command_module.hpp"
 #include "modules/fleet/fleet_module.hpp"
+#include "modules/geofence/geofence_module.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
 #include "modules/mission/mission_module.hpp"
@@ -38,7 +42,8 @@ namespace gcs
 bool wire_core_modules(const CoreModules& modules)
 {
     if (modules.fleet == nullptr || modules.telemetry == nullptr || modules.guard == nullptr
-        || modules.command == nullptr || modules.lifecycle == nullptr || modules.mission == nullptr)
+        || modules.command == nullptr || modules.lifecycle == nullptr || modules.mission == nullptr
+        || modules.geofence == nullptr)
     {
         qCCritical(lc_wiring) << "核心模組不完整，未建立任何連線";
         return false;
@@ -97,6 +102,23 @@ bool wire_core_modules(const CoreModules& modules)
                      DIRECT);
     // 資料停滯不會發出 agent_offline；以顯示清單判斷，與畫面移除該機的時機一致
     QObject::connect(modules.fleet, &FleetModule::fleet_changed, modules.mission, &MissionModule::on_fleet_changed,
+                     DIRECT);
+
+    // 地理圍籬：與命令相同只能經 Guard 驗證後交給 CommandModule
+    QObject::connect(modules.geofence, &GeofenceModule::geofence_requested, modules.guard,
+                     &GuardModule::request_geofence, DIRECT);
+    QObject::connect(modules.guard, &GuardModule::geofence_validated, modules.command,
+                     &CommandModule::publish_geofence, DIRECT);
+    QObject::connect(modules.guard, &GuardModule::geofence_acked, modules.geofence,
+                     &GeofenceModule::on_geofence_acked, DIRECT);
+    QObject::connect(modules.command, &CommandModule::geofence_acked, modules.geofence,
+                     &GeofenceModule::on_geofence_acked, DIRECT);
+    // 各機圍籬狀態：Guard 用於航點預檢，GeofenceModule 整理總覽
+    QObject::connect(modules.telemetry, &TelemetryModule::geofence_status_updated, modules.guard,
+                     &GuardModule::on_geofence_status_updated, DIRECT);
+    QObject::connect(modules.telemetry, &TelemetryModule::geofence_status_updated, modules.geofence,
+                     &GeofenceModule::on_geofence_status_updated, DIRECT);
+    QObject::connect(modules.fleet, &FleetModule::fleet_changed, modules.geofence, &GeofenceModule::on_fleet_changed,
                      DIRECT);
 
     qCInfo(lc_wiring) << "核心模組連線完成";

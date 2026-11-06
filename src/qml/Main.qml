@@ -15,6 +15,7 @@ ApplicationWindow {
     required property var network
     required property var diagnostics
     required property var mission
+    required property var geofence
     required property var voice
     required property var video
     /// 是否允許顯示首次設定精靈（命令列指定網路時為 false）
@@ -71,6 +72,7 @@ ApplicationWindow {
             bridge: window.bridge
             settings: window.settings
             mission: window.mission
+            geofence: window.geofence
         }
 
         CommandPanel {
@@ -83,6 +85,7 @@ ApplicationWindow {
             bridge: window.bridge
             settings: window.settings
             mission: window.mission
+            geofence: window.geofence
             voice: window.voice
         }
 

@@ -21,7 +21,7 @@ namespace gcs
 
 /**
  * @class IAgentLink
- * @brief Agent 通訊介面：訂閱遙測、發布命令與航點任務、呼叫 shutdown service、查詢探索結果
+ * @brief Agent 通訊介面：訂閱遙測、發布命令、航點任務與地理圍籬、呼叫 shutdown service、查詢探索結果
  */
 class IAgentLink : public QObject
 {
@@ -77,6 +77,17 @@ public:
      */
     virtual bool request_shutdown(const QString& agent_ns, quint64 request_id, QString* error) = 0;
 
+    /**
+     * @brief 發布地理圍籬設定（/uav_all_agent/geofence，transient_local）
+     *
+     * writer 保留最後一筆，重啟或晚加入的 Agent 也會收到；各機結果見 geofence_status_received。
+     *
+     * @param fence 圍籬設定
+     * @param error 失敗原因（可為 nullptr）
+     * @return 是否已寫入
+     */
+    virtual bool publish_geofence(const gcs::GeofenceData& fence, QString* error) = 0;
+
 signals:
     /** @brief 收到 AgentState */
     void state_received(const QString& agent_ns, const gcs::AgentStateData& state);
@@ -96,6 +107,10 @@ signals:
     void event_received(const QString& agent_ns, const gcs::AgentEventData& event);
     /** @brief 收到 health */
     void health_received(const QString& agent_ns, const gcs::AgentHealthData& health);
+    /** @brief 收到 geofence/status */
+    void geofence_status_received(const QString& agent_ns, const gcs::GeofenceStatusData& status);
+    /** @brief 收到 planning/status */
+    void planner_status_received(const QString& agent_ns, const gcs::PlannerStatusData& status);
 };
 
 }  // namespace gcs

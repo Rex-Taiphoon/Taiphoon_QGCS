@@ -46,6 +46,8 @@ const std::vector<ExpectedQos> INTERFACE_TABLE = {
     {AgentChannel::MISSION_STATUS, EndpointRole::READER, Reliability::RELIABLE, Durability::TRANSIENT_LOCAL, 1},
     {AgentChannel::EVENTS, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE, 20},
     {AgentChannel::HEALTH, EndpointRole::READER, Reliability::RELIABLE, Durability::VOLATILE, 1},
+    {AgentChannel::GEOFENCE, EndpointRole::WRITER, Reliability::RELIABLE, Durability::TRANSIENT_LOCAL, 1},
+    {AgentChannel::GEOFENCE_STATUS, EndpointRole::READER, Reliability::RELIABLE, Durability::TRANSIENT_LOCAL, 1},
 };
 
 }  // namespace

@@ -32,6 +32,8 @@ add_library(gcs_ui STATIC
     log_file.cpp
     mission_controller.hpp
     mission_controller.cpp
+    geofence_controller.hpp
+    geofence_controller.cpp
     network_controller.hpp
     network_controller.cpp
     toast_model.hpp

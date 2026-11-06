@@ -18,6 +18,8 @@ namespace gcs::link
 
 /// 全體廣播命令 topic（介面文件第 4.2.2 節）
 inline constexpr std::string_view ALL_AGENTS_COMMAND_TOPIC = "/uav_all_agent/command";
+/// 全體地理圍籬 topic（GCS 發布，介面文件 4.4）
+inline constexpr std::string_view ALL_AGENTS_GEOFENCE_TOPIC = "/uav_all_agent/geofence";
 
 /// 全體廣播的 Agent namespace，命令目標以此字串表示全體
 inline constexpr std::string_view ALL_AGENTS_NAMESPACE = "uav_all_agent";

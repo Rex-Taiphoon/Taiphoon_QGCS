@@ -87,6 +87,21 @@ uint32_t matched_writers(dds_entity_t reader)
     return dds_get_subscription_matched_status(reader, &status) == DDS_RETCODE_OK ? status.current_count : 0;
 }
 
+/**
+ * @brief 目前的系統時間（與 ROS2 預設時鐘相同）
+ * @return builtin_interfaces/Time
+ */
+gcs::RosTime now_ros_time()
+{
+    const auto since_epoch = std::chrono::system_clock::now().time_since_epoch();
+    const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(since_epoch);
+    const auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch - seconds);
+    gcs::RosTime stamp;
+    stamp.sec = static_cast<int32_t>(seconds.count());
+    stamp.nanosec = static_cast<uint32_t>(nanoseconds.count());
+    return stamp;
+}
+
 }  // namespace
 
 namespace gcs::link
@@ -146,11 +161,26 @@ bool CycloneAgentLink::start(const DdsNetworkConfig& config, QString* error)
     const dds_entity_t all_topic = find_or_create_topic(&std_msgs_msg_dds__String__desc,
                                                         *to_dds_topic(std::string(ALL_AGENTS_COMMAND_TOPIC)));
     all_command_writer_ = all_topic > 0 ? dds_create_writer(participant_, all_topic, command_qos.get(), nullptr) : all_topic;
-    if (discovery_reader_ < 0 || all_command_writer_ < 0)
+    const auto geofence_qos =
+        create_dds_qos(qos_for(AgentChannel::GEOFENCE, EndpointRole::WRITER), EndpointRole::WRITER);
+    const dds_entity_t geofence_topic = find_or_create_topic(
+        &taiphoon_agent_msg_dds__Geofence__desc, *to_dds_topic(std::string(ALL_AGENTS_GEOFENCE_TOPIC)));
+    all_geofence_writer_ = geofence_topic > 0
+                               ? dds_create_writer(participant_, geofence_topic, geofence_qos.get(), nullptr)
+                               : geofence_topic;
+    if (discovery_reader_ < 0 || all_command_writer_ < 0 || all_geofence_writer_ < 0)
     {
-        set_error(error, QStringLiteral("建立探索 reader 或全體命令 writer 失敗"));
+        set_error(error, QStringLiteral("建立探索 reader 或全體命令、圍籬 writer 失敗"));
         stop();
         return false;
+    }
+    if (last_geofence_.has_value())
+    {
+        QString geofence_error;
+        if (!write_geofence(*last_geofence_, &geofence_error))
+        {
+            qCWarning(lc_link) << "重新寫入地理圍籬失敗：" << geofence_error;
+        }
     }
 
     // 網路設定改變後重新啟動時，保留核心模組已訂閱的 Agent。
@@ -174,6 +204,7 @@ void CycloneAgentLink::stop()
     participant_ = 0;
     discovery_reader_ = 0;
     all_command_writer_ = 0;
+    all_geofence_writer_ = 0;
     topics_.clear();
     agents_.clear();
     discovery_context_.reset();
@@ -250,6 +281,10 @@ bool CycloneAgentLink::create_agent_endpoints(const QString& agent_ns)
          Channel::MISSION_STATUS},
         {&taiphoon_agent_msg_dds__AgentEvent__desc, "events", AgentChannel::EVENTS, Channel::EVENTS},
         {&taiphoon_agent_msg_dds__AgentHealth__desc, "health", AgentChannel::HEALTH, Channel::HEALTH},
+        {&taiphoon_agent_msg_dds__GeofenceStatus__desc, "geofence/status", AgentChannel::GEOFENCE_STATUS,
+         Channel::GEOFENCE_STATUS},
+        {&taiphoon_agent_msg_dds__PlannerStatus__desc, "planning/status", AgentChannel::PLANNING_STATUS,
+         Channel::PLANNER_STATUS},
     };
     bool is_ok = true;
     for (const auto& spec : specs)
@@ -449,16 +484,38 @@ bool CycloneAgentLink::publish_mission_plan(const QString& agent_ns, const Waypo
         return false;
     }
 
-    // 與 ROS2 預設時鐘相同使用系統時間
-    const auto since_epoch = std::chrono::system_clock::now().time_since_epoch();
-    const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(since_epoch);
-    const auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch - seconds);
-    RosTime stamp;
-    stamp.sec = static_cast<int32_t>(seconds.count());
-    stamp.nanosec = static_cast<uint32_t>(nanoseconds.count());
     std::vector<taiphoon_agent_msg_dds__MissionWaypoint_> waypoint_buffer;
-    const taiphoon_agent_msg_dds__WaypointMission_ sample = to_dds(mission, stamp, &waypoint_buffer);
+    const taiphoon_agent_msg_dds__WaypointMission_ sample = to_dds(mission, now_ros_time(), &waypoint_buffer);
     const dds_return_t result = dds_write(it->second.mission_plan_writer, &sample);
+    if (result != DDS_RETCODE_OK)
+    {
+        set_error(error, QStringLiteral("DDS 寫入失敗：%1").arg(QString::fromUtf8(dds_strretcode(result))));
+        return false;
+    }
+    return true;
+}
+
+bool CycloneAgentLink::publish_geofence(const GeofenceData& fence, QString* error)
+{
+    if (!write_geofence(fence, error))
+    {
+        return false;
+    }
+    last_geofence_ = fence;
+    return true;
+}
+
+bool CycloneAgentLink::write_geofence(const GeofenceData& fence, QString* error)
+{
+    if (!is_running() || all_geofence_writer_ <= 0)
+    {
+        set_error(error, QStringLiteral("DDS 尚未啟動，沒有地理圍籬通道"));
+        return false;
+    }
+    // transient_local：沒有訂閱者也寫入，writer 保留最後一筆給之後加入的 Agent
+    std::vector<taiphoon_agent_msg_dds__GeofenceVertex_> vertex_buffer;
+    const taiphoon_agent_msg_dds__Geofence_ sample = to_dds(fence, now_ros_time(), &vertex_buffer);
+    const dds_return_t result = dds_write(all_geofence_writer_, &sample);
     if (result != DDS_RETCODE_OK)
     {
         set_error(error, QStringLiteral("DDS 寫入失敗：%1").arg(QString::fromUtf8(dds_strretcode(result))));
@@ -598,6 +655,14 @@ void CycloneAgentLink::handle_agent_data(dds_entity_t reader, const ReaderContex
     case Channel::HEALTH:
         take_valid<taiphoon_agent_msg_dds__AgentHealth_>(
             reader, [&](const auto& sample) { emit health_received(agent, to_core(sample)); });
+        break;
+    case Channel::GEOFENCE_STATUS:
+        take_valid<taiphoon_agent_msg_dds__GeofenceStatus_>(
+            reader, [&](const auto& sample) { emit geofence_status_received(agent, to_core(sample)); });
+        break;
+    case Channel::PLANNER_STATUS:
+        take_valid<taiphoon_agent_msg_dds__PlannerStatus_>(
+            reader, [&](const auto& sample) { emit planner_status_received(agent, to_core(sample)); });
         break;
     case Channel::DISCOVERY:
         break;

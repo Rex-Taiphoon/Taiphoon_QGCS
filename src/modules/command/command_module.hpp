@@ -52,12 +52,21 @@ public slots:
      */
     void publish_mission_plan(const QString& agent_ns, const gcs::WaypointMissionData& mission);
 
+    /**
+     * @brief 發布已通過 Guard 驗證的地理圍籬設定（/uav_all_agent/geofence）
+     * @param fence 圍籬設定
+     */
+    void publish_geofence(const gcs::GeofenceData& fence);
+
 signals:
     /** @brief 命令發布結果 */
     void command_acked(const gcs::CommandAck& ack);
 
     /** @brief 航點任務上傳的發布結果（command 為 MISSION_UPLOAD_ACK_NAME） */
     void mission_upload_acked(const gcs::CommandAck& ack);
+
+    /** @brief 地理圍籬的發布結果（command 為 GEOFENCE_ACK_NAME） */
+    void geofence_acked(const gcs::CommandAck& ack);
 
 private:
     IAgentLink* link_ = nullptr;

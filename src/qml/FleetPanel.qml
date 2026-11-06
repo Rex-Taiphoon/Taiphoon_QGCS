@@ -299,6 +299,28 @@ Rectangle {
                     }
                 }
             }
+            // 規劃狀態：一行中文說明，等待同儕為提示色、避碰煞停為警示色；滑過顯示 Agent 原文
+            RowLayout {
+                visible: root.hasSelectedTelemetry || root.hasSelectedHealth
+                spacing: Theme.spaceMd
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.spaceLg
+                Layout.rightMargin: Theme.spaceMd
+                Layout.bottomMargin: Theme.spaceMd
+
+                DetailLabel { text: "PLAN" }
+                Label {
+                    Layout.fillWidth: true
+                    text: root.summary.plannerText || "—"
+                    color: Theme.levelColor(root.summary.plannerLevel || 0)
+                    elide: Text.ElideRight
+                    font.pixelSize: Theme.fontSmall
+
+                    HoverHandler { id: plannerHover }
+                    ToolTip.visible: plannerHover.hovered && (root.summary.plannerReason || "") !== ""
+                    ToolTip.text: root.summary.plannerReason || ""
+                }
+            }
         }
     }
 

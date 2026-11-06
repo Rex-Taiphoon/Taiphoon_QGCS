@@ -6,8 +6,10 @@
  */
 #include "app/ui_format.hpp"
 
+#include <QRegularExpression>
 #include <QStringList>
 
+#include <array>
 #include <cmath>
 
 namespace gcs::ui
@@ -119,6 +121,26 @@ QString geofence_detail_text(const AgentEventData& event)
     else if (event.code == ec::PLANNER_EMERGENCY_BRAKE && event.detail.contains(QLatin1String("geofence_violation")))
     {
         return QStringLiteral("軌跡將超出場域圍籬，緊急煞停");
+    }
+    else if (event.code == ec::PLANNER_GEOFENCE_TARGET_CANCELLED)
+    {
+        if (event.command == QLatin1String("FORMATION"))
+        {
+            return QStringLiteral("新圍籬使隊形越界，已解散並原地懸停");
+        }
+        if (event.command == QLatin1String("MISSION"))
+        {
+            // detail：Waypoint mission waypoint N outside updated geofence; holding
+            static const QRegularExpression WAYPOINT_PATTERN(QStringLiteral("waypoint (\\d+) outside"));
+            const QRegularExpressionMatch match = WAYPOINT_PATTERN.match(event.detail);
+            return match.hasMatch() ? QStringLiteral("新圍籬使第 %1 個航點越界，任務已中止").arg(match.captured(1))
+                                    : QStringLiteral("新圍籬使航點越界，任務已中止");
+        }
+        if (event.command == QLatin1String("MOVE"))
+        {
+            return QStringLiteral("新圍籬使目標越界，已原地懸停");
+        }
+        return QStringLiteral("新圍籬使目前目標越界，已原地懸停");
     }
     return {};
 }
@@ -354,6 +376,8 @@ QString agent_event_label(uint16_t code)
         return QStringLiteral("緊急煞停");
     case ec::PLANNER_FAILURE_PERSISTENT:
         return QStringLiteral("路徑規劃持續失敗");
+    case ec::PLANNER_GEOFENCE_TARGET_CANCELLED:
+        return QStringLiteral("圍籬更新取消目標");
     case ec::SAFETY_POSITION_DEVIATION:
         return QStringLiteral("位置偏差過大");
     default:
@@ -471,6 +495,178 @@ QString flight_controller_wait_reason(bool has_state, const AgentStateData& stat
         return QStringLiteral("未收到 PX4 落地偵測");
     }
     return QStringLiteral("等待飛控");
+}
+
+namespace
+{
+
+/// reason 開頭與中文說明的對照
+struct ReasonText
+{
+    const char* prefix;
+    const char* text;
+    StatusLevel level;
+};
+
+/**
+ * @brief 依 reason 開頭查表
+ * @param reason PlannerStatus.reason
+ * @param table 對照表
+ * @return 符合的項目；沒有時為 nullptr
+ */
+template <std::size_t N>
+const ReasonText* find_reason(const QString& reason, const std::array<ReasonText, N>& table)
+{
+    for (const ReasonText& item : table)
+    {
+        if (reason.startsWith(QLatin1String(item.prefix)))
+        {
+            return &item;
+        }
+    }
+    return nullptr;
+}
+
+constexpr std::array<ReasonText, 5> RUNNING_REASONS{{
+    {"ok", "飛往目標", StatusLevel::NORMAL},
+    {"Arriving", "接近目標，沿軌跡到位", StatusLevel::NORMAL},
+    {"Progress stalled", "進度停滯，沿目前路線飛往目標", StatusLevel::NOTICE},
+    {"Candidate replan failed", "重新規劃失敗，沿用安全軌跡", StatusLevel::NOTICE},
+    {"Peer deconfliction escape", "避讓同儕中", StatusLevel::NOTICE},
+}};
+
+// 順序有意義：到位煞停必須排在一般緊急煞停之前
+constexpr std::array<ReasonText, 20> HOLD_REASONS{{
+    {"Flight mission inactive", "未起飛", StatusLevel::NORMAL},
+    {"Local WGS84 Home unavailable", "尚未建立 Home", StatusLevel::NORMAL},
+    {"Own GPS position unavailable", "沒有 GPS 位置", StatusLevel::NORMAL},
+    {"Planner time unavailable", "規劃時間尚未就緒", StatusLevel::NORMAL},
+    {"No mission target", "懸停（沒有目標）", StatusLevel::NORMAL},
+    {"Terminal hold", "已到位懸停", StatusLevel::NORMAL},
+    {"formation_converged", "編隊已到位", StatusLevel::NORMAL},
+    {"Emergency brake: target reached while moving", "到位煞停，懸停中", StatusLevel::NORMAL},
+    {"Formation membership change pending", "等待編隊成員變更", StatusLevel::NOTICE},
+    {"Formation sync waiting for peer trajectory", "等待同儕軌跡同步", StatusLevel::NOTICE},
+    {"peer clock skew", "同儕時鐘偏差過大，請檢查對時", StatusLevel::NOTICE},
+    {"peer trajectory stale or invalid", "等待同儕資料", StatusLevel::NOTICE},
+    {"Waiting for local route arbitration", "等待路線協調", StatusLevel::NOTICE},
+    {"Peer deconfliction", "等待同儕讓路", StatusLevel::NOTICE},
+    {"Holding until replanning is safe", "等待安全後重新規劃", StatusLevel::NOTICE},
+    {"local_goal_selection_failed", "等待可行路徑（場域受限）", StatusLevel::NOTICE},
+    {"optimized_no_feasible_horizontal_path", "等待可行路徑（場域受限）", StatusLevel::NOTICE},
+    {"Emergency brake in progress", "避碰緊急煞停", StatusLevel::CAUTION},
+    {"Emergency brake", "避碰緊急煞停", StatusLevel::CAUTION},
+    {"optimized_emergency_brake", "避碰緊急煞停", StatusLevel::CAUTION},
+}};
+
+const QString TARGET_REACHED_BRAKE = QStringLiteral("Emergency brake: target reached while moving");
+
+}  // namespace
+
+PlannerStatusView planner_status_view(const PlannerStatusData& status)
+{
+    PlannerStatusView view;
+    const QString& reason = status.reason;
+    switch (static_cast<PlannerState>(status.state))
+    {
+    case PlannerState::IDLE:
+        view.text = QStringLiteral("閒置");
+        return view;
+    case PlannerState::RUNNING:
+        if (const ReasonText* item = find_reason(reason, RUNNING_REASONS))
+        {
+            view.text = QString::fromUtf8(item->text);
+            view.level = item->level;
+        }
+        else
+        {
+            view.text = reason.isEmpty() ? QStringLiteral("飛往目標") : QStringLiteral("飛行中：") + reason;
+            view.level = StatusLevel::NOTICE;
+        }
+        return view;
+    case PlannerState::HOLD:
+        view.is_target_reached_brake = reason.startsWith(TARGET_REACHED_BRAKE);
+        if (const ReasonText* item = find_reason(reason, HOLD_REASONS))
+        {
+            view.text = QString::fromUtf8(item->text);
+            view.level = item->level;
+        }
+        else
+        {
+            // 其他規劃失敗原因：等待可行路徑，會自動重試
+            view.text = reason.isEmpty() ? QStringLiteral("暫停") : QStringLiteral("暫停：") + reason;
+            view.level = StatusLevel::NOTICE;
+        }
+        return view;
+    case PlannerState::ERROR:
+        view.text = reason.startsWith(QLatin1String("Emergency brake generation failed"))
+                        ? QStringLiteral("無法產生煞停軌跡，請改用 RTL 或 LAND")
+                        : QStringLiteral("規劃錯誤：") + reason;
+        view.level = StatusLevel::DANGER;
+        return view;
+    }
+    view.text = QStringLiteral("規劃狀態 %1：%2").arg(status.state).arg(reason);
+    view.level = StatusLevel::NOTICE;
+    return view;
+}
+
+QString geofence_phase_label(GeofenceAgentPhase phase)
+{
+    switch (phase)
+    {
+    case GeofenceAgentPhase::WAITING:
+        return QStringLiteral("等待回報");
+    case GeofenceAgentPhase::NO_REPORT:
+        return QStringLiteral("未回報");
+    case GeofenceAgentPhase::NONE:
+        return QStringLiteral("無圍籬");
+    case GeofenceAgentPhase::PENDING:
+        return QStringLiteral("等待 Home");
+    case GeofenceAgentPhase::ACTIVE:
+        return QStringLiteral("生效");
+    case GeofenceAgentPhase::REJECTED:
+        return QStringLiteral("被拒");
+    case GeofenceAgentPhase::MISMATCH:
+        return QStringLiteral("版本不一致");
+    }
+    return QString();
+}
+
+StatusLevel geofence_phase_level(GeofenceAgentPhase phase)
+{
+    switch (phase)
+    {
+    case GeofenceAgentPhase::ACTIVE:
+    case GeofenceAgentPhase::NONE:
+        return StatusLevel::NORMAL;
+    case GeofenceAgentPhase::WAITING:
+    case GeofenceAgentPhase::PENDING:
+        return StatusLevel::NOTICE;
+    case GeofenceAgentPhase::NO_REPORT:
+    case GeofenceAgentPhase::MISMATCH:
+        return StatusLevel::CAUTION;
+    case GeofenceAgentPhase::REJECTED:
+        return StatusLevel::DANGER;
+    }
+    return StatusLevel::NORMAL;
+}
+
+QString geofence_result_text(uint8_t result, const QString& detail)
+{
+    QString text;
+    switch (static_cast<GeofenceResult>(result))
+    {
+    case GeofenceResult::REJECTED_INVALID:
+        text = QStringLiteral("圍籬內容不合法（版本號、margin、頂點數、座標、自交或面積過小）");
+        break;
+    case GeofenceResult::REJECTED_TOO_FAR:
+        text = QStringLiteral("有頂點距 Home 超過 5 km");
+        break;
+    default:
+        text = QStringLiteral("圍籬被拒（結果 %1）").arg(result);
+        break;
+    }
+    return detail.isEmpty() ? text : text + QStringLiteral("：") + detail;
 }
 
 }  // namespace gcs::ui

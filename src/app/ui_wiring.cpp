@@ -7,10 +7,12 @@
 #include "app/ui_wiring.hpp"
 
 #include "app/diagnostics_controller.hpp"
+#include "app/geofence_controller.hpp"
 #include "app/mission_controller.hpp"
 #include "app/ui_bridge.hpp"
 #include "modules/command/command_module.hpp"
 #include "modules/fleet/fleet_module.hpp"
+#include "modules/geofence/geofence_module.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
 #include "modules/mission/mission_module.hpp"
@@ -46,6 +48,8 @@ bool wire_ui(const CoreModules& modules, UiBridge* bridge)
     QObject::connect(modules.telemetry, &TelemetryModule::trajectory_updated, bridge,
                      &UiBridge::on_trajectory_updated);
     QObject::connect(modules.telemetry, &TelemetryModule::health_updated, bridge, &UiBridge::on_health_updated);
+    QObject::connect(modules.telemetry, &TelemetryModule::planner_status_updated, bridge,
+                     &UiBridge::on_planner_status_updated);
     QObject::connect(modules.telemetry, &TelemetryModule::agent_event_received, bridge, &UiBridge::on_agent_event);
     QObject::connect(modules.fleet, &FleetModule::fleet_changed, bridge, &UiBridge::on_fleet_changed);
     QObject::connect(modules.guard, &GuardModule::command_acked, bridge, &UiBridge::on_command_acked);
@@ -98,6 +102,23 @@ bool wire_mission(const CoreModules& modules, MissionController* controller)
                      &MissionController::on_state_updated);
     // 須在 gcs_wiring 的 Fleet → Mission 之後連線：任務中止的回報先送達，再清除該機的任務
     QObject::connect(modules.fleet, &FleetModule::fleet_changed, controller, &MissionController::on_fleet_changed);
+    return true;
+}
+
+bool wire_geofence(const CoreModules& modules, GeofenceController* controller)
+{
+    if (controller == nullptr || modules.geofence == nullptr)
+    {
+        qCCritical(lc_ui_wiring) << "地理圍籬組裝參數不完整，未建立任何連線";
+        return false;
+    }
+    QObject::connect(controller, &GeofenceController::set_requested, modules.geofence, &GeofenceModule::request_set);
+    QObject::connect(controller, &GeofenceController::clear_requested, modules.geofence,
+                     &GeofenceModule::request_clear);
+    QObject::connect(modules.geofence, &GeofenceModule::overview_changed, controller,
+                     &GeofenceController::on_overview_changed);
+    QObject::connect(modules.geofence, &GeofenceModule::request_acked, controller,
+                     &GeofenceController::on_request_acked);
     return true;
 }
 

@@ -27,6 +27,10 @@ struct AgentView
     bool has_trajectory = false;
     AgentHealthData health;
     bool has_health = false;
+    PlannerStatusData planner;
+    bool has_planner = false;
+    /// 收到最新規劃狀態的時間（UiBridge 的單調時鐘，毫秒）
+    qint64 planner_received_ms = 0;
 };
 
 /**

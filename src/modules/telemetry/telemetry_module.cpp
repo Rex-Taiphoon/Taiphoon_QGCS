@@ -38,6 +38,8 @@ bool TelemetryModule::init()
     connect(link_, &IAgentLink::mission_status_received, this, &TelemetryModule::on_mission_status_received);
     connect(link_, &IAgentLink::event_received, this, &TelemetryModule::on_event_received);
     connect(link_, &IAgentLink::health_received, this, &TelemetryModule::on_health_received);
+    connect(link_, &IAgentLink::geofence_status_received, this, &TelemetryModule::on_geofence_status_received);
+    connect(link_, &IAgentLink::planner_status_received, this, &TelemetryModule::on_planner_status_received);
     is_initialized_ = true;
     qCInfo(lc_telemetry) << "初始化完成";
     return true;
@@ -153,6 +155,22 @@ void TelemetryModule::on_health_received(const QString& agent_ns, const AgentHea
     if (subscribed_agents_.contains(agent_ns))
     {
         emit health_updated(agent_ns, health);
+    }
+}
+
+void TelemetryModule::on_geofence_status_received(const QString& agent_ns, const GeofenceStatusData& status)
+{
+    if (subscribed_agents_.contains(agent_ns))
+    {
+        emit geofence_status_updated(agent_ns, status);
+    }
+}
+
+void TelemetryModule::on_planner_status_received(const QString& agent_ns, const PlannerStatusData& status)
+{
+    if (subscribed_agents_.contains(agent_ns))
+    {
+        emit planner_status_updated(agent_ns, status);
     }
 }
 

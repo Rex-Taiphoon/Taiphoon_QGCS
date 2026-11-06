@@ -1,6 +1,6 @@
 /**
  * @file CommandPanel.qml
- * @brief 飛行控制面板（MCDU 列式）：SAFETY／MODE／MOVE／FORM／MISSION 五頁，L1 命令經面板內確認列 EXEC 後送出
+ * @brief 飛行控制面板（MCDU 列式）：SAFETY／MODE／MOVE／FORM／MISSION／FENCE 六頁，L1 命令經面板內確認列 EXEC 後送出
  * @author Taiphoon GCS Team
  * @date 2026-10-15
  *
@@ -13,6 +13,8 @@
  * MISSION：單機航點任務與語音口令；按鈕開始任務先進確認列，需按 EXEC。
  *          語音口令（解鎖、起飛 3 m、巡邏、降落）只限單機，倒數 5 秒後自動執行，可按 CLR／Esc 取消或提前 EXEC；
  *          解鎖、起飛、降落倒數結束後與按鈕相同經 UiBridge 與 GuardModule 送出。狀態與規則皆取自 MissionController。
+ * FENCE：全體共用的地理圍籬，不需選取無人機。編輯時在地圖點選新增頂點、拖曳移動、右鍵刪除；
+ *        套用與清除經 GeofenceModule 與 GuardModule 送出，清除需在 10 秒內再按一次確認。各機狀態取自 GeofenceController。
  */
 import QtQuick
 import QtQuick.Controls
@@ -24,13 +26,17 @@ Rectangle {
     required property var bridge
     required property var settings
     required property var mission
+    required property var geofence
     required property var voice
 
     /// 面板是否展開；收合時只保留標題列
     property bool isOpen: true
-    /// 目前分頁：0 SAFETY、1 MODE、2 MOVE、3 FORM、4 MISSION
+    /// 目前分頁：0 SAFETY、1 MODE、2 MOVE、3 FORM、4 MISSION、5 FENCE
     property int activeTab: 0
     readonly property int missionTab: 4
+    readonly property int fenceTab: 5
+    /// 圍籬是全體共用：未選取無人機時仍可使用 FENCE 分頁
+    readonly property bool isTabContentShown: hasTarget || activeTab === fenceTab
     /// 確認列暫存的 L1 命令：{ command, params, label, target }；null 表示沒有待確認命令
     property var pending: null
     /// 移動距離（不保存，與網頁版相同預設 3 m）
@@ -229,7 +235,7 @@ Rectangle {
             Divider {}
 
             Label {
-                visible: !root.hasTarget
+                visible: !root.isTabContentShown
                 text: qsTr("請先在機群面板選取無人機")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontSmall
@@ -238,12 +244,11 @@ Rectangle {
 
             // 分頁列：英文縮寫，選取時青色並加底線
             RowLayout {
-                visible: root.hasTarget
                 spacing: 0
                 Layout.fillWidth: true
 
                 Repeater {
-                    model: ["SAFETY", "MODE", "MOVE", "FORM", "MISSION"]
+                    model: ["SAFETY", "MODE", "MOVE", "FORM", "MISSION", "FENCE"]
                     delegate: AbstractButton {
                         id: tabButton
 
@@ -282,12 +287,12 @@ Rectangle {
                     }
                 }
             }
-            Divider { visible: root.hasTarget }
+            Divider {}
 
             StackLayout {
                 id: tabStack
 
-                visible: root.hasTarget
+                visible: root.isTabContentShown
                 currentIndex: root.activeTab
                 Layout.fillWidth: true
                 // 高度依目前分頁，而非所有分頁中最高者，避免面板下方大片留白
@@ -930,6 +935,151 @@ Rectangle {
                             onReleased: root.voice.endListening()
                             onCanceled: root.voice.endListening()
                         }
+                    }
+                }
+
+                // FENCE：全體共用的地理圍籬
+                ColumnLayout {
+                    spacing: 0
+
+                    Label {
+                        text: root.geofence.summaryText
+                        color: root.geofence.hasFence ? Theme.caution : Theme.textMuted
+                        font.family: Theme.fontMono
+                        font.pixelSize: Theme.fontSmall
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.spaceLg
+                        Layout.rightMargin: Theme.spaceLg
+                        Layout.topMargin: Theme.spaceSm
+                        Layout.bottomMargin: Theme.spaceSm
+                    }
+                    LskRow {
+                        title: root.geofence.isEditing ? qsTr("EDIT 取消編輯") : qsTr("EDIT 編輯圍籬")
+                        tag: root.geofence.isEditing ? qsTr("點地圖新增") : ""
+                        tooltip: root.geofence.isEditing
+                                 ? qsTr("捨棄草稿，地圖恢復顯示目前生效的圍籬")
+                                 : qsTr("在地圖上點選新增頂點（加在最後一點之後）、拖曳移動、右鍵刪除")
+                        onClicked: root.geofence.isEditing ? root.geofence.cancelEditing()
+                                                           : root.geofence.startEditing()
+                    }
+
+                    // 編輯中：頂點數、margin、驗證結果與套用
+                    RowLayout {
+                        visible: root.geofence.isEditing
+                        spacing: Theme.spaceSm
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.spaceLg
+                        Layout.rightMargin: Theme.spaceSm
+                        Layout.preferredHeight: 34
+
+                        FieldLabel { text: "PTS" }
+                        Label {
+                            text: root.geofence.draftCount + " / " + root.geofence.maxVertices
+                            color: Theme.textValue
+                            font.family: Theme.fontMono
+                            font.pixelSize: Theme.fontSmall
+                        }
+                        Item { Layout.fillWidth: true }
+                        FieldLabel { text: "MARGIN" }
+                        InlineNumber {
+                            value: root.geofence.margin
+                            minimum: root.geofence.minMargin
+                            maximum: root.geofence.maxMargin
+                            unit: "M"
+                            tooltip: qsTr("機體中心與邊界的最小水平距離（0～10 公尺）")
+                            onCommitted: (newValue) => root.geofence.margin = newValue
+                        }
+                    }
+                    Label {
+                        visible: root.geofence.isEditing && root.geofence.draftError.length > 0
+                        text: root.geofence.draftError
+                        color: root.geofence.isDraftSelfIntersecting ? Theme.danger : Theme.textMuted
+                        font.pixelSize: Theme.fontLabel
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.spaceLg
+                        Layout.rightMargin: Theme.spaceLg
+                        Layout.bottomMargin: Theme.spaceSm
+                    }
+                    LskRow {
+                        visible: root.geofence.isEditing && root.geofence.draftCount > 0
+                        title: qsTr("CLR 清除頂點")
+                        onClicked: root.geofence.clearDraft()
+                    }
+                    LskRow {
+                        visible: root.geofence.isEditing
+                        title: qsTr("APPLY 套用圍籬")
+                        risk: Theme.commandConfirm
+                        enabled: root.geofence.canApply
+                        tag: enabled ? qsTr("全部機群") : qsTr("無法套用")
+                        tooltip: qsTr("發布到全部機群；飛行中更新時，落在新圍籬外的編隊、航點或目標會被取消並原地懸停")
+                        onClicked: root.geofence.apply()
+                    }
+                    Divider {}
+
+                    // 各機狀態：機號、狀況、版本與說明
+                    Repeater {
+                        model: root.geofence.rows
+                        delegate: RowLayout {
+                            id: fenceRow
+
+                            required property var modelData
+
+                            spacing: Theme.spaceSm
+                            Layout.fillWidth: true
+                            Layout.leftMargin: Theme.spaceLg
+                            Layout.rightMargin: Theme.spaceLg
+                            Layout.preferredHeight: 28
+
+                            Label {
+                                text: fenceRow.modelData.shortName
+                                color: Theme.textStrong
+                                font.family: Theme.fontMono
+                                font.pixelSize: Theme.fontSmall
+                                Layout.preferredWidth: 56
+                            }
+                            Label {
+                                text: fenceRow.modelData.phaseText
+                                color: Theme.levelColor(fenceRow.modelData.level)
+                                font.pixelSize: Theme.fontSmall
+                                Layout.preferredWidth: 72
+                            }
+                            Label {
+                                text: fenceRow.modelData.fenceText
+                                color: Theme.textMuted
+                                font.family: Theme.fontMono
+                                font.pixelSize: Theme.fontLabel
+                                Layout.preferredWidth: 32
+                            }
+                            Label {
+                                text: fenceRow.modelData.detail
+                                color: fenceRow.modelData.isOutside ? Theme.caution : Theme.textMuted
+                                font.pixelSize: Theme.fontLabel
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+
+                                HoverHandler { id: fenceDetailHover }
+                                ToolTip.visible: fenceDetailHover.hovered && fenceRow.modelData.detail.length > 0
+                                ToolTip.text: fenceRow.modelData.detail
+                            }
+                        }
+                    }
+                    Divider { visible: root.geofence.rows.length > 0 }
+                    LskRow {
+                        visible: !root.geofence.isEditing
+                        title: root.geofence.isClearConfirmPending ? qsTr("CLEAR 確認清除") : qsTr("CLEAR 清除圍籬")
+                        risk: Theme.commandDanger
+                        enabled: root.geofence.hasFence || root.geofence.rows.length > 0
+                        tag: root.geofence.isClearConfirmPending ? qsTr("再按一次") : (enabled ? "CONFIRM" : "")
+                        tooltip: qsTr("停用全部機群的圍籬；會失去場域保護，目前目標、編隊與任務照常")
+                        onClicked: root.geofence.isClearConfirmPending ? root.geofence.confirmClear()
+                                                                       : root.geofence.requestClear()
+                    }
+                    LskRow {
+                        visible: root.geofence.isClearConfirmPending
+                        title: qsTr("CANCEL 取消清除")
+                        onClicked: root.geofence.cancelClear()
                     }
                 }
             }

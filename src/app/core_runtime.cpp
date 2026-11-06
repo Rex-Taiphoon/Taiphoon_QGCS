@@ -12,6 +12,7 @@
 #include "link/cyclone_agent_link.hpp"
 #include "modules/command/command_module.hpp"
 #include "modules/fleet/fleet_module.hpp"
+#include "modules/geofence/geofence_module.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
 #include "modules/mission/mission_module.hpp"
@@ -61,7 +62,8 @@ bool CoreRuntime::start(const link::DdsNetworkConfig& config, QString* error)
     command_ = manager_->register_module(std::make_unique<CommandModule>(link_.get()));
     lifecycle_ = manager_->register_module(std::make_unique<AgentLifecycleModule>(link_.get()));
     mission_ = manager_->register_module(std::make_unique<MissionModule>());
-    if (!wire_core_modules({fleet_, telemetry_, guard_, command_, lifecycle_, mission_}))
+    geofence_ = manager_->register_module(std::make_unique<GeofenceModule>());
+    if (!wire_core_modules({fleet_, telemetry_, guard_, command_, lifecycle_, mission_, geofence_}))
     {
         if (error != nullptr)
         {
@@ -145,6 +147,7 @@ void CoreRuntime::stop()
     command_ = nullptr;
     lifecycle_ = nullptr;
     mission_ = nullptr;
+    geofence_ = nullptr;
     manager_.reset();
     link_.reset();
     core_thread_.reset();

@@ -1,6 +1,6 @@
 /**
  * @file guard_rules.hpp
- * @brief 防呆規則：資料驅動轉移表、Arm／Takeoff／重新啟動飛控的 PX4 原生狀態規則與航點任務上傳檢查（ADR-0003）
+ * @brief 防呆規則：資料驅動轉移表、Arm／Takeoff／重新啟動飛控的 PX4 原生狀態規則、航點任務上傳與地理圍籬檢查（ADR-0003）
  * @author Taiphoon GCS Team
  * @date 2026-10-12
  *
@@ -95,5 +95,23 @@ bool is_command_allowed_for_agent(const AgentStateData& state, CmdType cmd);
  * @return 空字串表示允許，否則為拒絕原因
  */
 QString check_mission_upload(const AgentStateData& state, const WaypointMissionData& mission);
+
+/**
+ * @brief 檢查地理圍籬設定：版本號、動作，SET 時另檢查頂點數、座標、自交、面積與 margin（介面文件 3.15）
+ * @param fence 圍籬設定
+ * @return 空字串表示允許，否則為拒絕原因
+ */
+QString check_geofence_request(const GeofenceData& fence);
+
+/**
+ * @brief 預檢航點是否在目標機已生效的圍籬內（含 margin）
+ *
+ * 只是改善使用體驗，最終仍以 Agent 判定為準；圍籬未生效（DISABLED、PENDING）時不檢查。
+ *
+ * @param fence 目標機最新的 GeofenceStatus
+ * @param mission 航點任務
+ * @return 空字串表示允許，否則為拒絕原因
+ */
+QString check_mission_geofence(const GeofenceStatusData& fence, const WaypointMissionData& mission);
 
 }  // namespace gcs::guard_rules

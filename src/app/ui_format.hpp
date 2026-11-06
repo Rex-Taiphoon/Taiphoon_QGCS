@@ -218,4 +218,51 @@ QString preflight_text(const AgentHealthData& health);
 QString flight_controller_wait_reason(bool has_state, const AgentStateData& state, bool has_health,
                                       const AgentHealthData& health);
 
+/// 狀態文字的警示等級；QML 依數值選色（一般、提示、警告、危險）
+enum class StatusLevel
+{
+    NORMAL = 0,
+    NOTICE = 1,
+    CAUTION = 2,
+    DANGER = 3
+};
+
+/// 規劃狀態的顯示內容
+struct PlannerStatusView
+{
+    QString text;
+    StatusLevel level = StatusLevel::NORMAL;
+    /// 到位時仍在移動的預期煞停（只寫日誌，不警示）
+    bool is_target_reached_brake = false;
+};
+
+/**
+ * @brief 規劃狀態的中文說明（介面文件 3.7）：以 state 分大類，reason 只用於細分；未知 reason 照原文顯示
+ * @param status PlannerStatus
+ * @return 顯示內容
+ */
+PlannerStatusView planner_status_view(const PlannerStatusData& status);
+
+/**
+ * @brief 圍籬狀況的中文標籤
+ * @param phase 狀況
+ * @return 標籤，例如「生效」「被拒」
+ */
+QString geofence_phase_label(GeofenceAgentPhase phase);
+
+/**
+ * @brief 圍籬狀況的警示等級
+ * @param phase 狀況
+ * @return 等級
+ */
+StatusLevel geofence_phase_level(GeofenceAgentPhase phase);
+
+/**
+ * @brief Agent 拒絕圍籬的原因
+ * @param result GeofenceResult 原始數值
+ * @param detail Agent 的英文說明
+ * @return 中文原因（附原文）
+ */
+QString geofence_result_text(uint8_t result, const QString& detail);
+
 }  // namespace gcs::ui

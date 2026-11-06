@@ -20,11 +20,15 @@ void register_core_metatypes()
     qRegisterMetaType<WaypointMissionStatusData>();
     qRegisterMetaType<AgentEventData>();
     qRegisterMetaType<AgentHealthData>();
+    qRegisterMetaType<GeofenceData>();
+    qRegisterMetaType<GeofenceStatusData>();
+    qRegisterMetaType<PlannerStatusData>();
     qRegisterMetaType<CommandRequest>();
     qRegisterMetaType<CommandAck>();
     qRegisterMetaType<FleetSnapshot>();
     qRegisterMetaType<MissionPlan>();
     qRegisterMetaType<MissionStatus>();
+    qRegisterMetaType<GeofenceOverview>();
 }
 
 }  // namespace gcs

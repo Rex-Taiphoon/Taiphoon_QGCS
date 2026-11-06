@@ -11,6 +11,7 @@
 #include "app/core_runtime.hpp"
 #include "app/diagnostics_controller.hpp"
 #include "app/log_file.hpp"
+#include "app/geofence_controller.hpp"
 #include "app/mission_controller.hpp"
 #include "app/network_controller.hpp"
 #include "app/ui_bridge.hpp"
@@ -164,13 +165,17 @@ int main(int argc, char* argv[])
     // 地圖顯示原點只影響畫面座標；除錯工具與核心模組仍使用 Agent 回報的原始位置
     gcs::MissionController mission;
     mission.set_toast_model(&bridge.toasts());
+    gcs::GeofenceController geofence;
+    geofence.set_toast_model(&bridge.toasts());
     bridge.set_display_origin(settings.display_origin());
     mission.set_display_origin(settings.display_origin());
+    geofence.set_display_origin(settings.display_origin());
     QObject::connect(&settings, &gcs::AppSettings::displayOriginChanged, &bridge,
-                     [&settings, &bridge, &mission]()
+                     [&settings, &bridge, &mission, &geofence]()
                      {
                          bridge.set_display_origin(settings.display_origin());
                          mission.set_display_origin(settings.display_origin());
+                         geofence.set_display_origin(settings.display_origin());
                      });
     QObject::connect(&bridge, &gcs::UiBridge::selectionChanged, &mission,
                      [&bridge, &mission]() { mission.set_selected_agent(bridge.selected_agent()); });
@@ -209,13 +214,17 @@ int main(int argc, char* argv[])
 
     // 核心每次（重新）建立時，模組都是新物件，必須重新組裝 UI 連線
     QObject::connect(&network, &gcs::NetworkController::runtimeStarted, &app,
-                     [&runtime, &bridge, &diagnostics, &mission]()
+                     [&runtime, &bridge, &diagnostics, &mission, &geofence]()
                      {
                          const gcs::CoreModules modules{runtime.fleet(),   runtime.telemetry(), runtime.guard(),
-                                                        runtime.command(), runtime.lifecycle(), runtime.mission()};
+                                                        runtime.command(), runtime.lifecycle(), runtime.mission(),
+                                                        runtime.geofence()};
                          gcs::wire_ui(modules, &bridge);
                          gcs::wire_diagnostics(modules, &diagnostics);
                          gcs::wire_mission(modules, &mission);
+                         // 新的 GeofenceModule 從空的總覽開始；先清掉前一個核心留下的狀態
+                         geofence.on_overview_changed(gcs::GeofenceOverview());
+                         gcs::wire_geofence(modules, &geofence);
                      });
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, [&runtime]() { runtime.stop(); });
 
@@ -238,6 +247,7 @@ int main(int argc, char* argv[])
         {QStringLiteral("network"), QVariant::fromValue(&network)},
         {QStringLiteral("diagnostics"), QVariant::fromValue(&diagnostics)},
         {QStringLiteral("mission"), QVariant::fromValue(&mission)},
+        {QStringLiteral("geofence"), QVariant::fromValue(&geofence)},
         {QStringLiteral("voice"), QVariant::fromValue(&voice)},
         {QStringLiteral("video"), QVariant::fromValue(&video)},
         // 命令列已指定網路時不顯示首次設定精靈

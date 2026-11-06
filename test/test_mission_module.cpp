@@ -270,6 +270,18 @@ TEST_F(MissionModuleTest, AbortedReportsAgentReason)
     EXPECT_EQ(commands_.count(), 1);
 }
 
+TEST_F(MissionModuleTest, GeofenceUpdateAbortTranslated)
+{
+    const uint32_t mission_id = start_running();
+    WaypointMissionStatusData aborted = agent_status(mission_id, AgentMissionState::ABORTED);
+    aborted.reason = static_cast<uint8_t>(AgentMissionReason::GEOFENCE_UPDATE);
+    aborted.detail = QStringLiteral("waypoint 2 outside updated geofence");
+    mission_.on_mission_status_updated(AGENT_1, aborted);
+    EXPECT_EQ(last_status().phase, MissionPhase::ABORTED);
+    EXPECT_TRUE(last_status().message.contains(QStringLiteral("圍籬更新，任務已中止")));
+    EXPECT_FALSE(mission_.is_running(AGENT_1));
+}
+
 TEST_F(MissionModuleTest, MissionStartNotSentReportsRejected)
 {
     const uint32_t mission_id = start_uploaded();

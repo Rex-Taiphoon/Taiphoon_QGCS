@@ -108,4 +108,26 @@ void CommandModule::publish_mission_plan(const QString& agent_ns, const Waypoint
     emit mission_upload_acked(command_protocol::make_ack(agent_ns, MISSION_UPLOAD_ACK_NAME, true));
 }
 
+void CommandModule::publish_geofence(const GeofenceData& fence)
+{
+    if (!is_initialized_ || link_ == nullptr)
+    {
+        emit geofence_acked(command_protocol::make_ack(ALL_AGENTS_TARGET, GEOFENCE_ACK_NAME, false,
+                                                       QStringLiteral("CommandModule 未初始化")));
+        return;
+    }
+    QString link_error;
+    if (!link_->publish_geofence(fence, &link_error))
+    {
+        qCWarning(lc_command) << "地理圍籬發布失敗：fence_id=" << fence.fence_id << link_error;
+        emit geofence_acked(command_protocol::make_ack(ALL_AGENTS_TARGET, GEOFENCE_ACK_NAME, false,
+                                                       QStringLiteral("地理圍籬發布失敗: ") + link_error));
+        return;
+    }
+    qCInfo(lc_command) << "已發布地理圍籬 fence_id=" << fence.fence_id
+                       << (fence.action == GeofenceAction::CLEAR ? "清除" : "設定") << "頂點" << fence.vertices.size()
+                       << "個 margin" << fence.margin_m;
+    emit geofence_acked(command_protocol::make_ack(ALL_AGENTS_TARGET, GEOFENCE_ACK_NAME, true));
+}
+
 }  // namespace gcs

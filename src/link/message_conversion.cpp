@@ -178,6 +178,45 @@ AgentHealthData to_core(const taiphoon_agent_msg_dds__AgentHealth_& sample)
     return health;
 }
 
+GeofenceStatusData to_core(const taiphoon_agent_msg_dds__GeofenceStatus_& sample)
+{
+    GeofenceStatusData status;
+    status.stamp = to_core_time(sample.stamp);
+    status.state = sample.state;
+    status.fence_id = sample.fence_id;
+    status.margin_m = sample.margin_m;
+    if (sample.vertices._buffer != nullptr)
+    {
+        status.vertices.reserve(sample.vertices._length);
+        for (uint32_t i = 0; i < sample.vertices._length; ++i)
+        {
+            const auto& vertex = sample.vertices._buffer[i];
+            status.vertices.push_back(GeofenceVertexData{vertex.latitude_deg, vertex.longitude_deg});
+        }
+    }
+    status.last_request_id = sample.last_request_id;
+    status.last_result = sample.last_result;
+    status.is_position_inside = sample.position_inside;
+    status.detail = to_core_string(sample.detail);
+    return status;
+}
+
+PlannerStatusData to_core(const taiphoon_agent_msg_dds__PlannerStatus_& sample)
+{
+    PlannerStatusData status;
+    status.stamp = to_core_time(sample.stamp);
+    status.state = sample.state;
+    status.trajectory_id = sample.trajectory_id;
+    status.is_map_valid = sample.map_valid;
+    status.is_localization_valid = sample.localization_valid;
+    status.is_peer_data_valid = sample.peer_data_valid;
+    status.planning_time_ms = sample.planning_time_ms;
+    status.min_obstacle_distance_m = sample.min_obstacle_distance_m;
+    status.min_peer_distance_m = sample.min_peer_distance_m;
+    status.reason = to_core_string(sample.reason);
+    return status;
+}
+
 taiphoon_agent_msg_dds__WaypointMission_ to_dds(const WaypointMissionData& mission, const RosTime& stamp,
                                                 std::vector<taiphoon_agent_msg_dds__MissionWaypoint_>* waypoint_buffer)
 {
@@ -207,6 +246,36 @@ taiphoon_agent_msg_dds__WaypointMission_ to_dds(const WaypointMissionData& missi
     sample.waypoints._maximum = static_cast<uint32_t>(waypoint_buffer->size());
     // 緩衝屬於呼叫端，DDS 不得釋放
     sample.waypoints._release = false;
+    return sample;
+}
+
+taiphoon_agent_msg_dds__Geofence_ to_dds(const GeofenceData& fence, const RosTime& stamp,
+                                         std::vector<taiphoon_agent_msg_dds__GeofenceVertex_>* vertex_buffer)
+{
+    taiphoon_agent_msg_dds__Geofence_ sample{};
+    sample.stamp.sec = stamp.sec;
+    sample.stamp.nanosec = stamp.nanosec;
+    sample.fence_id = fence.fence_id;
+    sample.action = static_cast<uint8_t>(fence.action);
+    sample.margin_m = fence.margin_m;
+    if (vertex_buffer == nullptr)
+    {
+        return sample;
+    }
+    vertex_buffer->clear();
+    vertex_buffer->reserve(fence.vertices.size());
+    for (const GeofenceVertexData& vertex : fence.vertices)
+    {
+        taiphoon_agent_msg_dds__GeofenceVertex_ target{};
+        target.latitude_deg = vertex.latitude_deg;
+        target.longitude_deg = vertex.longitude_deg;
+        vertex_buffer->push_back(target);
+    }
+    sample.vertices._buffer = vertex_buffer->empty() ? nullptr : vertex_buffer->data();
+    sample.vertices._length = static_cast<uint32_t>(vertex_buffer->size());
+    sample.vertices._maximum = static_cast<uint32_t>(vertex_buffer->size());
+    // 緩衝屬於呼叫端，DDS 不得釋放
+    sample.vertices._release = false;
     return sample;
 }
 

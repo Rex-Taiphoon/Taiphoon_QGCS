@@ -10,8 +10,10 @@
  */
 #include "app/gcs_wiring.hpp"
 #include "fakes/fake_agent_link.hpp"
+#include "fakes/geofence_samples.hpp"
 #include "modules/command/command_module.hpp"
 #include "modules/fleet/fleet_module.hpp"
+#include "modules/geofence/geofence_module.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
 #include "modules/mission/mission_module.hpp"
@@ -94,7 +96,9 @@ protected:
         ASSERT_TRUE(command_.init());
         ASSERT_TRUE(lifecycle_.init());
         ASSERT_TRUE(mission_.init());
-        ASSERT_TRUE(wire_core_modules({&fleet_, &telemetry_, &guard_, &command_, &lifecycle_, &mission_}));
+        ASSERT_TRUE(geofence_.init());
+        ASSERT_TRUE(
+            wire_core_modules({&fleet_, &telemetry_, &guard_, &command_, &lifecycle_, &mission_, &geofence_}));
     }
 
     /**
@@ -152,13 +156,16 @@ protected:
     CommandModule command_{&link_};
     AgentLifecycleModule lifecycle_{&link_};
     MissionModule mission_{fast_mission_timing()};
+    GeofenceModule geofence_;
 };
 
 }  // namespace
 
 TEST_F(GcsWiringTest, RejectsIncompleteModules)
 {
-    EXPECT_FALSE(wire_core_modules({&fleet_, &telemetry_, nullptr, &command_, &lifecycle_, &mission_}));
+    EXPECT_FALSE(
+        wire_core_modules({&fleet_, &telemetry_, nullptr, &command_, &lifecycle_, &mission_, &geofence_}));
+    EXPECT_FALSE(wire_core_modules({&fleet_, &telemetry_, &guard_, &command_, &lifecycle_, &mission_, nullptr}));
     EXPECT_FALSE(wire_core_modules({&fleet_, &telemetry_, &guard_, &command_, &lifecycle_, nullptr}));
 }
 
@@ -390,4 +397,60 @@ TEST_F(GcsWiringTest, VanishedAgentIsRejectedAndUnsubscribed)
     EXPECT_FALSE(link_.subscribed_agents.contains(AGENT_1));
     guard_.request_command(make_request(AGENT_1, QStringLiteral("MODE_OFFBOARD")));
     EXPECT_TRUE(link_.published_commands.empty());
+}
+
+// ---------------------------------------------------------------------------
+// 地理圍籬：只能經 Guard 驗證後由 CommandModule 發布
+// ---------------------------------------------------------------------------
+
+TEST_F(GcsWiringTest, GeofencePublishedOnlyAfterGuardValidation)
+{
+    QSignalSpy acked(&geofence_, &GeofenceModule::request_acked);
+    GeofenceData draft;
+    draft.vertices = gcs::test::square_fence();
+    geofence_.request_set(draft);
+    ASSERT_EQ(link_.published_geofences.size(), 1U);
+    EXPECT_EQ(link_.published_geofences[0].fence_id, 1U);
+    EXPECT_EQ(link_.published_geofences[0].action, GeofenceAction::SET);
+    ASSERT_EQ(acked.size(), 1);
+    EXPECT_TRUE(acked.at(0).at(0).value<CommandAck>().is_ok);
+
+    // 自交：Guard 拒絕，不發布
+    std::swap(draft.vertices[1], draft.vertices[2]);
+    geofence_.request_set(draft);
+    EXPECT_EQ(link_.published_geofences.size(), 1U);
+    ASSERT_EQ(acked.size(), 2);
+    EXPECT_FALSE(acked.at(1).at(0).value<CommandAck>().is_ok);
+
+    // DDS 發布失敗也回報
+    link_.is_geofence_channel_ready = false;
+    geofence_.request_clear();
+    EXPECT_EQ(link_.published_geofences.size(), 1U);
+    ASSERT_EQ(acked.size(), 3);
+    EXPECT_FALSE(acked.at(2).at(0).value<CommandAck>().is_ok);
+    link_.is_geofence_channel_ready = true;
+    geofence_.request_clear();
+    ASSERT_EQ(link_.published_geofences.size(), 2U);
+    EXPECT_EQ(link_.published_geofences[1].action, GeofenceAction::CLEAR);
+    EXPECT_EQ(link_.published_geofences[1].fence_id, 4U);
+    // 圍籬不是命令：不會出現在命令 topic
+    EXPECT_TRUE(link_.published_commands.empty());
+}
+
+TEST_F(GcsWiringTest, GeofenceStatusReachesModuleAndGuardPreflight)
+{
+    bring_online_hovering(25.0);
+    emit link_.geofence_status_received(
+        AGENT_1, gcs::test::make_fence_status(GeofenceState::ACTIVE, 6, 6, GeofenceResult::ACCEPTED,
+                                              gcs::test::square_fence(5.0)));
+    ASSERT_EQ(geofence_.overview().rows.size(), 1U);
+    EXPECT_EQ(geofence_.overview().fence_id, 6U);
+    EXPECT_EQ(geofence_.next_fence_id(), 7U);
+
+    // 航點任務：圍籬外的航點由 Guard 預檢擋下，不上傳
+    QSignalSpy statuses(&mission_, &MissionModule::mission_status_changed);
+    mission_.start_mission(two_waypoint_plan());
+    EXPECT_TRUE(link_.published_missions.empty());
+    ASSERT_FALSE(statuses.isEmpty());
+    EXPECT_EQ(statuses.last().at(0).value<MissionStatus>().phase, MissionPhase::REJECTED);
 }

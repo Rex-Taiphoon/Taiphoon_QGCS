@@ -15,6 +15,7 @@ namespace gcs
 class AgentLifecycleModule;
 class CommandModule;
 class FleetModule;
+class GeofenceModule;
 class GuardModule;
 class MissionModule;
 class TelemetryModule;
@@ -28,6 +29,7 @@ struct CoreModules
     CommandModule* command = nullptr;
     AgentLifecycleModule* lifecycle = nullptr;
     MissionModule* mission = nullptr;
+    GeofenceModule* geofence = nullptr;
 };
 
 /**

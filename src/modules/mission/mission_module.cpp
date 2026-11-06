@@ -495,6 +495,10 @@ QString MissionModule::reason_text(const WaypointMissionStatusData& status)
     case AgentMissionReason::LEG_TIMEOUT:
         text = QStringLiteral("第 %1 個航點逾時未到達，已停在目前位置").arg(waypoint);
         break;
+    case AgentMissionReason::GEOFENCE_UPDATE:
+        // detail：waypoint N outside updated geofence
+        text = QStringLiteral("圍籬更新，任務已中止");
+        break;
     case AgentMissionReason::NONE:
         text = QStringLiteral("未提供原因");
         break;

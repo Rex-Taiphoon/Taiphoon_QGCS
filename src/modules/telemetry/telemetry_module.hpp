@@ -68,6 +68,10 @@ signals:
     void agent_event_received(const QString& agent_ns, const gcs::AgentEventData& event);
     /** @brief Agent 與 PX4 連線健康狀態更新 */
     void health_updated(const QString& agent_ns, const gcs::AgentHealthData& health);
+    /** @brief 地理圍籬狀態更新 */
+    void geofence_status_updated(const QString& agent_ns, const gcs::GeofenceStatusData& status);
+    /** @brief EGO-Swarm 規劃狀態更新 */
+    void planner_status_updated(const QString& agent_ns, const gcs::PlannerStatusData& status);
 
 private slots:
     void on_state_received(const QString& agent_ns, const gcs::AgentStateData& state);
@@ -78,6 +82,8 @@ private slots:
     void on_mission_status_received(const QString& agent_ns, const gcs::WaypointMissionStatusData& status);
     void on_event_received(const QString& agent_ns, const gcs::AgentEventData& event);
     void on_health_received(const QString& agent_ns, const gcs::AgentHealthData& health);
+    void on_geofence_status_received(const QString& agent_ns, const gcs::GeofenceStatusData& status);
+    void on_planner_status_received(const QString& agent_ns, const gcs::PlannerStatusData& status);
 
 private:
     IAgentLink* link_ = nullptr;

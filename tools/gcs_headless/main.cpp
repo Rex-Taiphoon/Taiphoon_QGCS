@@ -9,14 +9,19 @@
  * 預設不送出任何命令；--command 必須搭配 --allow-commands 才會執行。
  * 航點任務（--mission／--mission-relative）在命令之後開始；加上 --voice-wav 時改由語音檔觸發，
  * 與桌面程式相同經 MissionController 的倒數流程；語音的解鎖、起飛、降落與任務中的命令同樣經 Guard。
+ * 地理圍籬（--geofence／--geofence-relative／--geofence-clear）在命令之前送出，經 GeofenceModule 與 Guard；
+ * 各機圍籬狀態不論是否設定都以 [geofence] 輸出。
  */
 #include "app/core_runtime.hpp"
 #include "app/mission_controller.hpp"
 #include "app/toast_model.hpp"
+#include "app/ui_format.hpp"
 #include "app/ui_wiring.hpp"
 #include "core/agent_types.hpp"
+#include "core/geofence_geometry.hpp"
 #include "modules/command/command_module.hpp"
 #include "modules/fleet/fleet_module.hpp"
+#include "modules/geofence/geofence_module.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
 #include "modules/mission/mission_module.hpp"
@@ -54,6 +59,86 @@ constexpr double METERS_PER_DEGREE = 111319.49;
 constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
 /// 航點三個欄位：緯度（或北向公尺）、經度（或東向公尺）、高度
 constexpr int WAYPOINT_FIELDS = 3;
+/// 圍籬頂點兩個欄位：緯度（或北向公尺）、經度（或東向公尺）
+constexpr int VERTEX_FIELDS = 2;
+
+/// --geofence 或 --geofence-relative 的內容
+struct GeofenceSpec
+{
+    /// 相對模式的原點 Agent
+    QString agent;
+    /// 每筆 [緯度, 經度]；相對模式為 [北向公尺, 東向公尺]
+    QVector<std::array<double, 2>> points;
+    bool is_relative = false;
+};
+
+/**
+ * @brief 解析圍籬頂點 "a,b;a,b;..."（相對模式前面加 "agent:"）
+ * @param text 文字
+ * @param is_relative 是否為相對模式
+ * @param spec 解析結果
+ * @return 是否成功
+ */
+bool parse_geofence_spec(const QString& text, bool is_relative, GeofenceSpec* spec)
+{
+    QString body = text;
+    spec->is_relative = is_relative;
+    if (is_relative)
+    {
+        const qsizetype colon = text.indexOf(QLatin1Char(':'));
+        if (colon <= 0)
+        {
+            return false;
+        }
+        spec->agent = text.left(colon);
+        body = text.mid(colon + 1);
+    }
+    spec->points.clear();
+    for (const QString& item : body.split(QLatin1Char(';'), Qt::SkipEmptyParts))
+    {
+        const QStringList values = item.split(QLatin1Char(','));
+        if (values.size() != VERTEX_FIELDS)
+        {
+            return false;
+        }
+        std::array<double, 2> point{};
+        for (int i = 0; i < VERTEX_FIELDS; ++i)
+        {
+            bool is_number = false;
+            point.at(i) = values.at(i).trimmed().toDouble(&is_number);
+            if (!is_number || !std::isfinite(point.at(i)))
+            {
+                return false;
+            }
+        }
+        spec->points.push_back(point);
+    }
+    return !spec->points.isEmpty();
+}
+
+/**
+ * @brief 圍籬頂點換算為 WGS84；相對模式以原點 Agent 目前位置為基準
+ * @param spec 圍籬內容
+ * @param origin_state 原點 Agent 的最新狀態（相對模式使用）
+ * @param vertices 換算結果
+ * @return 是否成功（相對模式需要原點 Agent 的有效位置）
+ */
+bool make_geofence_vertices(const GeofenceSpec& spec, const AgentStateData& origin_state,
+                            std::vector<GeofenceVertexData>* vertices)
+{
+    vertices->clear();
+    if (spec.is_relative && !ui::has_valid_global_position(origin_state.position_global))
+    {
+        return false;
+    }
+    const GeofenceVertexData origin{origin_state.position_global[0], origin_state.position_global[1]};
+    for (const auto& point : spec.points)
+    {
+        vertices->push_back(spec.is_relative ? geofence_geometry::to_global({point[1], point[0]}, origin)
+                                             : GeofenceVertexData{point[0], point[1]});
+    }
+    return true;
+}
 
 /// --mission 或 --mission-relative 的內容
 struct MissionSpec
@@ -256,9 +341,23 @@ int main(int argc, char* argv[])
     const QCommandLineOption voice_wav_option(
         QStringLiteral("voice-wav"),
         QStringLiteral("改由語音檔觸發航點任務（巡邏）或解鎖、起飛、降落：依序每 3 秒辨識一個 16 位元 PCM WAV，可重複"), QStringLiteral("file"));
+    const QCommandLineOption geofence_option(
+        QStringLiteral("geofence"),
+        QStringLiteral("命令之前設定全體地理圍籬 緯度,經度;緯度,經度;...（3～64 點，需 --allow-commands）"),
+        QStringLiteral("vertices"));
+    const QCommandLineOption geofence_relative_option(
+        QStringLiteral("geofence-relative"),
+        QStringLiteral("同 --geofence，頂點改以 agent 目前位置的北向公尺,東向公尺表示 agent:n,e;n,e;..."),
+        QStringLiteral("spec"));
+    const QCommandLineOption geofence_margin_option(QStringLiteral("geofence-margin"),
+                                                    QStringLiteral("圍籬 margin（公尺，0～10，預設 0.5）"),
+                                                    QStringLiteral("meters"), QStringLiteral("0.5"));
+    const QCommandLineOption geofence_clear_option(QStringLiteral("geofence-clear"),
+                                                   QStringLiteral("命令之前清除全體地理圍籬（需 --allow-commands）"));
     parser.addOptions({domain_option, interface_option, peer_option, no_multicast_option, participant_index_option,
                        external_address_option, duration_option, warmup_option, command_option, allow_commands_option,
-                       shutdown_option, mission_option, mission_relative_option, voice_wav_option});
+                       shutdown_option, mission_option, mission_relative_option, voice_wav_option, geofence_option,
+                       geofence_relative_option, geofence_margin_option, geofence_clear_option});
     parser.process(app);
 
     link::DdsNetworkConfig config;
@@ -310,9 +409,38 @@ int main(int argc, char* argv[])
         print_line(QStringLiteral("--voice-wav 需搭配 --mission 或 --mission-relative 提供航點"));
         return EXIT_FAILURE;
     }
-    if ((!commands.empty() || !shutdown_target.isEmpty() || has_mission) && !parser.isSet(allow_commands_option))
+    GeofenceSpec geofence_spec;
+    const bool has_geofence_set = parser.isSet(geofence_option) || parser.isSet(geofence_relative_option);
+    const bool has_geofence_clear = parser.isSet(geofence_clear_option);
+    if (static_cast<int>(parser.isSet(geofence_option)) + static_cast<int>(parser.isSet(geofence_relative_option))
+            + static_cast<int>(has_geofence_clear)
+        > 1)
     {
-        print_line(QStringLiteral("有指定命令、航點任務或 shutdown，但未加 --allow-commands，拒絕執行"));
+        print_line(QStringLiteral("--geofence、--geofence-relative 與 --geofence-clear 只能擇一"));
+        return EXIT_FAILURE;
+    }
+    if (has_geofence_set)
+    {
+        const bool is_relative = parser.isSet(geofence_relative_option);
+        const QString text = parser.value(is_relative ? geofence_relative_option : geofence_option);
+        if (!parse_geofence_spec(text, is_relative, &geofence_spec))
+        {
+            print_line(QStringLiteral("圍籬格式錯誤：%1（應為 a,b;a,b;...，相對模式前加 agent:）").arg(text));
+            return EXIT_FAILURE;
+        }
+    }
+    bool is_margin_number = false;
+    const double geofence_margin = parser.value(geofence_margin_option).toDouble(&is_margin_number);
+    if (!is_margin_number || !std::isfinite(geofence_margin))
+    {
+        print_line(QStringLiteral("--geofence-margin 必須是數字"));
+        return EXIT_FAILURE;
+    }
+    const bool has_geofence = has_geofence_set || has_geofence_clear;
+    if ((!commands.empty() || !shutdown_target.isEmpty() || has_mission || has_geofence)
+        && !parser.isSet(allow_commands_option))
+    {
+        print_line(QStringLiteral("有指定命令、航點任務、地理圍籬或 shutdown，但未加 --allow-commands，拒絕執行"));
         return EXIT_FAILURE;
     }
     voice::KeywordSpotter spotter;
@@ -381,6 +509,35 @@ int main(int argc, char* argv[])
     QObject::connect(runtime.guard(), &GuardModule::command_acked, &receiver, print_ack);
     QObject::connect(runtime.command(), &CommandModule::command_acked, &receiver, print_ack);
     QObject::connect(runtime.lifecycle(), &AgentLifecycleModule::command_acked, &receiver, print_ack);
+    QObject::connect(runtime.geofence(), &GeofenceModule::request_acked, &receiver, print_ack);
+    // 各機圍籬狀態：列有變化才輸出
+    QHash<QString, GeofenceAgentRow> printed_fence_rows;
+    QObject::connect(
+        runtime.geofence(), &GeofenceModule::overview_changed, &receiver,
+        [&printed_fence_rows](const GeofenceOverview& overview)
+        {
+            for (const GeofenceAgentRow& row : overview.rows)
+            {
+                const auto it = printed_fence_rows.constFind(row.agent);
+                if (it != printed_fence_rows.cend() && *it == row)
+                {
+                    continue;
+                }
+                printed_fence_rows.insert(row.agent, row);
+                print_line(QStringLiteral("[geofence] %1 %2 fence_id=%3 result=%4 inside=%5 %6")
+                               .arg(row.agent, ui::geofence_phase_label(row.phase))
+                               .arg(row.fence_id)
+                               .arg(row.last_result)
+                               .arg(row.is_position_inside ? 1 : 0)
+                               .arg(row.detail));
+            }
+            print_line(QStringLiteral("[geofence] 顯示 fence_id=%1 頂點 %2 個 margin=%3 一致=%4 已送出=%5")
+                           .arg(overview.fence_id)
+                           .arg(overview.vertices.size())
+                           .arg(static_cast<double>(overview.margin_m))
+                           .arg(overview.is_consistent ? 1 : 0)
+                           .arg(overview.requested_fence_id));
+        });
 
     QTimer summary_timer;
     QObject::connect(&summary_timer, &QTimer::timeout, &receiver,
@@ -427,6 +584,42 @@ int main(int argc, char* argv[])
     // 依序送出命令；一律經 Guard
     const int warmup_ms = parser.value(warmup_option).toInt() * 1000;
     int delay_ms = warmup_ms;
+    // 地理圍籬在命令之前：經 GeofenceModule 指定版本號，再由 Guard 驗證
+    if (has_geofence)
+    {
+        QTimer::singleShot(
+            delay_ms, &receiver,
+            [&runtime, &latest_states, geofence_spec, geofence_margin, has_geofence_clear]()
+            {
+                GeofenceModule* geofence = runtime.geofence();
+                if (has_geofence_clear)
+                {
+                    print_line(QStringLiteral("[request] geofence clear"));
+                    QMetaObject::invokeMethod(geofence, [geofence]() { geofence->request_clear(); });
+                    return;
+                }
+                GeofenceData fence;
+                fence.margin_m = static_cast<float>(geofence_margin);
+                if (!make_geofence_vertices(geofence_spec, latest_states.value(geofence_spec.agent), &fence.vertices))
+                {
+                    print_line(QStringLiteral("[geofence] %1 沒有有效位置，無法換算相對圍籬").arg(geofence_spec.agent));
+                    return;
+                }
+                QStringList points;
+                for (const GeofenceVertexData& vertex : fence.vertices)
+                {
+                    points.append(QStringLiteral("%1,%2")
+                                      .arg(vertex.latitude_deg, 0, 'f', 7)
+                                      .arg(vertex.longitude_deg, 0, 'f', 7));
+                }
+                print_line(QStringLiteral("[request] geofence %1 個頂點 margin=%2 %3")
+                               .arg(fence.vertices.size())
+                               .arg(geofence_margin)
+                               .arg(points.join(QLatin1Char(';'))));
+                QMetaObject::invokeMethod(geofence, [geofence, fence]() { geofence->request_set(fence); });
+            });
+        delay_ms += COMMAND_INTERVAL_MS;
+    }
     for (const CommandRequest& request : commands)
     {
         QTimer::singleShot(delay_ms, &receiver,
@@ -455,7 +648,8 @@ int main(int argc, char* argv[])
                                                  mission_notices.data(index, ToastModel::MessageRole).toString()));
                          });
         const CoreModules modules{runtime.fleet(),   runtime.telemetry(), runtime.guard(),
-                                  runtime.command(), runtime.lifecycle(), runtime.mission()};
+                                  runtime.command(), runtime.lifecycle(), runtime.mission(),
+                                  runtime.geofence()};
         wire_mission(modules, &mission_controller);
         mission_controller.set_selected_agent(mission_spec.agent);
         // 語音「解鎖」「起飛」「降落」倒數結束：與桌面程式的 UiBridge 相同，一律經 Guard 送出

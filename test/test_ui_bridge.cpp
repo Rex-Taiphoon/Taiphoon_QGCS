@@ -12,6 +12,7 @@
 #include "fakes/fake_agent_link.hpp"
 #include "modules/command/command_module.hpp"
 #include "modules/fleet/fleet_module.hpp"
+#include "modules/geofence/geofence_module.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/lifecycle/agent_lifecycle_module.hpp"
 #include "modules/mission/mission_module.hpp"
@@ -105,7 +106,8 @@ protected:
         ASSERT_TRUE(command_.init());
         ASSERT_TRUE(lifecycle_.init());
         ASSERT_TRUE(mission_.init());
-        const CoreModules modules{&fleet_, &telemetry_, &guard_, &command_, &lifecycle_, &mission_};
+        ASSERT_TRUE(geofence_.init());
+        const CoreModules modules{&fleet_, &telemetry_, &guard_, &command_, &lifecycle_, &mission_, &geofence_};
         ASSERT_TRUE(wire_core_modules(modules));
         ASSERT_TRUE(wire_ui(modules, bridge_.get()));
         bridge_->set_link_status(true, QStringLiteral("測試"));
@@ -176,6 +178,7 @@ protected:
     CommandModule command_{&link_};
     AgentLifecycleModule lifecycle_{&link_};
     MissionModule mission_;
+    GeofenceModule geofence_;
 };
 
 }  // namespace
@@ -727,4 +730,30 @@ TEST_F(UiBridgeTest, ForcedRebootWithHealthOnlyReachesLink)
     bridge_->sendCommand(QStringLiteral("REBOOT_FC"), {1});
     ASSERT_EQ(link_.published_commands.size(), 1U);
     EXPECT_EQ(link_.published_commands[0].command_line, QStringLiteral("REBOOT_FC 1"));
+}
+
+TEST_F(UiBridgeTest, PlannerStatusShownForSelectedAgent)
+{
+    bring_online(AGENT_1, make_state(FlightState::HOVER, true, false));
+    bridge_->selectAgent(AGENT_1);
+    EXPECT_EQ(bridge_->selected_summary().value(QStringLiteral("plannerText")).toString(), QStringLiteral("—"));
+
+    PlannerStatusData status;
+    status.state = static_cast<uint8_t>(PlannerState::HOLD);
+    status.reason = QStringLiteral("optimized_emergency_brake: peer too close");
+    emit link_.planner_status_received(AGENT_1, status);
+    bridge_->refresh_now();
+    QVariantMap summary = bridge_->selected_summary();
+    EXPECT_EQ(summary.value(QStringLiteral("plannerText")).toString(), QStringLiteral("避碰緊急煞停"));
+    EXPECT_EQ(summary.value(QStringLiteral("plannerLevel")).toInt(), static_cast<int>(ui::StatusLevel::CAUTION));
+    EXPECT_EQ(summary.value(QStringLiteral("plannerReason")).toString(), status.reason);
+
+    // 到位煞停為一般資訊
+    status.reason = QStringLiteral("Emergency brake: target reached while moving");
+    emit link_.planner_status_received(AGENT_1, status);
+    bridge_->refresh_now();
+    summary = bridge_->selected_summary();
+    EXPECT_EQ(summary.value(QStringLiteral("plannerLevel")).toInt(), static_cast<int>(ui::StatusLevel::NORMAL));
+    // 不彈出提示
+    EXPECT_EQ(bridge_->toasts().rowCount(), 0);
 }

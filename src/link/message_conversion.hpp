@@ -49,6 +49,12 @@ AgentEventData to_core(const taiphoon_agent_msg_dds__AgentEvent_& sample);
 /** @brief AgentHealth 轉換 @param sample DDS 樣本 @return 核心型別 */
 AgentHealthData to_core(const taiphoon_agent_msg_dds__AgentHealth_& sample);
 
+/** @brief GeofenceStatus 轉換 @param sample DDS 樣本 @return 核心型別 */
+GeofenceStatusData to_core(const taiphoon_agent_msg_dds__GeofenceStatus_& sample);
+
+/** @brief PlannerStatus 轉換 @param sample DDS 樣本 @return 核心型別 */
+PlannerStatusData to_core(const taiphoon_agent_msg_dds__PlannerStatus_& sample);
+
 /**
  * @brief 建立要發布的 WaypointMission 樣本
  *
@@ -62,5 +68,18 @@ AgentHealthData to_core(const taiphoon_agent_msg_dds__AgentHealth_& sample);
  */
 taiphoon_agent_msg_dds__WaypointMission_ to_dds(const WaypointMissionData& mission, const RosTime& stamp,
                                                 std::vector<taiphoon_agent_msg_dds__MissionWaypoint_>* waypoint_buffer);
+
+/**
+ * @brief 建立要發布的 Geofence 樣本
+ *
+ * 樣本的頂點序列指向 vertex_buffer 的記憶體，且不由 DDS 釋放；寫入完成前 vertex_buffer 不得修改或釋放。
+ *
+ * @param fence 圍籬設定
+ * @param stamp 發布時間
+ * @param vertex_buffer 頂點緩衝（不可為 nullptr）
+ * @return DDS 樣本；vertex_buffer 為 nullptr 時頂點為空
+ */
+taiphoon_agent_msg_dds__Geofence_ to_dds(const GeofenceData& fence, const RosTime& stamp,
+                                         std::vector<taiphoon_agent_msg_dds__GeofenceVertex_>* vertex_buffer);
 
 }  // namespace gcs::link

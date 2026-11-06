@@ -56,6 +56,13 @@ QosProfile qos_for(AgentChannel channel, EndpointRole role)
         profile.durability = Durability::TRANSIENT_LOCAL;
         profile.depth = LATEST_ONLY_DEPTH;
         break;
+    case AgentChannel::GEOFENCE:
+    case AgentChannel::GEOFENCE_STATUS:
+        // transient_local：重啟或晚加入的 Agent 取得最後一份圍籬；QGCS 重啟後由各機狀態還原地圖上的圍籬
+        profile.reliability = Reliability::RELIABLE;
+        profile.durability = Durability::TRANSIENT_LOCAL;
+        profile.depth = LATEST_ONLY_DEPTH;
+        break;
     case AgentChannel::HEALTH:
         profile.reliability = Reliability::RELIABLE;
         profile.depth = LATEST_ONLY_DEPTH;

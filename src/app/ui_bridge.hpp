@@ -167,6 +167,13 @@ public slots:
     void on_health_updated(const QString& agent_ns, const gcs::AgentHealthData& health);
 
     /**
+     * @brief 更新規劃狀態（機群面板 PLAN 列）；說明改變時寫日誌，不彈出提示
+     * @param agent_ns Agent namespace
+     * @param status 最新 PlannerStatus
+     */
+    void on_planner_status_updated(const QString& agent_ns, const gcs::PlannerStatusData& status);
+
+    /**
      * @brief Agent 事件：錯誤紅色提示、警告黃色提示、一般資訊只寫日誌
      *
      * 預檢未通過（303）在正常降落自動上鎖時可能短暫出現，先等健康狀態確認仍未通過才提示（介面文件事件代碼表）。
@@ -320,6 +327,8 @@ private:
     /// "agent:code:command" → 上次彈出提示的時間（event_clock_ 毫秒）
     QHash<QString, qint64> event_shown_ms_;
     QElapsedTimer event_clock_;
+    /// Agent namespace → 最近寫入日誌的規劃說明
+    QHash<QString, QString> planner_logged_text_;
 };
 
 }  // namespace gcs

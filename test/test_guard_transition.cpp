@@ -8,6 +8,7 @@
  * 另新增模組層級的全組合測試，確認 GuardModule 的狀態追蹤與轉移表一致。
  */
 #include "fakes/fake_agent_link.hpp"
+#include "fakes/geofence_samples.hpp"
 #include "modules/guard/guard_module.hpp"
 #include "modules/guard/guard_rules.hpp"
 
@@ -821,4 +822,131 @@ TEST_F(GuardModuleTest, MissionUploadChecksEveryWaypointField)
         [](MissionWaypointData* w) { w->longitude_deg = std::numeric_limits<double>::quiet_NaN(); }, "longitude nan");
     // 約 1.1 公里外
     expect_waypoint_rejected([](MissionWaypointData* w) { w->latitude_deg = 25.01; }, "out of range");
+}
+
+// ---------------------------------------------------------------------------
+// 地理圍籬：設定驗證與航點預檢（介面文件 3.15、4.4）
+// ---------------------------------------------------------------------------
+
+TEST(GuardRulesTest, GeofenceRequestChecks)
+{
+    using gcs::test::make_fence;
+    using gcs::test::square_fence;
+    EXPECT_TRUE(guard_rules::check_geofence_request(make_fence(1, square_fence())).isEmpty());
+    EXPECT_FALSE(guard_rules::check_geofence_request(make_fence(0, square_fence())).isEmpty());
+
+    // 清除不需要頂點，但版本號同樣不可為 0
+    GeofenceData clear;
+    clear.fence_id = 2;
+    clear.action = GeofenceAction::CLEAR;
+    EXPECT_TRUE(guard_rules::check_geofence_request(clear).isEmpty());
+    clear.fence_id = 0;
+    EXPECT_FALSE(guard_rules::check_geofence_request(clear).isEmpty());
+
+    GeofenceData unknown = make_fence(3, square_fence());
+    unknown.action = static_cast<GeofenceAction>(3);
+    EXPECT_FALSE(guard_rules::check_geofence_request(unknown).isEmpty());
+
+    auto too_few = square_fence();
+    too_few.pop_back();
+    too_few.pop_back();
+    EXPECT_FALSE(guard_rules::check_geofence_request(make_fence(4, too_few)).isEmpty());
+    EXPECT_FALSE(guard_rules::check_geofence_request(make_fence(4, square_fence(), -0.1F)).isEmpty());
+    EXPECT_FALSE(guard_rules::check_geofence_request(make_fence(4, square_fence(), 10.5F)).isEmpty());
+    EXPECT_TRUE(guard_rules::check_geofence_request(make_fence(4, square_fence(), 10.0F)).isEmpty());
+
+    auto bowtie = square_fence();
+    std::swap(bowtie[1], bowtie[2]);
+    EXPECT_FALSE(guard_rules::check_geofence_request(make_fence(5, bowtie)).isEmpty());
+}
+
+TEST(GuardRulesTest, MissionGeofencePreflightOnlyWhenActive)
+{
+    using gcs::test::make_fence_status;
+    using gcs::test::offset_from_center;
+    WaypointMissionData mission = valid_mission(2);
+    const GeofenceVertexData outside = offset_from_center(9.8, 0.0);
+    mission.waypoints[1].latitude_deg = outside.latitude_deg;
+    mission.waypoints[1].longitude_deg = outside.longitude_deg;
+
+    // 沒有圍籬或等待 Home：不預檢
+    EXPECT_TRUE(guard_rules::check_mission_geofence(make_fence_status(GeofenceState::DISABLED, 0, 1), mission)
+                    .isEmpty());
+    EXPECT_TRUE(guard_rules::check_mission_geofence(make_fence_status(GeofenceState::PENDING, 1, 1), mission)
+                    .isEmpty());
+
+    // 生效中：第 2 個航點距邊界 0.2 m，小於 margin 0.5 m
+    const QString error =
+        guard_rules::check_mission_geofence(make_fence_status(GeofenceState::ACTIVE, 1, 1), mission);
+    EXPECT_TRUE(error.contains(QStringLiteral("第 2 個航點"))) << error.toStdString();
+    EXPECT_TRUE(error.contains(QStringLiteral("圍籬")));
+    EXPECT_TRUE(guard_rules::check_mission_geofence(make_fence_status(GeofenceState::ACTIVE, 1, 1), valid_mission(3))
+                    .isEmpty());
+    // margin 為 0 時 0.2 m 內仍允許
+    EXPECT_TRUE(guard_rules::check_mission_geofence(
+                    make_fence_status(GeofenceState::ACTIVE, 1, 1, GeofenceResult::ACCEPTED,
+                                      gcs::test::square_fence(), 0.0F),
+                    mission)
+                    .isEmpty());
+}
+
+TEST_F(GuardModuleTest, GeofenceRequestValidatedOnlyWhenValid)
+{
+    QSignalSpy validated(&guard_, &GuardModule::geofence_validated);
+    QSignalSpy acked(&guard_, &GuardModule::geofence_acked);
+    QSignalSpy command_acked(&guard_, &GuardModule::command_acked);
+
+    // 圍籬全體共用，不需要線上 Agent
+    guard_.request_geofence(gcs::test::make_fence(7, gcs::test::square_fence()));
+    ASSERT_EQ(validated.size(), 1);
+    EXPECT_EQ(validated.at(0).at(0).value<GeofenceData>().fence_id, 7U);
+    EXPECT_TRUE(acked.isEmpty());
+
+    auto bowtie = gcs::test::square_fence();
+    std::swap(bowtie[1], bowtie[2]);
+    guard_.request_geofence(gcs::test::make_fence(8, bowtie));
+    EXPECT_EQ(validated.size(), 1);
+    ASSERT_EQ(acked.size(), 1);
+    const auto ack = acked.at(0).at(0).value<CommandAck>();
+    EXPECT_FALSE(ack.is_ok);
+    EXPECT_EQ(ack.command, GEOFENCE_ACK_NAME);
+    EXPECT_EQ(ack.agent, ALL_AGENTS_TARGET);
+    // 圍籬結果不經命令回報
+    EXPECT_TRUE(command_acked.isEmpty());
+
+    guard_.shutdown();
+    guard_.request_geofence(gcs::test::make_fence(9, gcs::test::square_fence()));
+    EXPECT_EQ(validated.size(), 1);
+    EXPECT_EQ(acked.size(), 2);
+}
+
+TEST_F(GuardModuleTest, MissionUploadPreflightUsesAgentGeofence)
+{
+    using gcs::test::make_fence_status;
+    WaypointMissionData mission = valid_mission(2);
+    const GeofenceVertexData outside = gcs::test::offset_from_center(30.0, 0.0);
+    mission.waypoints[1].latitude_deg = outside.latitude_deg;
+    mission.waypoints[1].longitude_deg = outside.longitude_deg;
+
+    guard_.on_agent_online(AGENT_1);
+    guard_.on_state_updated(AGENT_1, hovering_with_gps());
+    EXPECT_TRUE(submit_mission(AGENT_1, mission));
+
+    QString error;
+    guard_.on_geofence_status_updated(AGENT_1, make_fence_status(GeofenceState::ACTIVE, 3, 3));
+    EXPECT_FALSE(submit_mission(AGENT_1, mission, &error));
+    EXPECT_TRUE(error.contains(QStringLiteral("第 2 個航點"))) << error.toStdString();
+    EXPECT_TRUE(submit_mission(AGENT_1, valid_mission(2)));
+
+    // 清除後不再預檢
+    guard_.on_geofence_status_updated(AGENT_1, make_fence_status(GeofenceState::DISABLED, 0, 4));
+    EXPECT_TRUE(submit_mission(AGENT_1, mission));
+
+    // 離線清除保存的狀態；離線時收到的狀態不保存
+    guard_.on_geofence_status_updated(AGENT_1, make_fence_status(GeofenceState::ACTIVE, 5, 5));
+    guard_.on_agent_offline(AGENT_1);
+    guard_.on_geofence_status_updated(AGENT_1, make_fence_status(GeofenceState::ACTIVE, 5, 5));
+    guard_.on_agent_online(AGENT_1);
+    guard_.on_state_updated(AGENT_1, hovering_with_gps());
+    EXPECT_TRUE(submit_mission(AGENT_1, mission));
 }

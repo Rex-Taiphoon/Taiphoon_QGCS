@@ -12,6 +12,7 @@ namespace gcs
 {
 
 class DiagnosticsController;
+class GeofenceController;
 class MissionController;
 class UiBridge;
 
@@ -47,5 +48,17 @@ bool wire_diagnostics(const CoreModules& modules, DiagnosticsController* diagnos
  * @return 是否成功
  */
 bool wire_mission(const CoreModules& modules, MissionController* controller);
+
+/**
+ * @brief 連接地理圍籬介面與 GeofenceModule
+ *
+ * 介面只送出「套用」與「清除」兩種請求，由 GeofenceModule 指定版本號並交給 GuardModule 驗證；
+ * 介面不直接連到 CommandModule。
+ *
+ * @param modules 核心模組
+ * @param controller 地理圍籬介面
+ * @return 是否成功
+ */
+bool wire_geofence(const CoreModules& modules, GeofenceController* controller);
 
 }  // namespace gcs
