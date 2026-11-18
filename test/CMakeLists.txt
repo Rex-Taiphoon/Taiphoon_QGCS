@@ -81,6 +81,7 @@ set(GCS_UI_TESTS
     test_network_controller
     test_mission_controller
     test_geofence_controller
+    test_geofence_file
     test_video_controller
 )
 

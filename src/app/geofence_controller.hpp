@@ -9,6 +9,7 @@
  * 不使用本地保存的內容，QGCS 重新啟動後也能還原。
  * 套用與清除只送給 GeofenceModule，由其指定版本號並交給 GuardModule 驗證，本類別不直接發布。
  * 清除圍籬會失去場域保護，需在 10 秒內再次確認。
+ * 圍籬可存成檔案再載入（geofence_file）；載入的內容只成為草稿，同樣要按套用才會送出。
  */
 #pragma once
 
@@ -19,6 +20,7 @@
 #include <QHash>
 #include <QObject>
 #include <QTimer>
+#include <QUrl>
 #include <QVariantList>
 
 #include <vector>
@@ -54,6 +56,7 @@ class GeofenceController : public QObject
     Q_PROPERTY(QString summaryText READ summary_text NOTIFY changed)
     Q_PROPERTY(QString mapWarningText READ map_warning_text NOTIFY changed)
     Q_PROPERTY(bool isClearConfirmPending READ is_clear_confirm_pending NOTIFY changed)
+    Q_PROPERTY(bool canSave READ can_save NOTIFY changed)
 
 public:
     /// 清除圍籬的確認時限（毫秒）
@@ -90,6 +93,8 @@ public:
     QString summary_text() const;
     QString map_warning_text() const;
     bool is_clear_confirm_pending() const { return clear_confirm_timer_.isActive(); }
+    /** @brief 是否有可儲存的圍籬：編輯中為可套用的草稿，否則為生效中的圍籬 @return 是否可儲存 */
+    bool can_save() const { return is_editing_ ? draft_error().isEmpty() : has_fence(); }
 
     /**
      * @brief 修改草稿的 margin
@@ -147,6 +152,20 @@ public:
 
     /** @brief 取消清除圍籬 */
     Q_INVOKABLE void cancelClear();
+
+    /**
+     * @brief 把圍籬存成檔案：編輯中存草稿（需可套用），否則存生效中的圍籬
+     * @param file 檔案位置（本機檔案的 URL）
+     * @return 是否已寫入
+     */
+    Q_INVOKABLE bool saveToFile(const QUrl& file);
+
+    /**
+     * @brief 從檔案載入圍籬成為草稿並進入編輯；不會發布，仍須按套用
+     * @param file 檔案位置（本機檔案的 URL）
+     * @return 是否已載入；失敗時草稿與編輯狀態不變
+     */
+    Q_INVOKABLE bool loadFromFile(const QUrl& file);
 
 public slots:
     /** @brief 機隊圍籬總覽 @param overview GeofenceModule 回報 */

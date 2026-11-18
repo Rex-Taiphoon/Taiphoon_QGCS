@@ -15,9 +15,11 @@
  *          解鎖、起飛、降落倒數結束後與按鈕相同經 UiBridge 與 GuardModule 送出。狀態與規則皆取自 MissionController。
  * FENCE：全體共用的地理圍籬，不需選取無人機。編輯時在地圖點選新增頂點、拖曳移動、右鍵刪除；
  *        套用與清除經 GeofenceModule 與 GuardModule 送出，清除需在 10 秒內再按一次確認。各機狀態取自 GeofenceController。
+ *        圍籬可存成檔案再載入；載入只成為草稿，仍須按 APPLY 才會送出。
  */
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 Rectangle {
@@ -1015,6 +1017,44 @@ Rectangle {
                         tag: enabled ? qsTr("全部機群") : qsTr("無法套用")
                         tooltip: qsTr("發布到全部機群；飛行中更新時，落在新圍籬外的編隊、航點或目標會被取消並原地懸停")
                         onClicked: root.geofence.apply()
+                    }
+                    Divider {}
+
+                    // 圍籬檔案：儲存目前的草稿或生效中的圍籬；載入只成為草稿，仍須按 APPLY
+                    LskRow {
+                        title: qsTr("SAVE 儲存圍籬")
+                        enabled: root.geofence.canSave
+                        tag: !enabled ? (root.geofence.isEditing ? qsTr("草稿無法套用") : qsTr("沒有圍籬"))
+                                      : (root.geofence.isEditing ? qsTr("草稿") : qsTr("生效中"))
+                        tooltip: root.geofence.isEditing
+                                 ? qsTr("把編輯中的草稿與 margin 存成檔案")
+                                 : qsTr("把生效中的圍籬與 margin 存成檔案")
+                        onClicked: fenceSaveDialog.open()
+                    }
+                    LskRow {
+                        title: qsTr("LOAD 載入圍籬")
+                        tag: qsTr("成為草稿")
+                        tooltip: root.geofence.isEditing
+                                 ? qsTr("從檔案載入圍籬並取代目前的草稿；確認後按 APPLY 才會套用")
+                                 : qsTr("從檔案載入圍籬成為草稿；確認後按 APPLY 才會套用")
+                        onClicked: fenceLoadDialog.open()
+                    }
+                    FileDialog {
+                        id: fenceSaveDialog
+
+                        title: qsTr("儲存圍籬")
+                        fileMode: FileDialog.SaveFile
+                        nameFilters: [qsTr("圍籬檔案 (*.json)")]
+                        defaultSuffix: "json"
+                        onAccepted: root.geofence.saveToFile(selectedFile)
+                    }
+                    FileDialog {
+                        id: fenceLoadDialog
+
+                        title: qsTr("載入圍籬")
+                        fileMode: FileDialog.OpenFile
+                        nameFilters: [qsTr("圍籬檔案 (*.json)"), qsTr("所有檔案 (*)")]
+                        onAccepted: root.geofence.loadFromFile(selectedFile)
                     }
                     Divider {}
 

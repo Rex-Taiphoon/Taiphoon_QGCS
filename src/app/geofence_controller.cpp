@@ -6,6 +6,7 @@
  */
 #include "app/geofence_controller.hpp"
 
+#include "app/geofence_file.hpp"
 #include "core/geofence_geometry.hpp"
 
 #include <QLoggingCategory>
@@ -44,6 +45,16 @@ bool is_row_applied(const GeofenceAgentRow& row, const GeofenceOverview& overvie
     }
     return (row.phase == GeofenceAgentPhase::ACTIVE || row.phase == GeofenceAgentPhase::PENDING)
            && row.fence_id == overview.requested_fence_id;
+}
+
+/**
+ * @brief float32 的 margin 轉回十進位並取到公分，輸入框與檔案才不會出現 0.30000001
+ * @param margin_m Agent 回報的 margin
+ * @return 取到公分的 margin
+ */
+double rounded_margin(float margin_m)
+{
+    return std::round(static_cast<double>(margin_m) * MARGIN_SCALE) / MARGIN_SCALE;
 }
 
 }  // namespace
@@ -307,9 +318,7 @@ void GeofenceController::startEditing()
     }
     is_editing_ = true;
     draft_ = has_fence() ? overview_.vertices : std::vector<GeofenceVertexData>{};
-    // float32 的 margin 轉回十進位時取到公分，輸入框才不會出現 0.30000001
-    margin_ = has_fence() ? std::round(static_cast<double>(overview_.margin_m) * MARGIN_SCALE) / MARGIN_SCALE
-                          : geofence_limits::DEFAULT_MARGIN_M;
+    margin_ = has_fence() ? rounded_margin(overview_.margin_m) : geofence_limits::DEFAULT_MARGIN_M;
     clear_confirm_timer_.stop();
     emit changed();
 }
@@ -429,6 +438,79 @@ void GeofenceController::cancelClear()
     }
     clear_confirm_timer_.stop();
     emit changed();
+}
+
+bool GeofenceController::saveToFile(const QUrl& file)
+{
+    const QString title = QStringLiteral("無法儲存圍籬");
+    const QString path = file.toLocalFile();
+    if (path.isEmpty())
+    {
+        notify(ToastModel::Kind::ERROR, title, QStringLiteral("只能存到本機檔案"));
+        return false;
+    }
+    geofence_file::Content content;
+    if (is_editing_)
+    {
+        const QString error = draft_error();
+        if (!error.isEmpty())
+        {
+            notify(ToastModel::Kind::WARNING, title, error);
+            return false;
+        }
+        content.vertices = draft_;
+        content.margin_m = margin_;
+    }
+    else if (has_fence())
+    {
+        content.vertices = overview_.vertices;
+        content.margin_m = rounded_margin(overview_.margin_m);
+    }
+    else
+    {
+        notify(ToastModel::Kind::WARNING, title, QStringLiteral("沒有生效中的圍籬，請先編輯圍籬"));
+        return false;
+    }
+    const QString error = geofence_file::write(path, content);
+    if (!error.isEmpty())
+    {
+        notify(ToastModel::Kind::ERROR, title, error);
+        return false;
+    }
+    // 儲存沒有其他畫面變化，成功也彈出提示
+    qCInfo(lc_geofence_ui).noquote() << "圍籬已儲存：" << path << "，" << content.vertices.size() << "個頂點";
+    if (toasts_ != nullptr)
+    {
+        toasts_->add(ToastModel::Kind::SUCCESS, QStringLiteral("圍籬已儲存"), path);
+    }
+    return true;
+}
+
+bool GeofenceController::loadFromFile(const QUrl& file)
+{
+    const QString title = QStringLiteral("無法載入圍籬");
+    const QString path = file.toLocalFile();
+    if (path.isEmpty())
+    {
+        notify(ToastModel::Kind::ERROR, title, QStringLiteral("只能載入本機檔案"));
+        return false;
+    }
+    geofence_file::Content content;
+    const QString error = geofence_file::read(path, &content);
+    if (!error.isEmpty())
+    {
+        notify(ToastModel::Kind::ERROR, title, error);
+        return false;
+    }
+    // 只成為草稿：操作人員在地圖上確認後按套用，才經 GeofenceModule 與 Guard 發布
+    is_editing_ = true;
+    draft_ = content.vertices;
+    margin_ = std::clamp(content.margin_m, min_margin(), max_margin());
+    clear_confirm_timer_.stop();
+    notify(ToastModel::Kind::SUCCESS, QStringLiteral("圍籬已載入為草稿"),
+           QStringLiteral("%1，%2 個頂點").arg(path).arg(draft_.size()));
+    emit changed();
+    return true;
 }
 
 void GeofenceController::on_overview_changed(const GeofenceOverview& overview)

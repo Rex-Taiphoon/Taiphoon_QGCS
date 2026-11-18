@@ -58,6 +58,18 @@ Telemetry.planner_status_updated → UiBridge（機群表 PLAN 列）
 （`Emergency brake: target reached while moving`）排在一般緊急煞停之前比對。超過 3 秒沒有規劃狀態時顯示「—」。
 說明改變時寫入日誌（附 Agent 原文），不彈出提示。
 
+### 圍籬檔案（2026-11-18 補充）
+
+開發者決定：圍籬以檔案匯出與匯入，不做程式內的命名清單；載入只成為草稿；編輯中儲存草稿，否則儲存生效中的圍籬。
+
+- FENCE 分頁新增 SAVE／LOAD，以 `QtQuick.Dialogs` 的檔案對話框選擇位置（模組屬於 qtdeclarative，不新增 Qt 相依）。
+- 格式為 JSON（`src/app/geofence_file`）：`format`＝`taiphoon-geofence`、`version`＝1、`margin_m` 與
+  `vertices[{latitude_deg, longitude_deg}]`。座標是 Agent 回報的 WGS84，不經地圖顯示原點換算；不保存 `fence_id`。
+- 載入不發布：內容只取代 `GeofenceController` 的草稿並進入編輯，按 APPLY 後照原本的資料流經 GeofenceModule 與 Guard。
+  地圖上生效中的圍籬仍以各機 `GeofenceStatus` 為準。
+- 讀檔只檢查格式、版本、頂點數（3～64）、座標與 margin 範圍；自交與面積由草稿驗證提示，載入後可在地圖上修正。
+  草稿無法套用時不能儲存。
+
 ## 影響
 
 - 新增 `GeofenceModule`（`src/modules/geofence/`），`CoreModules` 與 `wire_core_modules` 增加圍籬模組，所有組裝點同步更新。
